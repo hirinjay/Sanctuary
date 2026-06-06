@@ -11,18 +11,21 @@ import { hexesInRange } from '../world/hexMath';
 import { TERRAIN } from '../world/tileTypes';
 import { saveRun } from '../lib/persistence';
 
-// Debounced save — avoids hammering Supabase on rapid state changes
+// Debounced save — only fires when user + slot are known
 let _saveTimer = null
 function debouncedSave(state) {
   clearTimeout(_saveTimer)
-  _saveTimer = setTimeout(() => saveRun(state), 1500)
+  _saveTimer = setTimeout(() => {
+    const { currentUser, activeSlot } = state
+    if (activeSlot) saveRun(state, currentUser?.id ?? null, activeSlot)
+  }, 1500)
 }
 
 export const useGameStore = create(
   persist(
     (set, get) => ({
       // ── Persistent state ──────────────────────────────────────────────
-      screen:       'title',
+      screen:       'home',
       book:         null,
       vp:           { ...DEFAULT_VP },
       roster:       [],
@@ -42,6 +45,10 @@ export const useGameStore = create(
       worldPos:     null,   // { col, row } — Varek on world map
       sanctuaryPos: null,   // { col, row }
       selectedHex:  null,   // { col, row } — UI selection
+      // ── Auth & save slots ─────────────────────────────────────────────
+      currentUser:  null,   // { id, email } from Supabase
+      saveSlots:    [],     // summary rows for the home screen
+      activeSlot:   null,   // 1 | 2 | 3
 
       // ── Simple setters ────────────────────────────────────────────────
       setScreen:   (screen)   => set({ screen }),
@@ -120,10 +127,11 @@ export const useGameStore = create(
       },
 
       resetGame() {
-        set({ screen:'title', book:null, vp:{ ...DEFAULT_VP }, roster:[], inv:{},
+        set({ screen:'home', book:null, vp:{ ...DEFAULT_VP }, roster:[], inv:{},
           nodes:[], ms:null, noise:0, luq:[], log:[], phase:'player',
           equipTgt:null, loc:null, mode:'scavenge', unlockedLocs:['town'],
-          world:null, worldPos:null, sanctuaryPos:null, selectedHex:null });
+          world:null, worldPos:null, sanctuaryPos:null, selectedHex:null,
+          activeSlot:null });
       },
 
       // ── World map ─────────────────────────────────────────────────────
@@ -172,6 +180,45 @@ export const useGameStore = create(
       },
 
       selectHex(col, row) { set({ selectedHex: col != null ? { col, row } : null }); },
+
+      // ── Auth ──────────────────────────────────────────────────────────
+      setCurrentUser(user) { set({ currentUser: user }); },
+      setSaveSlots(slots)  { set({ saveSlots: slots }); },
+
+      // ── Load a full save into the store ───────────────────────────────
+      loadSaveIntoStore(data, slot) {
+        set({
+          vp:           data.vp           ?? { ...DEFAULT_VP },
+          roster:       data.roster       ?? [],
+          inv:          data.inv          ?? {},
+          nodes:        data.nodes        ?? [],
+          book:         data.book         ?? null,
+          world:        data.world        ?? null,
+          worldPos:     data.world_pos    ?? null,
+          sanctuaryPos: data.sanctuary_pos ?? null,
+          unlockedLocs: data.unlocked_locs ?? ['town'],
+          log:          data.log          ?? [],
+          activeSlot:   slot,
+          // Reset transient state
+          ms: null, phase:'player', luq:[], noise:0, selectedHex:null,
+          equipTgt:null, loc:null,
+          screen: data.world ? 'world' : 'title',
+        });
+      },
+
+      // Start a brand-new game in the given slot (goes to book selection)
+      newGameInSlot(slot) {
+        set({
+          ...Object.fromEntries(Object.entries({
+            vp:{ ...DEFAULT_VP }, roster:[], inv:{}, nodes:[], book:null,
+            world:null, worldPos:null, sanctuaryPos:null, unlockedLocs:['town'],
+            ms:null, phase:'player', luq:[], noise:0, log:[], selectedHex:null,
+            equipTgt:null, loc:null,
+          })),
+          activeSlot: slot,
+          screen: 'title',
+        });
+      },
 
       // ── Level-up ──────────────────────────────────────────────────────
       applyLu(choice) {

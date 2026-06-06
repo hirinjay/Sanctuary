@@ -1,60 +1,80 @@
-// Persistence layer — Supabase when available, localStorage fallback.
-// All save/load calls go through here so the store stays storage-agnostic.
-
 import { supabase, hasSupabase } from './supabase'
 
-const LS_KEY = 'sanctuary-save'
+const lsKey = (slot) => `sanctuary-save-slot${slot}`
 
 // ── Save ──────────────────────────────────────────────────────────────
-export async function saveRun(state) {
+export async function saveRun(state, userId, slot) {
   const payload = {
-    vp:           state.vp,
-    roster:       state.roster,
-    inv:          state.inv,
-    nodes:        state.nodes,
-    book:         state.book,
-    unlockedLocs: state.unlockedLocs,
-    worldPos:     state.worldPos,
-    sanctuaryPos: state.sanctuaryPos,
-    world:        state.world,
-    log:          state.log,
-    updated_at:   new Date().toISOString(),
+    vp:               state.vp,
+    roster:           state.roster,
+    inv:              state.inv,
+    nodes:            state.nodes,
+    book:             state.book,
+    world:            state.world,
+    world_pos:        state.worldPos,
+    sanctuary_pos:    state.sanctuaryPos,
+    unlocked_locs:    state.unlockedLocs,
+    log:              state.log,
+    varek_level:      state.vp?.level ?? 1,
+    book_id:          state.book?.id ?? null,
+    sanctuary_placed: !!state.sanctuaryPos,
+    updated_at:       new Date().toISOString(),
   }
 
-  if (hasSupabase) {
+  if (hasSupabase && userId) {
     const { error } = await supabase
       .from('runs')
-      .upsert({ id: getRunId(), ...payload })
-    if (error) console.warn('[persistence] Supabase save failed:', error.message)
+      .upsert({ user_id: userId, slot, ...payload }, { onConflict: 'user_id,slot' })
+    if (error) console.warn('[save] Supabase error:', error.message)
   }
 
-  try { localStorage.setItem(LS_KEY, JSON.stringify(payload)) } catch {}
+  try { localStorage.setItem(lsKey(slot), JSON.stringify({ slot, ...payload })) } catch {}
 }
 
-// ── Load ──────────────────────────────────────────────────────────────
-export async function loadRun() {
-  if (hasSupabase) {
+// ── Load slot summaries (for save-select screen) ──────────────────────
+export async function loadSaveSlots(userId) {
+  if (hasSupabase && userId) {
+    const { data, error } = await supabase
+      .from('runs')
+      .select('slot, varek_level, book_id, book, sanctuary_placed, started_at, updated_at')
+      .eq('user_id', userId)
+      .order('slot')
+    if (!error && data) return data
+    if (error) console.warn('[slots] Supabase error:', error.message)
+  }
+
+  // localStorage fallback
+  return [1, 2, 3].flatMap(s => {
+    try {
+      const raw = localStorage.getItem(lsKey(s))
+      return raw ? [JSON.parse(raw)] : []
+    } catch { return [] }
+  })
+}
+
+// ── Load full save ────────────────────────────────────────────────────
+export async function loadSave(userId, slot) {
+  if (hasSupabase && userId) {
     const { data, error } = await supabase
       .from('runs')
       .select('*')
-      .eq('id', getRunId())
+      .eq('user_id', userId)
+      .eq('slot', slot)
       .maybeSingle()
     if (!error && data) return data
-    if (error) console.warn('[persistence] Supabase load failed:', error.message)
+    if (error) console.warn('[load] Supabase error:', error.message)
   }
 
   try {
-    const raw = localStorage.getItem(LS_KEY)
+    const raw = localStorage.getItem(lsKey(slot))
     return raw ? JSON.parse(raw) : null
   } catch { return null }
 }
 
-// ── Run ID ─────────────────────────────────────────────────────────────
-// Anonymous run ID — stored in localStorage, stable per browser.
-// Replaced with Supabase auth user ID once auth is added.
-function getRunId() {
-  const k = 'sanctuary-run-id'
-  let id = localStorage.getItem(k)
-  if (!id) { id = crypto.randomUUID(); localStorage.setItem(k, id) }
-  return id
+// ── Delete a save slot ────────────────────────────────────────────────
+export async function deleteSave(userId, slot) {
+  if (hasSupabase && userId) {
+    await supabase.from('runs').delete().eq('user_id', userId).eq('slot', slot)
+  }
+  localStorage.removeItem(lsKey(slot))
 }
