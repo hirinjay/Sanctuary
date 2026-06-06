@@ -5,25 +5,27 @@ import { item, LOOT, BODY_LOOT } from '../data/items';
 import { genMap, revealTraps, walkable, hasLOS, dist } from '../systems/map';
 import { spawnEnemies, classStats, xpNext, tetherUsed, applyXpToUnits } from '../systems/combat';
 import { ARCHETYPES } from '../data/archetypes';
+import { LOCS } from '../data/locations';
 
 export const useGameStore = create(
   persist(
     (set, get) => ({
       // ── Persistent state ──────────────────────────────────────────────
-      screen:   'title',
-      book:     null,
-      vp:       { ...DEFAULT_VP },
-      roster:   [],
-      inv:      {},
-      nodes:    [],
-      ms:       null,
-      noise:    0,
-      luq:      [],
-      log:      [],
-      phase:    'player',
-      equipTgt: null,
-      loc:      null,
-      mode:     'scavenge',
+      screen:       'title',
+      book:         null,
+      vp:           { ...DEFAULT_VP },
+      roster:       [],
+      inv:          {},
+      nodes:        [],
+      ms:           null,
+      noise:        0,
+      luq:          [],
+      log:          [],
+      phase:        'player',
+      equipTgt:     null,
+      loc:          null,
+      mode:         'scavenge',
+      unlockedLocs: ['town'],
 
       // ── Simple setters ────────────────────────────────────────────────
       setScreen:   (screen)   => set({ screen }),
@@ -66,8 +68,8 @@ export const useGameStore = create(
         });
       },
 
-      endMission(units, loot) {
-        const { roster, vp, nodes, inv } = get();
+      endMission(units, loot, success = false) {
+        const { roster, vp, nodes, inv, loc, unlockedLocs } = get();
         const surv  = units.filter(u => u.type === UT.UNDEAD && !u.fallen);
         const varek = units.find(u => u.id === 'varek');
         const newVp = varek
@@ -80,17 +82,30 @@ export const useGameStore = create(
         loot.forEach(id => { newInv[id] = (newInv[id]||0) + 1; });
 
         const logs = [];
-        if (nodes.includes('farm'))   { newInv.food = (newInv.food||0)+2;          logs.push('🌱 Farm yields 2 food.'); }
+        if (nodes.includes('farm'))   { newInv.food = (newInv.food||0)+2;             logs.push('🌱 Farm yields 2 food.'); }
         if (nodes.includes('quarry')) { newInv.scrap_iron = (newInv.scrap_iron||0)+2; logs.push('⛏ Quarry yields 2 scrap iron.'); }
 
+        // Unlock adjacent locations on a successful exit
+        let newUnlocked = [...unlockedLocs];
+        if (success && loc) {
+          for (const lid of (loc.links || [])) {
+            if (!newUnlocked.includes(lid)) {
+              newUnlocked.push(lid);
+              const locName = LOCS.find(l => l.id === lid)?.name || lid;
+              logs.push(`🗺 New area discovered: ${locName}.`);
+            }
+          }
+        }
+
         set(s => ({ vp:newVp, roster:newRoster, inv:newInv, ms:null, screen:'sanctuary',
+          unlockedLocs: newUnlocked,
           log: [...logs, ...s.log].slice(0, 14) }));
       },
 
       resetGame() {
         set({ screen:'title', book:null, vp:{ ...DEFAULT_VP }, roster:[], inv:{},
           nodes:[], ms:null, noise:0, luq:[], log:[], phase:'player',
-          equipTgt:null, loc:null, mode:'scavenge' });
+          equipTgt:null, loc:null, mode:'scavenge', unlockedLocs:['town'] });
       },
 
       // ── Level-up ──────────────────────────────────────────────────────
@@ -239,7 +254,7 @@ export const useGameStore = create(
         }));
 
         if (over) setTimeout(() => get().setScreen('gameover'), 500);
-        if (esc)  setTimeout(() => get().endMission(units, loot), 400);
+        if (esc)  setTimeout(() => get().endMission(units, loot, true), 400);
       },
 
       // ── Attack ────────────────────────────────────────────────────────
