@@ -197,10 +197,10 @@ export default function SanctuaryScreen() {
           })}
         </div>
 
-        <button onClick={() => setScreen('overworld')} style={{
+        <button onClick={() => setScreen('world')} style={{
           ...btn(true,'#6a6aaa'), width:'100%', padding:12, fontSize:12,
         }}>
-          ⬡ Overworld
+          ⬡ World Map
         </button>
       </div>
 

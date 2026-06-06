@@ -3,11 +3,12 @@ import { DEFAULT_VP } from '../../data/constants';
 import { useGameStore } from '../../store/gameStore';
 
 export default function TitleScreen() {
-  const { setScreen, setBook: _setBook, setVp: _setVp } = useGameStore();
+  const { initWorld } = useGameStore();
   const set = useGameStore.setState;
 
   function chooseBook(b) {
-    set({ book:b, vp:{ ...DEFAULT_VP, ...b.ap, xp:0, level:1, weapon:null, armor:null }, screen:'overworld' });
+    set({ book:b, vp:{ ...DEFAULT_VP, ...b.ap, xp:0, level:1, weapon:null, armor:null } });
+    initWorld();  // generates world + transitions to 'world' screen
   }
 
   return (

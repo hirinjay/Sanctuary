@@ -6,6 +6,9 @@ import { genMap, revealTraps, walkable, hasLOS, dist } from '../systems/map';
 import { spawnEnemies, classStats, xpNext, tetherUsed, applyXpToUnits } from '../systems/combat';
 import { ARCHETYPES } from '../data/archetypes';
 import { LOCS } from '../data/locations';
+import { generateWorld, revealAround } from '../world/worldGen';
+import { hexesInRange } from '../world/hexMath';
+import { TERRAIN } from '../world/tileTypes';
 
 export const useGameStore = create(
   persist(
@@ -26,6 +29,11 @@ export const useGameStore = create(
       loc:          null,
       mode:         'scavenge',
       unlockedLocs: ['town'],
+      // ── World map ─────────────────────────────────────────────────────
+      world:        null,   // { seed, tiles, width, height }
+      worldPos:     null,   // { col, row } — Varek on world map
+      sanctuaryPos: null,   // { col, row }
+      selectedHex:  null,   // { col, row } — UI selection
 
       // ── Simple setters ────────────────────────────────────────────────
       setScreen:   (screen)   => set({ screen }),
@@ -105,8 +113,54 @@ export const useGameStore = create(
       resetGame() {
         set({ screen:'title', book:null, vp:{ ...DEFAULT_VP }, roster:[], inv:{},
           nodes:[], ms:null, noise:0, luq:[], log:[], phase:'player',
-          equipTgt:null, loc:null, mode:'scavenge', unlockedLocs:['town'] });
+          equipTgt:null, loc:null, mode:'scavenge', unlockedLocs:['town'],
+          world:null, worldPos:null, sanctuaryPos:null, selectedHex:null });
       },
+
+      // ── World map ─────────────────────────────────────────────────────
+      initWorld(seed) {
+        const s = seed ?? (Math.random() * 0xFFFFFFFF) | 0;
+        const world = generateWorld(s);
+        // Start at center, reveal 3-hex radius
+        const startCol = Math.floor(world.width / 2);
+        const startRow = Math.floor(world.height / 2);
+        // Find nearest passable tile to center
+        let col = startCol, row = startRow;
+        if (!TERRAIN[world.tiles[row * world.width + col]?.terrain]?.passable) {
+          for (const n of hexesInRange(startCol, startRow, 3, world.width, world.height)) {
+            if (TERRAIN[world.tiles[n.row * world.width + n.col]?.terrain]?.passable) {
+              col = n.col; row = n.row; break;
+            }
+          }
+        }
+        const revealedTiles = revealAround(world.tiles, col, row, 3, hexesInRange, world.width, world.height);
+        set({ world:{ ...world, tiles:revealedTiles }, worldPos:{ col, row }, sanctuaryPos:null, selectedHex:null, screen:'world' });
+      },
+
+      moveOnWorld(col, row) {
+        const { world } = get();
+        if (!world) return;
+        const tile = world.tiles[row * world.width + col];
+        if (!tile || tile.fog === 'hidden') return;
+        if (!TERRAIN[tile.terrain]?.passable) return;
+        const newTiles = revealAround(world.tiles, col, row, 3, hexesInRange, world.width, world.height);
+        set({ world:{ ...world, tiles:newTiles }, worldPos:{ col, row }, selectedHex:null });
+      },
+
+      placeSanctuary(col, row) {
+        const { world } = get();
+        if (!world) return;
+        const tile = world.tiles[row * world.width + col];
+        if (!tile || tile.fog === 'hidden') return;
+        if (!TERRAIN[tile.terrain]?.passable) return;
+        const newTiles = world.tiles.map(t =>
+          t.col === col && t.row === row ? { ...t, hasSanctuary: true } : t
+        );
+        set({ world:{ ...world, tiles:newTiles }, sanctuaryPos:{ col, row },
+          log:['⌂ Sanctuary established.', ...get().log].slice(0, 14) });
+      },
+
+      selectHex(col, row) { set({ selectedHex: col != null ? { col, row } : null }); },
 
       // ── Level-up ──────────────────────────────────────────────────────
       applyLu(choice) {
