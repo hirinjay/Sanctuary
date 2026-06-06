@@ -6,7 +6,7 @@ export const TILE = {
 export const UT = { VAREK:'varek', UNDEAD:'undead', ENEMY:'enemy' };
 export const W = 16;
 export const H = 12;
-export const XP_LEVELS = [0, 12, 24, 48, 96, 192];
+export const XP_LEVELS = [0, 12, 18, 27, 40, 60];
 
 export const UNAMES = [
   'Marn','Brel','Tosk','Veth','Gorr','Ilde','Sorn','Cael','Thev','Dusk',
@@ -15,9 +15,9 @@ export const UNAMES = [
 ];
 
 export const VAREK_LU = [
-  { id:'tether', label:'Tether +1',    desc:'Control 1 more undead' },
+  { id:'tether', label:'Tether +2',      desc:'+1 auto per level, +1 bonus if chosen' },
   { id:'drain',  label:'Drain Range +1', desc:'Drain reaches further' },
-  { id:'hp',     label:'HP +4',         desc:'More health' },
+  { id:'hp',     label:'HP +4',          desc:'More health' },
   { id:'raise',  label:'Raise Range +1', desc:'Raise from further' },
 ];
 export const UNDEAD_LU = [

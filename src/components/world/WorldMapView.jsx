@@ -10,7 +10,8 @@ export default function WorldMapView() {
   const canvasRef   = useRef(null)
   const appRef      = useRef(null)
   const layersRef   = useRef(null)  // { world, terrain, fog, locs, units, hl }
-  const cameraRef   = useRef({ x: 0, y: 0, zoom: 0.8, drag: false, lx: 0, ly: 0 })
+  const initZoom    = window.innerWidth >= 1200 ? 1.1 : window.innerWidth >= 768 ? 0.85 : 0.6
+  const cameraRef   = useRef({ x: 0, y: 0, zoom: initZoom, drag: false, lx: 0, ly: 0 })
   const sizeRef     = useRef({ w: 800, h: 600 })
 
   // ── Init Pixi once ───────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useGameStore } from '../../store/gameStore'
 import { TERRAIN, LOC_TYPE } from '../../world/tileTypes'
 import { item } from '../../data/items'
@@ -9,6 +10,7 @@ export default function WorldUI() {
     startMission, setScreen, selectHex, moveOnWorld,
     confirmSanctuaryPlacement, cancelSanctuaryPlacement, depositLoot,
   } = useGameStore()
+  const [menuOpen, setMenuOpen] = useState(false)
 
   if (!world) return null
 
@@ -66,12 +68,28 @@ export default function WorldUI() {
         )}
       </div>
 
-      {/* ── Top-right: controls ────────────────────────────────────────── */}
-      <div style={{ position:'absolute', top:12, right:12, background:'#06091466',
-        border:'1px solid #1a1a2a', borderRadius:6, padding:'6px 10px',
-        fontSize:9, color:'#2a3a3a', pointerEvents:'none', textAlign:'right' }}>
-        Click → move · Scroll → zoom<br/>
-        Drag → pan
+      {/* ── Top-right: controls + menu ────────────────────────────────── */}
+      <div style={{ position:'absolute', top:12, right:12, display:'flex', flexDirection:'column', gap:6, alignItems:'flex-end' }}>
+        <div style={{ background:'#06091466', border:'1px solid #1a1a2a', borderRadius:6,
+          padding:'6px 10px', fontSize:9, color:'#2a3a3a', pointerEvents:'none', textAlign:'right' }}>
+          Click → move · Scroll → zoom<br/>Drag → pan
+        </div>
+        <button onClick={() => setMenuOpen(o => !o)} style={{
+          background:'#06091488', border:'1px solid #2a2a3a', borderRadius:6,
+          padding:'5px 10px', color:'#4a5a6a', cursor:'pointer', fontSize:11,
+        }}>≡ Menu</button>
+        {menuOpen && (
+          <div style={{ background:'#0b0f1c', border:'1px solid #2a2a3a', borderRadius:8,
+            padding:8, display:'flex', flexDirection:'column', gap:6, minWidth:140 }}>
+            <button onClick={() => { setMenuOpen(false); setScreen('home'); }} style={{
+              background:'#0a0a14', border:'1px solid #3a3a5a', borderRadius:5,
+              padding:'7px 12px', color:'#8a8aba', cursor:'pointer', fontSize:11, textAlign:'left',
+            }}>🏚 Return to Home</button>
+            <button onClick={() => setMenuOpen(false)} style={{
+              background:'none', border:'none', color:'#3a4a3a', cursor:'pointer', fontSize:10, textAlign:'left',
+            }}>Cancel</button>
+          </div>
+        )}
       </div>
 
       {/* ── Sanctuary confirm modal ─────────────────────────────────────── */}

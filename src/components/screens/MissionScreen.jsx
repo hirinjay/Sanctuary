@@ -43,6 +43,7 @@ export default function MissionScreen() {
   const { tiles, units, turn } = ms;
   const varek    = units.find(u => u.id === 'varek');
   const t        = ti(units);
+  const fieldTether = `${t.fieldCount}/${t.fieldCap}`;
   const fv       = fog(units, noise, tiles);
   const rw       = book?.ap?.raiseWindow || 3;
   const raiseable = units.filter(u =>
@@ -94,7 +95,7 @@ export default function MissionScreen() {
         <div style={{ display:'flex', gap:10, alignItems:'center' }}>
           <span style={{ color:noiseColor }}>🔊 {noiseLabel}</span>
           <span>❤️ {varek?.hp}/{varek?.maxHp}</span>
-          <span style={{ color:t.free>0?'#3a7a3a':'#7a2a2a' }}>⛓ {t.used}/{t.cap}</span>
+          <span style={{ color:t.fieldCount<t.fieldCap?'#3a7a3a':'#7a2a2a' }}>⛓ {fieldTether}</span>
           <span style={{ color:'#4a5a4a' }}>Lv{varek?.level}</span>
         </div>
       </div>

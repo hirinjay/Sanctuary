@@ -1,4 +1,4 @@
-import { hexNeighbors, tileKey } from './hexMath'
+import { hexNeighbors } from './hexMath'
 import { TERRAIN, LOC_TYPE } from './tileTypes'
 
 export const WORLD_W = 48
@@ -89,10 +89,10 @@ function placeLocations(tiles, rng, W, H) {
     }
   }
 
-  place('dungeon',  5, 'ruins',  6)
-  place('camp',     4, null,     5)
-  place('village',  3, 'plains', 4)
-  place('merchant', 2, 'plains', 3)
+  place('dungeon',  10, null,     4)
+  place('camp',      5, null,     4)
+  place('village',   4, 'plains', 4)
+  place('merchant',  3, 'plains', 3)
 }
 
 export function generateWorld(seed) {

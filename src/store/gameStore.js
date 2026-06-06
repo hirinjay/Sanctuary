@@ -2,8 +2,8 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { DEFAULT_VP, UT, TILE, UNAMES, VAREK_LU, UNDEAD_LU, H } from '../data/constants';
 import { item, LOOT, BODY_LOOT } from '../data/items';
-import { genMap, revealTraps, walkable, hasLOS, dist } from '../systems/map';
-import { spawnEnemies, classStats, xpNext, tetherUsed, applyXpToUnits } from '../systems/combat';
+import { genMap, genDungeonMap, revealTraps, walkable, hasLOS, dist } from '../systems/map';
+import { spawnEnemies, classStats, xpNext, applyXpToUnits } from '../systems/combat';
 import { ARCHETYPES } from '../data/archetypes';
 import { LOCS } from '../data/locations';
 import { generateWorld, revealAround } from '../world/worldGen';
@@ -62,11 +62,27 @@ export const useGameStore = create(
       addLog: (msg) => set(s => ({ log: [msg, ...s.log].slice(0, 14) })),
 
       // ── Tether info (helper) ─────────────────────────────────────────
+      // fieldCap = baseCap = tetherCap. Total roster cap = tetherCap * 2.
       ti(mUnits) {
         const { vp, roster } = get();
-        const cap  = vp.tetherCap;
-        const used = tetherUsed(roster, mUnits);
-        return { cap, used, free: cap - used };
+        const fieldCap = vp.tetherCap;
+        const baseCap  = vp.tetherCap;
+        const cap      = fieldCap + baseCap;
+
+        let baseCount, fieldCount;
+        if (!mUnits) {
+          // Sanctuary view: use atBase flag on roster directly
+          baseCount  = roster.filter(u => u.atBase).length;
+          fieldCount = roster.filter(u => !u.atBase).length;
+        } else {
+          // Mission view: roster not in mission = at sanctuary
+          const mIds = new Set(mUnits.filter(u => u.type === UT.UNDEAD).map(u => u.id));
+          baseCount  = roster.filter(u => !mIds.has(u.id)).length;
+          fieldCount = mUnits.filter(u => u.type === UT.UNDEAD && !u.fallen).length;
+        }
+
+        const used = baseCount + fieldCount;
+        return { cap, used, free: cap - used, fieldCap, baseCap, fieldCount, baseCount };
       },
 
       // ── Mission lifecycle ─────────────────────────────────────────────
@@ -83,8 +99,9 @@ export const useGameStore = create(
           .filter(u => !u.atBase)
           .map((u, i) => ({ ...u, x:2+i, y:H-2, ap:2, fallen:false, raiseTurn:null, atBase:false }));
         const enemies = spawnEnemies(location.danger, md);
+        const isDungeon = location.type === 'dungeon' || location.id?.startsWith('dungeon_');
         set({
-          ms:    { tiles:genMap(location.danger), units:[varek,...activeUndead,...enemies], turn:1, loot:[] },
+          ms:    { tiles: isDungeon ? genDungeonMap(location.danger) : genMap(location.danger), units:[varek,...activeUndead,...enemies], turn:1, loot:[] },
           noise: md === 'raid' ? 30 : 0,
           loc:   location,
           mode:  md,
@@ -285,13 +302,16 @@ export const useGameStore = create(
             ...s.ms,
             units: s.ms.units.map(u => {
               if (u.id !== uid) return u;
-              if (choice==='tether') return { ...u, tetherCap:(u.tetherCap||1)+1 };
-              if (choice==='drain')  return { ...u, drainRange:u.drainRange+1 };
-              if (choice==='hp')     return { ...u, maxHp:u.maxHp+4, hp:u.hp+4 };
-              if (choice==='raise')  return { ...u, raiseRange:u.raiseRange+1 };
-              if (choice==='dmg')    return { ...u, dmg:u.dmg+1, dmgUpgrades:(u.dmgUpgrades||0)+1 };
-              if (choice==='move')   return { ...u, moveRange:u.moveRange+1 };
-              return u;
+              // Varek always gains +1 tether per level up (automatic base gain)
+              const autoTether = uid === 'varek' ? 1 : 0;
+              const base = { ...u, tetherCap: (u.tetherCap||1) + autoTether };
+              if (choice==='tether') return { ...base, tetherCap: base.tetherCap + 1 };
+              if (choice==='drain')  return { ...base, drainRange:u.drainRange+1 };
+              if (choice==='hp')     return { ...base, maxHp:u.maxHp+4, hp:u.hp+4 };
+              if (choice==='raise')  return { ...base, raiseRange:u.raiseRange+1 };
+              if (choice==='dmg')    return { ...base, dmg:u.dmg+1, dmgUpgrades:(u.dmgUpgrades||0)+1 };
+              if (choice==='move')   return { ...base, moveRange:u.moveRange+1 };
+              return base;
             }),
           } : null;
           return { ms:newMs, luq:s.luq.slice(1),
@@ -323,8 +343,8 @@ export const useGameStore = create(
       doRaise(fallen) {
         const { ms, roster, book } = get();
         const varek = ms.units.find(u => u.id === 'varek');
-        const { free } = get().ti(ms.units);
-        if (free <= 0)                          { get().addLog('Tether full!'); return; }
+        const { fieldCount, fieldCap } = get().ti(ms.units);
+        if (fieldCount >= fieldCap)             { get().addLog('Field tether full! Return to base to expand.'); return; }
         if (dist(varek, fallen) > varek.raiseRange) { get().addLog('Too far to raise.'); return; }
         const rw    = book?.ap?.raiseWindow || 3;
         const turns = ms.turn - fallen.raiseTurn;

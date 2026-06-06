@@ -15,9 +15,14 @@ export default function LevelUpModal() {
       textAlign:'center', zIndex:50, fontFamily:'Georgia,serif', color:'#c4a882' }}>
       <div style={{ fontSize:32, marginBottom:8 }}>⬆️</div>
       <h2 style={{ color:'#e8d5b0', marginBottom:5, fontSize:20 }}>Level Up!</h2>
-      <p style={{ color:'#7a7a5a', marginBottom:20, fontSize:12 }}>
+      <p style={{ color:'#7a7a5a', marginBottom:8, fontSize:12 }}>
         {u?.name} — Lv{u?.level}. Choose:
       </p>
+      {u?.type === 'varek' && (
+        <p style={{ color:'#4a5a4a', marginBottom:16, fontSize:10 }}>
+          +1 Tether is automatic this level. Choose an additional bonus:
+        </p>
+      )}
       <div style={{ display:'flex', gap:10, flexWrap:'wrap', justifyContent:'center' }}>
         {filteredOpts.map(o => (
           <button key={o.id} onClick={() => applyLu(o.id)} style={{

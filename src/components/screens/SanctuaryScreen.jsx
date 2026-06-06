@@ -27,6 +27,8 @@ export default function SanctuaryScreen() {
           setScreen, setEquipTgt, addLog, ti, depositLoot } = useGameStore();
   const set = useGameStore.setState;
   const t = ti(null);
+  const baseCount  = t.baseCount;
+  const fieldCount = t.fieldCount;
   const established = !!sanctuaryPos;
 
   function setRost(fn) { set(s => ({ roster: fn(s.roster) })); }
@@ -76,7 +78,10 @@ export default function SanctuaryScreen() {
           </div>
           <div style={{ fontSize:11, color:'#7a7a5a', marginBottom:8, display:'flex', gap:10, flexWrap:'wrap' }}>
             <span>❤️ {vp.hp}/{vp.maxHp}</span>
-            <span style={{ color:t.free>0?'#5a8a5a':'#8a3a3a' }}>⛓ {t.used}/{t.cap}</span>
+            <span style={{ color:baseCount<t.baseCap?'#5a8a5a':'#8a3a3a' }}
+              title="Base slots used/cap">⌂ {baseCount}/{t.baseCap}</span>
+            <span style={{ color:fieldCount<t.fieldCap?'#5a8a5a':'#8a3a3a' }}
+              title="Field slots used/cap">⛓ {fieldCount}/{t.fieldCap}</span>
             <span>🪄 {vp.raiseRange}</span>
             <span>🧿 {vp.drainRange}</span>
           </div>
@@ -102,13 +107,22 @@ export default function SanctuaryScreen() {
                 </div>
                 <div style={{ display:'flex', gap:5 }}>
                   <button onClick={() => setEquipTgt(u.id)} style={btn(true,'#6a6aaa')}>Equip</button>
-                  <button
-                    disabled={!established && !u.atBase}
-                    title={!established ? 'Establish Sanctuary first' : undefined}
-                    onClick={() => established && setRost(r => r.map(r2 => r2.id===u.id ? { ...r2, atBase:!r2.atBase } : r2))}
-                    style={btn(established, u.atBase ? '#8a6a3a' : '#3a6a3a')}>
-                    {u.atBase ? '🏠 Base' : '⚔️ Mission'}
-                  </button>
+                  {(() => {
+                    const canSendToBase  = !u.atBase  && baseCount  < t.baseCap;
+                    const canSendToField = u.atBase   && fieldCount < t.fieldCap;
+                    const canToggle      = established && (u.atBase ? canSendToField : canSendToBase);
+                    const title = !established ? 'Establish Sanctuary first'
+                      : (!u.atBase && !canSendToBase)  ? `Base full (${t.baseCap})`
+                      : (u.atBase  && !canSendToField) ? `Field full (${t.fieldCap})`
+                      : undefined;
+                    return (
+                      <button disabled={!canToggle} title={title}
+                        onClick={() => canToggle && setRost(r => r.map(r2 => r2.id===u.id ? { ...r2, atBase:!r2.atBase } : r2))}
+                        style={btn(canToggle, u.atBase ? '#8a6a3a' : '#3a6a3a')}>
+                        {u.atBase ? '🏠 Base' : '⚔️ Mission'}
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
             ))}
@@ -237,11 +251,18 @@ export default function SanctuaryScreen() {
           })}
         </div>
 
-        <button onClick={() => setScreen('world')} style={{
-          ...btn(true,'#6a6aaa'), width:'100%', padding:12, fontSize:12,
-        }}>
-          ⬡ World Map
-        </button>
+        <div style={{ display:'flex', gap:8 }}>
+          <button onClick={() => setScreen('world')} style={{
+            ...btn(true,'#6a6aaa'), flex:1, padding:12, fontSize:12,
+          }}>
+            ⬡ World Map
+          </button>
+          <button onClick={() => setScreen('home')} style={{
+            ...btn(true,'#4a4a6a'), padding:'12px 18px', fontSize:12,
+          }}>
+            🏚 Home
+          </button>
+        </div>
       </div>
 
       <EquipModal />
