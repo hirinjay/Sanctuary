@@ -8,6 +8,7 @@ export async function saveRun(state, userId, slot) {
     vp:               state.vp,
     roster:           state.roster,
     inv:              state.inv,
+    travel_bag:       state.travelBag,
     nodes:            state.nodes,
     book:             state.book,
     world:            state.world,

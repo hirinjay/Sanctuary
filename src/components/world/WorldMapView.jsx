@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react'
 import { Application, Graphics, Container, Text, TextStyle } from 'pixi.js'
 import { useGameStore } from '../../store/gameStore'
-import { hexToPixel, hexPoints, tileKey } from '../../world/hexMath'
+import { hexToPixel, hexPoints, tileKey, bfsPath } from '../../world/hexMath'
 import { TERRAIN, LOC_TYPE } from '../../world/tileTypes'
 
-const SIGHT_RADIUS = 3
+const STEP_DELAY_MS = 220  // ms between auto-steps
 
 export default function WorldMapView() {
   const canvasRef   = useRef(null)
@@ -86,11 +86,12 @@ export default function WorldMapView() {
         }
       )
       const unsubSel = useGameStore.subscribe(
-        s => s.selectedHex,
-        (sel) => {
+        s => [s.selectedHex, s.worldPath],
+        ([sel, path]) => {
           if (!layersRef.current) return
-          redrawHighlight(sel, layersRef.current.hl)
-        }
+          redrawHighlight(sel, path, layersRef.current.hl)
+        },
+        { equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] }
       )
 
       setupInteraction(canvas, app)
@@ -118,6 +119,30 @@ export default function WorldMapView() {
         appRef.current = null
       }
     }
+  }, [])
+
+  // ── Auto-step along worldPath ─────────────────────────────────────────
+  useEffect(() => {
+    let timer = null
+    const step = () => {
+      const { worldPath, screen } = useGameStore.getState()
+      if (!worldPath?.length || screen !== 'world') return
+      useGameStore.getState().consumeStep()
+      // consumeStep may launch a mission (screen changes) — don't schedule next step
+      if (useGameStore.getState().screen === 'world' && useGameStore.getState().worldPath?.length) {
+        timer = setTimeout(step, STEP_DELAY_MS)
+      }
+    }
+    const unsub = useGameStore.subscribe(
+      s => s.worldPath?.length,
+      (len) => {
+        clearTimeout(timer)
+        if (len > 0 && useGameStore.getState().screen === 'world') {
+          timer = setTimeout(step, STEP_DELAY_MS)
+        }
+      }
+    )
+    return () => { clearTimeout(timer); unsub() }
   }, [])
 
   // ── Draw terrain (static, only on world change) ──────────────────────
@@ -193,9 +218,17 @@ export default function WorldMapView() {
     cont.addChild(v)
   }
 
-  // ── Highlight selected hex ────────────────────────────────────────────
-  function redrawHighlight(sel, g) {
+  // ── Highlight: selected hex + path preview ───────────────────────────
+  function redrawHighlight(sel, path, g) {
     g.clear()
+    // Path preview (dim trail)
+    if (path?.length) {
+      for (const step of path) {
+        const { x, y } = hexToPixel(step.col, step.row)
+        g.poly(hexPoints(x, y)).fill({ color: 0x4a6a8a, alpha: 0.25 })
+      }
+    }
+    // Selected hex
     if (!sel) return
     const { x, y } = hexToPixel(sel.col, sel.row)
     const pts = hexPoints(x, y)
@@ -266,39 +299,47 @@ export default function WorldMapView() {
   }
 
   function handleClick(ox, oy) {
-    const cam = cameraRef.current
-    const { world, worldPos, sanctuaryPos } = useGameStore.getState()
+    const cam  = cameraRef.current
+    const store = useGameStore.getState()
+    const { world, worldPos, sanctuaryPos, pendingSanctuaryTile, worldPath } = store
     if (!world) return
-    const wx = (ox - cam.x) / cam.zoom
-    const wy = (oy - cam.y) / cam.zoom
+
+    // Cancel any pending confirmation on background click
+    if (pendingSanctuaryTile) { store.cancelSanctuaryPlacement(); return }
+
+    const wx  = (ox - cam.x) / cam.zoom
+    const wy  = (oy - cam.y) / cam.zoom
     const hit = nearestHex(wx, wy, world)
     if (!hit) return
     const tile = world.tiles[hit.row * world.width + hit.col]
     if (!tile || tile.fog === 'hidden') return
 
+    // ── Phase 1: place sanctuary ─────────────────────────────────────────
     if (!sanctuaryPos) {
-      // Sanctuary placement phase
-      if (TERRAIN[tile.terrain]?.passable) {
-        useGameStore.getState().placeSanctuary(hit.col, hit.row)
-        useGameStore.getState().moveOnWorld(hit.col, hit.row)
-      }
+      if (TERRAIN[tile.terrain]?.passable)
+        store.requestSanctuaryPlacement(hit.col, hit.row)
       return
     }
-    // Normal movement/selection
-    useGameStore.getState().selectHex(hit.col, hit.row)
-    // If clicking current sanctuary: go to sanctuary screen
-    if (sanctuaryPos && hit.col === sanctuaryPos.col && hit.row === sanctuaryPos.row) {
-      useGameStore.getState().setScreen('sanctuary')
-      return
-    }
-    // Move or launch mission
-    if (TERRAIN[tile.terrain]?.passable && tile.fog !== 'hidden') {
-      if (tile.location) {
-        // Show in WorldUI — WorldScreen handles the panel
-      } else {
-        useGameStore.getState().moveOnWorld(hit.col, hit.row)
-      }
-    }
+
+    // ── Phase 2: normal world interaction ────────────────────────────────
+    store.selectHex(hit.col, hit.row)
+
+    // Clicking sanctuary tile just opens the panel in WorldUI
+    if (hit.col === sanctuaryPos.col && hit.row === sanctuaryPos.row) return
+
+    // Non-passable: just select
+    if (!TERRAIN[tile.terrain]?.passable) return
+
+    // Already here: nothing to do
+    if (worldPos && hit.col === worldPos.col && hit.row === worldPos.row) return
+
+    // Compute BFS path and queue it
+    const path = bfsPath(
+      world.tiles, worldPos, hit,
+      t => TERRAIN[t.terrain]?.passable && t.fog !== 'hidden',
+      world.width, world.height
+    )
+    if (path?.length) store.setWorldPath(path)
   }
 
   // Nearest hex to pixel coords (brute-force, fast enough for click events)

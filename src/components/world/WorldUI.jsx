@@ -1,8 +1,14 @@
 import { useGameStore } from '../../store/gameStore'
 import { TERRAIN, LOC_TYPE } from '../../world/tileTypes'
+import { item } from '../../data/items'
 
 export default function WorldUI() {
-  const { world, worldPos, sanctuaryPos, selectedHex, startMission, setScreen, selectHex, moveOnWorld } = useGameStore()
+  const {
+    world, worldPos, sanctuaryPos, selectedHex,
+    pendingSanctuaryTile, travelBag, worldPath,
+    startMission, setScreen, selectHex, moveOnWorld,
+    confirmSanctuaryPlacement, cancelSanctuaryPlacement, depositLoot,
+  } = useGameStore()
 
   if (!world) return null
 
@@ -10,13 +16,16 @@ export default function WorldUI() {
     ? world.tiles[selectedHex.row * world.width + selectedHex.col]
     : null
 
+  const onSanctuaryTile = sanctuaryPos && worldPos &&
+    worldPos.col === sanctuaryPos.col && worldPos.row === sanctuaryPos.row
+
+  const isMoving = worldPath?.length > 0
+
+  const bagCount  = Object.values(travelBag).reduce((a,b)=>a+b, 0)
+  const bagItems  = Object.entries(travelBag).map(([id, cnt]) => ({ it:item(id), cnt })).filter(x=>x.it)
+
   const isVarekHere = worldPos && selectedHex &&
     worldPos.col === selectedHex.col && worldPos.row === selectedHex.row
-
-  const isSanctuaryHere = sanctuaryPos && selectedHex &&
-    sanctuaryPos.col === selectedHex.col && sanctuaryPos.row === selectedHex.row
-
-  const canMove = selTile && selTile.fog !== 'hidden' && TERRAIN[selTile.terrain]?.passable && !isVarekHere
 
   const tag = (color, label) => (
     <span style={{ background:`${color}22`, border:`1px solid ${color}44`, borderRadius:3,
@@ -27,53 +36,102 @@ export default function WorldUI() {
 
   return (
     <>
-      {/* Top-left: Varek status */}
+      {/* ── Top-left: Varek status ────────────────────────────────────── */}
       <div style={{ position:'absolute', top:12, left:12, background:'#06091488',
         backdropFilter:'blur(4px)', border:'1px solid #1a1a2a', borderRadius:8,
-        padding:'8px 12px', fontSize:11, color:'#c4a882', pointerEvents:'none' }}>
-        <div style={{ color:'#e8d5b0', marginBottom:3 }}>🧙 Varek</div>
+        padding:'8px 12px', fontSize:11, color:'#c4a882', pointerEvents:'none', minWidth:140 }}>
+        <div style={{ color:'#e8d5b0', marginBottom:3, fontWeight:'bold' }}>🧙 Varek</div>
         {worldPos && <div style={{ color:'#4a5a4a', fontSize:10 }}>
-          Hex {worldPos.col},{worldPos.row}
+          {worldPos.col},{worldPos.row}
+          {isMoving && <span style={{ color:'#3a7a3a', marginLeft:8 }}>▶ Moving…</span>}
         </div>}
+        {bagCount > 0 && (
+          <div style={{ marginTop:5, borderTop:'1px solid #1a1a2a', paddingTop:5 }}>
+            <div style={{ color:'#7a6a3a', fontSize:9, marginBottom:3 }}>🎒 Carrying</div>
+            {bagItems.slice(0,4).map(({it, cnt}) => (
+              <div key={it.id} style={{ fontSize:10, color:'#c4a882' }}>{it.emoji} {it.name} ×{cnt}</div>
+            ))}
+            {bagItems.length > 4 && <div style={{ fontSize:9, color:'#4a5a4a' }}>+{bagItems.length-4} more</div>}
+            {!sanctuaryPos && (
+              <div style={{ fontSize:9, color:'#5a4a2a', marginTop:3 }}>
+                ⚠ No sanctuary — all at risk on retreat
+              </div>
+            )}
+          </div>
+        )}
         {!sanctuaryPos && (
-          <div style={{ color:'#8a6a2a', fontSize:10, marginTop:4 }}>
+          <div style={{ color:'#8a6a2a', fontSize:10, marginTop:6 }}>
             Click a passable tile to place Sanctuary
           </div>
         )}
       </div>
 
-      {/* Top-right: controls hint */}
+      {/* ── Top-right: controls ────────────────────────────────────────── */}
       <div style={{ position:'absolute', top:12, right:12, background:'#06091466',
         border:'1px solid #1a1a2a', borderRadius:6, padding:'6px 10px',
         fontSize:9, color:'#2a3a3a', pointerEvents:'none', textAlign:'right' }}>
-        Drag to pan · Scroll to zoom<br/>
-        Click hex to select · Double-click to move
+        Click → move · Scroll → zoom<br/>
+        Drag → pan
       </div>
 
-      {/* Bottom panel: selected hex info */}
-      {selTile && selTile.fog !== 'hidden' && (
+      {/* ── Sanctuary confirm modal ─────────────────────────────────────── */}
+      {pendingSanctuaryTile && (() => {
+        const t = world.tiles[pendingSanctuaryTile.row * world.width + pendingSanctuaryTile.col]
+        return (
+          <div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)',
+            background:'#0b0f1c', border:'1px solid #4a6a4a', borderRadius:10,
+            padding:'20px 24px', width:280, textAlign:'center', zIndex:50,
+            boxShadow:'0 8px 32px #000a' }}>
+            <div style={{ fontSize:28, marginBottom:8 }}>⌂</div>
+            <div style={{ color:'#e8d5b0', fontWeight:'bold', marginBottom:6 }}>
+              Establish Sanctuary?
+            </div>
+            <div style={{ fontSize:11, color:'#4a5a4a', marginBottom:4 }}>
+              {TERRAIN[t?.terrain]?.label} at {pendingSanctuaryTile.col},{pendingSanctuaryTile.row}
+            </div>
+            <div style={{ fontSize:10, color:'#3a4a3a', marginBottom:16 }}>
+              This becomes your home. You cannot move it.
+            </div>
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={cancelSanctuaryPlacement} style={{
+                flex:1, background:'#140a0a', border:'1px solid #4a2a2a', borderRadius:5,
+                padding:'9px 0', color:'#7a4a4a', cursor:'pointer', fontSize:12,
+              }}>Cancel</button>
+              <button onClick={confirmSanctuaryPlacement} style={{
+                flex:1, background:'#0a1a0a', border:'1px solid #4a8a4a', borderRadius:5,
+                padding:'9px 0', color:'#6a9a6a', cursor:'pointer', fontSize:12, fontWeight:'bold',
+              }}>Establish</button>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Bottom: selected hex panel ──────────────────────────────────── */}
+      {selTile && !pendingSanctuaryTile && selTile.fog !== 'hidden' && (
         <div style={{ position:'absolute', bottom:16, left:'50%', transform:'translateX(-50%)',
           background:'#06091488', backdropFilter:'blur(4px)',
           border:'1px solid #2a2a3a', borderRadius:8, padding:'10px 16px',
-          minWidth:260, maxWidth:360, color:'#c4a882', fontSize:11 }}>
+          minWidth:270, maxWidth:380, color:'#c4a882', fontSize:11 }}>
 
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
             <div>
-              {isSanctuaryHere && tag('#6a9a6a','⌂ Sanctuary')}
-              {selTile.location && tag(LOC_TYPE[selTile.location.type]?.tint ? '#c4a882' : '#c4a882', selTile.location.name)}
+              {selTile.hasSanctuary && tag('#6a9a6a','⌂')}
+              {selTile.location && tag('#c4a882', selTile.location.name)}
               <span style={{ color:'#e8d5b0', fontWeight:'bold' }}>
                 {TERRAIN[selTile.terrain]?.label}
               </span>
-              {selTile.fog === 'explored' && <span style={{ color:'#3a4a3a', fontSize:10, marginLeft:6 }}>(explored)</span>}
+              {selTile.fog === 'explored' && (
+                <span style={{ color:'#3a4a3a', fontSize:10, marginLeft:6 }}>(explored)</span>
+              )}
             </div>
             <span style={{ color:'#3a4a3a', fontSize:9 }}>{selTile.col},{selTile.row}</span>
           </div>
 
           {selTile.location && (
-            <div style={{ marginBottom:8, fontSize:10 }}>
+            <div style={{ fontSize:10, marginBottom:8 }}>
               <span style={{ color:'#4a5a4a' }}>Danger: </span>
-              <span style={{ color:selTile.location.danger > 1 ? '#8a4a4a' : '#5a8a5a' }}>
-                {'▲'.repeat(selTile.location.danger) || '—'}
+              <span style={{ color:selTile.location.danger>1?'#8a4a4a':'#5a8a5a' }}>
+                {'▲'.repeat(selTile.location.danger)||'—'}
               </span>
               <span style={{ color:'#4a5a4a', marginLeft:10 }}>Loot: </span>
               <span style={{ color:'#c4a882' }}>{selTile.location.lq}</span>
@@ -81,34 +139,39 @@ export default function WorldUI() {
           )}
 
           <div style={{ display:'flex', gap:7, flexWrap:'wrap' }}>
-            {isSanctuaryHere && (
-              <button onClick={() => setScreen('sanctuary')} style={actionBtn('#6a9a6a')}>
-                ⌂ Enter Sanctuary
-              </button>
+            {/* On sanctuary tile */}
+            {selTile.hasSanctuary && isVarekHere && (
+              <>
+                <button onClick={() => setScreen('sanctuary')} style={actionBtn('#6a9a6a')}>
+                  ⌂ Enter Sanctuary
+                </button>
+                {bagCount > 0 && (
+                  <button onClick={depositLoot} style={actionBtn('#7a6a3a')}>
+                    📥 Deposit {bagCount} item{bagCount!==1?'s':''}
+                  </button>
+                )}
+              </>
             )}
-            {canMove && !selTile.location && !isSanctuaryHere && (
-              <button onClick={() => moveOnWorld(selTile.col, selTile.row)} style={actionBtn('#4a6a8a')}>
-                ↗ Move Here
-              </button>
-            )}
+
+            {/* Location combat actions — only if Varek is here */}
             {isVarekHere && selTile.location && (
               <>
                 <button onClick={() => {
-                  startMission({ id:`${selTile.location.type}_${selTile.col}_${selTile.row}`,
+                  startMission({
+                    id:`${selTile.location.type}_${selTile.col}_${selTile.row}`,
                     name:selTile.location.name, danger:selTile.location.danger,
-                    lq:selTile.location.lq, desc:'', links:[] }, 'scavenge')
+                    lq:selTile.location.lq, desc:'', links:[],
+                  }, 'scavenge')
                   selectHex(null)
-                }} style={actionBtn('#3a6a3a')}>
-                  🤫 Scavenge
-                </button>
+                }} style={actionBtn('#3a6a3a')}>🤫 Scavenge</button>
                 <button onClick={() => {
-                  startMission({ id:`${selTile.location.type}_${selTile.col}_${selTile.row}`,
+                  startMission({
+                    id:`${selTile.location.type}_${selTile.col}_${selTile.row}`,
                     name:selTile.location.name, danger:selTile.location.danger,
-                    lq:selTile.location.lq, desc:'', links:[] }, 'raid')
+                    lq:selTile.location.lq, desc:'', links:[],
+                  }, 'raid')
                   selectHex(null)
-                }} style={actionBtn('#6a3a3a')}>
-                  ⚔️ Raid
-                </button>
+                }} style={actionBtn('#6a3a3a')}>⚔️ Raid</button>
               </>
             )}
           </div>

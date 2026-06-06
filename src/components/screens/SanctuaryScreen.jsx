@@ -1,5 +1,5 @@
 import { useGameStore } from '../../store/gameStore';
-import { item, RECIPES, ITEMS } from '../../data/items';
+import { item, RECIPES } from '../../data/items';
 import { xpNext } from '../../systems/combat';
 import EquipModal from '../sanctuary/EquipModal';
 
@@ -23,19 +23,50 @@ function btn(on, c) {
 }
 
 export default function SanctuaryScreen() {
-  const { vp, roster, inv, nodes, setScreen, setEquipTgt, setRoster, setInv, setNodes, addLog, ti } = useGameStore();
+  const { vp, roster, inv, nodes, travelBag, sanctuaryPos,
+          setScreen, setEquipTgt, addLog, ti, depositLoot } = useGameStore();
   const set = useGameStore.setState;
   const t = ti(null);
+  const established = !!sanctuaryPos;
 
   function setRost(fn) { set(s => ({ roster: fn(s.roster) })); }
-  function setI(fn) { set(s => ({ inv: fn(s.inv) })); }
-  function setN(fn) { set(s => ({ nodes: fn(s.nodes) })); }
+
+  const bagCount = Object.values(travelBag||{}).reduce((a,b)=>a+b,0);
 
   return (
     <div style={pg}>
       <div style={{ maxWidth:480, margin:'0 auto' }}>
         <h2 style={{ color:'#e8d5b0', margin:'0 0 3px', fontSize:16, letterSpacing:2 }}>⌂ SANCTUARY</h2>
-        <p style={{ color:'#2a3a2a', fontSize:11, marginBottom:13 }}>Home. Such as it is.</p>
+        <p style={{ color:'#2a3a2a', fontSize:11, marginBottom:13 }}>
+          {established ? 'Home. Such as it is.' : 'Sanctuary not yet established.'}
+        </p>
+
+        {/* Undeposited loot warning */}
+        {bagCount > 0 && (
+          <div style={{ ...card, borderColor:'#4a3a1a', background:'#120e06' }}>
+            <div style={{ fontWeight:'bold', color:'#c4a882', marginBottom:6, fontSize:12 }}>
+              🎒 Travel Bag ({bagCount} item{bagCount!==1?'s':''})
+            </div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:8 }}>
+              {Object.entries(travelBag).map(([id,cnt]) => {
+                const it = item(id); return it ? (
+                  <div key={id} style={{ background:'#1a1206', borderRadius:4, padding:'3px 8px', fontSize:11 }}>
+                    {it.emoji} {it.name} ×{cnt}
+                  </div>
+                ) : null;
+              })}
+            </div>
+            {established ? (
+              <button onClick={depositLoot} style={btn(true,'#7a6a3a')}>
+                📥 Deposit into Sanctuary
+              </button>
+            ) : (
+              <div style={{ fontSize:10, color:'#5a4a2a' }}>
+                ⚠ Establish Sanctuary on the world map to deposit supplies.
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Varek */}
         <div style={card}>
@@ -72,8 +103,10 @@ export default function SanctuaryScreen() {
                 <div style={{ display:'flex', gap:5 }}>
                   <button onClick={() => setEquipTgt(u.id)} style={btn(true,'#6a6aaa')}>Equip</button>
                   <button
-                    onClick={() => setRost(r => r.map(r2 => r2.id===u.id ? { ...r2, atBase:!r2.atBase } : r2))}
-                    style={btn(true, u.atBase ? '#8a6a3a' : '#3a6a3a')}>
+                    disabled={!established && !u.atBase}
+                    title={!established ? 'Establish Sanctuary first' : undefined}
+                    onClick={() => established && setRost(r => r.map(r2 => r2.id===u.id ? { ...r2, atBase:!r2.atBase } : r2))}
+                    style={btn(established, u.atBase ? '#8a6a3a' : '#3a6a3a')}>
                     {u.atBase ? '🏠 Base' : '⚔️ Mission'}
                   </button>
                 </div>
@@ -103,6 +136,10 @@ export default function SanctuaryScreen() {
         {/* Healing */}
         <div style={card}>
           <div style={{ fontWeight:'bold', color:'#c4a882', marginBottom:7, fontSize:12 }}>🩹 Rest & Recover</div>
+          {!established ? (
+            <div style={{ fontSize:11, color:'#3a3a2a' }}>Establish Sanctuary to rest and recover.</div>
+          ) : (
+          <>
           <div style={{ fontSize:10, color:'#3a4a3a', marginBottom:8 }}>
             🥩 Dried Food heals Varek +1hp · 🦴 Bone heals undead +2hp
           </div>
@@ -141,12 +178,15 @@ export default function SanctuaryScreen() {
             })}
             {roster.length === 0 && <span style={{ fontSize:10, color:'#2a3a2a' }}>No undead in roster.</span>}
           </div>
+          </>)}
         </div>
 
         {/* Resource Nodes */}
         <div style={card}>
           <div style={{ fontWeight:'bold', color:'#c4a882', marginBottom:8, fontSize:12 }}>🌐 Resource Nodes</div>
-          {NODES_DEF.map(n => {
+          {!established ? (
+            <div style={{ fontSize:11, color:'#3a3a2a' }}>Establish Sanctuary to build resource nodes.</div>
+          ) : NODES_DEF.map(n => {
             const built  = nodes.includes(n.id);
             const afford = Object.entries(n.cost).every(([id, a]) => (inv[id]||0) >= a);
             return (

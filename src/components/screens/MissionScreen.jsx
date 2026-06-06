@@ -21,7 +21,7 @@ function btn(on, c) {
 }
 
 export default function MissionScreen() {
-  const { ms, noise, phase, luq, log, vp, loc, mode, book, ti,
+  const { ms, noise, phase, luq, log, vp, loc, mode, book, ti, travelBag, sanctuaryPos,
           doMove, doAttack, doRaise, endTurn, endMission, setScreen, addLog } = useGameStore();
 
   // sel & hilight are local — they don't need persistence and use the hilightRef pattern
@@ -130,11 +130,36 @@ export default function MissionScreen() {
       <div style={{ maxWidth:510, margin:'0 auto', display:'flex', gap:7, justifyContent:'flex-end' }}>
         <button onClick={() => {
           const kept = [], dropped = [];
+          // Current mission loot always at risk
           ms.loot.forEach(id => { (Math.random()<0.25 ? dropped : kept).push(id); });
-          const msg = dropped.length > 0
-            ? `🏃 Retreating! Lost: ${dropped.map(id => item(id)?.name||id).join(', ')}`
-            : '🏃 Retreating! Nothing lost this time.';
+          // No sanctuary: travelBag is also at risk — everything Varek carries can be lost
+          const bagLost = [];
+          if (!sanctuaryPos && travelBag) {
+            Object.entries(travelBag).forEach(([id, cnt]) => {
+              for (let i = 0; i < cnt; i++) {
+                if (Math.random() < 0.25) bagLost.push(id);
+              }
+            });
+            if (bagLost.length) {
+              // Remove lost items from the travelBag via endMission's bag update
+              bagLost.forEach(id => {
+                if (!travelBag[id]) return;
+                useGameStore.setState(s => {
+                  const nb = { ...s.travelBag };
+                  nb[id] = Math.max(0, (nb[id]||0) - 1);
+                  if (!nb[id]) delete nb[id];
+                  return { travelBag: nb };
+                });
+              });
+            }
+          }
+          const allDropped = [...dropped, ...bagLost];
+          const msg = allDropped.length > 0
+            ? `🏃 Retreating! Lost: ${allDropped.map(id => item(id)?.name||id).join(', ')}`
+            : '🏃 Retreating — nothing lost this time.';
           addLog(msg);
+          if (!sanctuaryPos && bagLost.length)
+            addLog('⚠ No sanctuary — travel bag was also at risk.');
           endMission(ms.units, kept);
         }} style={btn(true,'#4a4a8a')}>
           🏃 Retreat

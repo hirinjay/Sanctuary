@@ -8,7 +8,7 @@ import { ARCHETYPES } from '../data/archetypes';
 import { LOCS } from '../data/locations';
 import { generateWorld, revealAround } from '../world/worldGen';
 import { hexesInRange } from '../world/hexMath';
-import { TERRAIN } from '../world/tileTypes';
+import { TERRAIN, rollWildEncounter } from '../world/tileTypes';
 import { saveRun } from '../lib/persistence';
 
 // Debounced save — only fires when user + slot are known
@@ -41,10 +41,14 @@ export const useGameStore = create(
       mode:         'scavenge',
       unlockedLocs: ['town'],
       // ── World map ─────────────────────────────────────────────────────
-      world:        null,   // { seed, tiles, width, height }
-      worldPos:     null,   // { col, row } — Varek on world map
-      sanctuaryPos: null,   // { col, row }
-      selectedHex:  null,   // { col, row } — UI selection
+      world:                 null,  // { seed, tiles, width, height }
+      worldPos:              null,  // { col, row } — Varek on world map
+      sanctuaryPos:          null,  // { col, row }
+      selectedHex:           null,  // { col, row } — UI selection
+      pendingSanctuaryTile:  null,  // { col, row } — awaiting confirmation
+      worldPath:             [],    // [{ col, row }] — movement queue
+      // ── Inventory split ───────────────────────────────────────────────
+      travelBag:    {},     // loot Varek carries on the world map
       // ── Auth & save slots ─────────────────────────────────────────────
       currentUser:  null,   // { id, email } from Supabase
       saveSlots:    [],     // summary rows for the home screen
@@ -92,7 +96,7 @@ export const useGameStore = create(
       },
 
       endMission(units, loot, success = false) {
-        const { roster, vp, nodes, inv, loc, unlockedLocs } = get();
+        const { roster, vp, nodes, inv, travelBag, loc } = get();
         const surv  = units.filter(u => u.type === UT.UNDEAD && !u.fallen);
         const varek = units.find(u => u.id === 'varek');
         const newVp = varek
@@ -101,28 +105,24 @@ export const useGameStore = create(
               moveRange:varek.moveRange||3, weapon:varek.weapon, armor:varek.armor }
           : vp;
         const newRoster = [...roster.filter(u => u.atBase), ...surv.map(u => ({ ...u, atBase:false }))];
-        const newInv = { ...inv };
-        loot.forEach(id => { newInv[id] = (newInv[id]||0) + 1; });
 
+        // Loot goes into travelBag — Varek carries it; must return to Sanctuary to deposit
+        const newBag = { ...travelBag };
+        loot.forEach(id => { newBag[id] = (newBag[id]||0) + 1; });
+
+        // Node yields go to sanctuary inv directly (passive income from structures)
+        const newInv = { ...inv };
         const logs = [];
         if (nodes.includes('farm'))   { newInv.food = (newInv.food||0)+2;             logs.push('🌱 Farm yields 2 food.'); }
         if (nodes.includes('quarry')) { newInv.scrap_iron = (newInv.scrap_iron||0)+2; logs.push('⛏ Quarry yields 2 scrap iron.'); }
 
-        // Unlock adjacent locations on a successful exit
-        let newUnlocked = [...unlockedLocs];
-        if (success && loc) {
-          for (const lid of (loc.links || [])) {
-            if (!newUnlocked.includes(lid)) {
-              newUnlocked.push(lid);
-              const locName = LOCS.find(l => l.id === lid)?.name || lid;
-              logs.push(`🗺 New area discovered: ${locName}.`);
-            }
-          }
-        }
+        if (success) logs.push(`✓ Secured ${loot.length} item${loot.length!==1?'s':''} — return to Sanctuary to deposit.`);
 
-        set(s => ({ vp:newVp, roster:newRoster, inv:newInv, ms:null, screen:'sanctuary',
-          unlockedLocs: newUnlocked,
-          log: [...logs, ...s.log].slice(0, 14) }));
+        set(s => ({
+          vp:newVp, roster:newRoster, inv:newInv, travelBag:newBag,
+          ms:null, worldPath:[], screen:'world',
+          log: [...logs, ...s.log].slice(0, 14),
+        }));
         debouncedSave(get());
       },
 
@@ -131,7 +131,7 @@ export const useGameStore = create(
           nodes:[], ms:null, noise:0, luq:[], log:[], phase:'player',
           equipTgt:null, loc:null, mode:'scavenge', unlockedLocs:['town'],
           world:null, worldPos:null, sanctuaryPos:null, selectedHex:null,
-          activeSlot:null });
+          pendingSanctuaryTile:null, worldPath:[], travelBag:{}, activeSlot:null });
       },
 
       // ── World map ─────────────────────────────────────────────────────
@@ -154,28 +154,83 @@ export const useGameStore = create(
         set({ world:{ ...world, tiles:revealedTiles }, worldPos:{ col, row }, sanctuaryPos:null, selectedHex:null, screen:'world' });
       },
 
-      moveOnWorld(col, row) {
+      // Show confirmation panel before committing sanctuary placement
+      requestSanctuaryPlacement(col, row) {
         const { world } = get();
         if (!world) return;
         const tile = world.tiles[row * world.width + col];
-        if (!tile || tile.fog === 'hidden') return;
-        if (!TERRAIN[tile.terrain]?.passable) return;
+        if (!tile || tile.fog === 'hidden' || !TERRAIN[tile.terrain]?.passable) return;
+        set({ pendingSanctuaryTile:{ col, row }, selectedHex:{ col, row } });
+      },
+
+      confirmSanctuaryPlacement() {
+        const { world, pendingSanctuaryTile: p } = get();
+        if (!world || !p) return;
+        const newTiles = world.tiles.map(t =>
+          t.col === p.col && t.row === p.row ? { ...t, hasSanctuary:true } : t
+        );
+        const newTiles2 = revealAround(newTiles, p.col, p.row, 3, hexesInRange, world.width, world.height);
+        set(s => ({
+          world:{ ...world, tiles:newTiles2 },
+          sanctuaryPos:{ col:p.col, row:p.row },
+          worldPos:{ col:p.col, row:p.row },
+          pendingSanctuaryTile:null, selectedHex:null,
+          log:['⌂ Sanctuary established. The work begins.', ...s.log].slice(0,14),
+        }));
+        debouncedSave(get());
+      },
+
+      cancelSanctuaryPlacement() { set({ pendingSanctuaryTile:null, selectedHex:null }); },
+
+      // Queue a path; WorldMapView steps through it
+      setWorldPath(path) { set({ worldPath: path ?? [] }); },
+
+      // Called each auto-step from WorldMapView. Returns { encounter } or null.
+      consumeStep() {
+        const { world, worldPath, travelBag } = get();
+        if (!world || !worldPath.length) { set({ worldPath:[] }); return null; }
+
+        const [next, ...rest] = worldPath;
+        const tile = world.tiles[next.row * world.width + next.col];
+        if (!tile) { set({ worldPath:[] }); return null; }
+
+        const newTiles = revealAround(world.tiles, next.col, next.row, 3, hexesInRange, world.width, world.height);
+        set({ world:{ ...world, tiles:newTiles }, worldPos:{ col:next.col, row:next.row }, worldPath:rest, selectedHex:null });
+
+        // Wild encounter check
+        const enc = rollWildEncounter(tile.terrain);
+        if (enc) {
+          set({ worldPath:[] });
+          // Small delay so position updates render before mission starts
+          setTimeout(() => get().startMission(enc, 'raid'), 100);
+          return { encounter: enc };
+        }
+        return null;
+      },
+
+      moveOnWorld(col, row) {
+        const { world, worldPos } = get();
+        if (!world || !worldPos) return;
+        const tile = world.tiles[row * world.width + col];
+        if (!tile || tile.fog === 'hidden' || !TERRAIN[tile.terrain]?.passable) return;
+        // Single-step: just move directly (WorldMapView calls setWorldPath for multi-step)
         const newTiles = revealAround(world.tiles, col, row, 3, hexesInRange, world.width, world.height);
         set({ world:{ ...world, tiles:newTiles }, worldPos:{ col, row }, selectedHex:null });
         debouncedSave(get());
       },
 
-      placeSanctuary(col, row) {
-        const { world } = get();
-        if (!world) return;
-        const tile = world.tiles[row * world.width + col];
-        if (!tile || tile.fog === 'hidden') return;
-        if (!TERRAIN[tile.terrain]?.passable) return;
-        const newTiles = world.tiles.map(t =>
-          t.col === col && t.row === row ? { ...t, hasSanctuary: true } : t
-        );
-        set({ world:{ ...world, tiles:newTiles }, sanctuaryPos:{ col, row },
-          log:['⌂ Sanctuary established.', ...get().log].slice(0, 14) });
+      depositLoot() {
+        const { travelBag, inv, worldPos, sanctuaryPos } = get();
+        if (!sanctuaryPos || !worldPos) return;
+        if (worldPos.col !== sanctuaryPos.col || worldPos.row !== sanctuaryPos.row) return;
+        if (!Object.keys(travelBag).length) return;
+        const newInv = { ...inv };
+        Object.entries(travelBag).forEach(([id, cnt]) => { newInv[id] = (newInv[id]||0) + cnt; });
+        const total = Object.values(travelBag).reduce((a,b)=>a+b,0);
+        set(s => ({
+          inv: newInv, travelBag:{},
+          log:[`⌂ Deposited ${total} item${total!==1?'s':''} into Sanctuary.`, ...s.log].slice(0,14),
+        }));
         debouncedSave(get());
       },
 
@@ -191,6 +246,7 @@ export const useGameStore = create(
           vp:           data.vp           ?? { ...DEFAULT_VP },
           roster:       data.roster       ?? [],
           inv:          data.inv          ?? {},
+          travelBag:    data.travel_bag   ?? {},
           nodes:        data.nodes        ?? [],
           book:         data.book         ?? null,
           world:        data.world        ?? null,
@@ -201,7 +257,7 @@ export const useGameStore = create(
           activeSlot:   slot,
           // Reset transient state
           ms: null, phase:'player', luq:[], noise:0, selectedHex:null,
-          equipTgt:null, loc:null,
+          equipTgt:null, loc:null, worldPath:[], pendingSanctuaryTile:null,
           screen: data.world ? 'world' : 'title',
         });
       },

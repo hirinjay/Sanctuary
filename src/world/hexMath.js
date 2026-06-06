@@ -86,3 +86,26 @@ export function hexNeighbors(col, row, mapWidth, mapHeight) {
 }
 
 export const tileKey = (col, row) => `${col},${row}`
+
+// BFS path between two hex tiles through passable, non-hidden tiles.
+// Returns array of { col, row } steps (not including start), or null if no path.
+export function bfsPath(tiles, from, to, passableFn, mapWidth, mapHeight) {
+  const key = (c, r) => `${c},${r}`
+  const queue = [{ col:from.col, row:from.row, path:[] }]
+  const visited = new Set([key(from.col, from.row)])
+
+  while (queue.length) {
+    const { col, row, path } = queue.shift()
+    if (col === to.col && row === to.row) return path
+
+    for (const n of hexNeighbors(col, row, mapWidth, mapHeight)) {
+      const k = key(n.col, n.row)
+      if (visited.has(k)) continue
+      const tile = tiles[n.row * mapWidth + n.col]
+      if (!tile || !passableFn(tile)) continue
+      visited.add(k)
+      queue.push({ col:n.col, row:n.row, path:[...path, { col:n.col, row:n.row }] })
+    }
+  }
+  return null
+}
