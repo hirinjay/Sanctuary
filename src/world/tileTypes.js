@@ -1,19 +1,37 @@
 // Terrain types — colors are Pixi hex numbers (0xRRGGBB)
 export const TERRAIN = {
-  plains:   { id:'plains',   label:'Plains',   color:0x2e4a1e, dimColor:0x18280f, passable:true  },
-  forest:   { id:'forest',   label:'Forest',   color:0x1a3a14, dimColor:0x0d1e0a, passable:true  },
-  ruins:    { id:'ruins',    label:'Ruins',    color:0x3c3420, dimColor:0x1e1a10, passable:true  },
-  mountain: { id:'mountain', label:'Mountain', color:0x40394e, dimColor:0x201c27, passable:false },
-  swamp:    { id:'swamp',    label:'Swamp',    color:0x1e3020, dimColor:0x0f1810, passable:true  },
-  water:    { id:'water',    label:'Water',    color:0x0e2038, dimColor:0x07101c, passable:false },
+  plains:   { id:'plains',   label:'Plains',   color:0x2e4a1e, dimColor:0x18280f, passable:true,  desc:'Open land. Good forage.', encounterChance:0.06 },
+  forest:   { id:'forest',   label:'Forest',   color:0x1a3a14, dimColor:0x0d1e0a, passable:true,  desc:'Dense woodland. Rich in wood.', encounterChance:0.15 },
+  ruins:    { id:'ruins',    label:'Ruins',    color:0x3c3420, dimColor:0x1e1a10, passable:true,  desc:'Old structures. Salvage possible.', encounterChance:0.20 },
+  mountain: { id:'mountain', label:'Mountain', color:0x40394e, dimColor:0x201c27, passable:false, desc:'Impassable peaks.', encounterChance:0 },
+  swamp:    { id:'swamp',    label:'Swamp',    color:0x1e3020, dimColor:0x0f1810, passable:true,  desc:'Treacherous marsh.', encounterChance:0.22 },
+  water:    { id:'water',    label:'Water',    color:0x0e2038, dimColor:0x07101c, passable:false, desc:'Deep water. No passage.', encounterChance:0 },
 }
 
 // Location types that can appear on world tiles
 export const LOC_TYPE = {
-  dungeon:  { id:'dungeon',  label:'Dungeon',     emoji:'⚔',  danger:2, lq:'uncommon', tint:0x8a2a2a },
-  camp:     { id:'camp',     label:'Raider Camp', emoji:'🔥', danger:2, lq:'uncommon', tint:0x8a6a2a },
-  village:  { id:'village',  label:'Village',     emoji:'🏘', danger:1, lq:'common',   tint:0x4a8a4a },
-  merchant: { id:'merchant', label:'Merchant',    emoji:'💰', danger:0, lq:'uncommon', tint:0x8a8a2a },
+  dungeon:  { id:'dungeon',  label:'Dungeon',        emoji:'⚔',  danger:2, lq:'uncommon', tint:0x8a2a2a, noEnemies:false },
+  camp:     { id:'camp',     label:'Raider Camp',    emoji:'🔥', danger:2, lq:'uncommon', tint:0x8a6a2a, noEnemies:false },
+  village:  { id:'village',  label:'Village',        emoji:'🏘', danger:1, lq:'common',   tint:0x4a8a4a, noEnemies:false },
+  merchant: { id:'merchant', label:'Merchant',       emoji:'💰', danger:0, lq:'uncommon', tint:0x8a8a2a, noEnemies:false },
+  cabin:    { id:'cabin',    label:'Abandoned Cabin',emoji:'🛖', danger:1, lq:'common',   tint:0x8a6a3a, noEnemies:false },
+}
+
+// Per-terrain forage loot pools and hidden-find chance
+export const FORAGE_LOOT = {
+  plains:   { pool:['food','food','cloth','stone','wood','rope'],          hiddenChance:0.03 },
+  forest:   { pool:['wood','wood','wood','rope','food','stone','clay'],     hiddenChance:0.08 },
+  ruins:    { pool:['stone','nails','scrap_iron','wood','cloth'],           hiddenChance:0.18 },
+  swamp:    { pool:['rope','clay','cloth','food','wood'],                   hiddenChance:0.05 },
+  mountain: { pool:['stone','stone','coal','scrap_iron'],                   hiddenChance:0.02 },
+}
+
+export function rollForageLoot(terrain, rng = Math.random) {
+  const table = FORAGE_LOOT[terrain] || FORAGE_LOOT.plains
+  const count = 1 + Math.floor(rng() * 2)
+  const items = Array.from({ length: count }, () => table.pool[Math.floor(rng() * table.pool.length)])
+  const hiddenFind = rng() < (table.hiddenChance || 0)
+  return { items, hiddenFind }
 }
 
 // Maps LOC_TYPE danger → loot quality string

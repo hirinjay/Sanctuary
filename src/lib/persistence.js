@@ -14,6 +14,7 @@ export async function saveRun(state, userId, slot) {
     world:            state.world,
     world_pos:        state.worldPos,
     sanctuary_pos:    state.sanctuaryPos,
+    sanctuary_grid:   state.sanctuaryGrid,
     unlocked_locs:    state.unlockedLocs,
     log:              state.log,
     varek_level:      state.vp?.level ?? 1,

@@ -76,6 +76,70 @@ export function revealTraps(tiles, units) {
   return t;
 }
 
+// Cabin interior: one or two cozy rooms, lots of loot, minimal enemies
+export function genCabinMap() {
+  const t = Array.from({ length: H }, () =>
+    Array.from({ length: W }, () => ({ type: TILE.WALL }))
+  );
+
+  // Main room — small and centered
+  const rw = 7, rh = 5;
+  const rx = Math.floor((W - rw) / 2);
+  const ry = Math.floor((H - rh) / 2);
+  for (let y = ry; y < ry + rh; y++)
+    for (let x = rx; x < rx + rw; x++)
+      t[y][x] = { type: TILE.FLOOR };
+
+  // Optional back room (storage alcove)
+  if (Math.random() > 0.4) {
+    const bx = rx + 1, by = Math.max(1, ry - 2);
+    for (let y = by; y < by + 2; y++)
+      for (let x = bx; x < bx + 4; x++)
+        if (x > 0 && x < W - 1 && y > 0 && y < H - 1) t[y][x] = { type: TILE.FLOOR };
+    t[ry][bx + 1] = { type: TILE.FLOOR };
+  }
+
+  // Lots of loot — it's a cabin with stored goods
+  for (let i = 0; i < 8; i++) {
+    for (let a = 0; a < 40; a++) {
+      const x = rx + Math.floor(Math.random() * rw);
+      const y = ry + Math.floor(Math.random() * rh);
+      if (t[y][x].type === TILE.FLOOR) { t[y][x] = { type: TILE.LOOT }; break; }
+    }
+  }
+
+  // A couple traps (booby-trapped belongings)
+  for (let i = 0; i < 2; i++) {
+    for (let a = 0; a < 30; a++) {
+      const x = rx + Math.floor(Math.random() * rw);
+      const y = ry + Math.floor(Math.random() * rh);
+      if (t[y][x].type === TILE.FLOOR) { t[y][x] = { type: TILE.TRAP }; break; }
+    }
+  }
+
+  // Connect spawn (1, H-2) to room
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const sx = 1 + dx, sy = H - 2 + dy;
+    if (sx > 0 && sx < W - 1 && sy > 0 && sy < H - 1) t[sy][sx] = { type: TILE.FLOOR };
+  }
+  const cx = rx + Math.floor(rw / 2), cy = ry + Math.floor(rh / 2);
+  let x = 1, y = H - 2;
+  while (x !== cx) { t[y][x] = { type: TILE.FLOOR }; x += x < cx ? 1 : -1; }
+  while (y !== cy) { t[y][x] = { type: TILE.FLOOR }; y += y < cy ? 1 : -1; }
+
+  // Connect exit (W-2, 1) to room
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const ex = W - 2 + dx, ey = 1 + dy;
+    if (ex > 0 && ex < W - 1 && ey > 0 && ey < H - 1) t[ey][ex] = { type: TILE.FLOOR };
+  }
+  x = W - 2; y = 1;
+  while (x !== cx) { t[y][x] = { type: TILE.FLOOR }; x += x < cx ? 1 : -1; }
+  while (y !== cy) { t[y][x] = { type: TILE.FLOOR }; y += y < cy ? 1 : -1; }
+
+  t[1][W - 2] = { type: TILE.EXIT };
+  return t;
+}
+
 // Dungeon map: carved rooms connected by corridors, rich with loot and traps
 export function genDungeonMap(danger) {
   const t = Array.from({ length: H }, () =>

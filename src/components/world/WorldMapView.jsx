@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Application, Graphics, Container, Text, TextStyle } from 'pixi.js'
 import { useGameStore } from '../../store/gameStore'
-import { hexToPixel, hexPoints, tileKey, bfsPath } from '../../world/hexMath'
+import { hexToPixel, hexPoints, tileKey } from '../../world/hexMath'
 import { TERRAIN, LOC_TYPE } from '../../world/tileTypes'
 
 const STEP_DELAY_MS = 220  // ms between auto-steps
@@ -300,9 +300,9 @@ export default function WorldMapView() {
   }
 
   function handleClick(ox, oy) {
-    const cam  = cameraRef.current
+    const cam   = cameraRef.current
     const store = useGameStore.getState()
-    const { world, worldPos, sanctuaryPos, pendingSanctuaryTile, worldPath } = store
+    const { world, sanctuaryPos, pendingSanctuaryTile } = store
     if (!world) return
 
     // Cancel any pending confirmation on background click
@@ -315,32 +315,15 @@ export default function WorldMapView() {
     const tile = world.tiles[hit.row * world.width + hit.col]
     if (!tile || tile.fog === 'hidden') return
 
-    // ── Phase 1: place sanctuary ─────────────────────────────────────────
+    // Phase 1: first click ever → request sanctuary placement
     if (!sanctuaryPos) {
       if (TERRAIN[tile.terrain]?.passable)
         store.requestSanctuaryPlacement(hit.col, hit.row)
       return
     }
 
-    // ── Phase 2: normal world interaction ────────────────────────────────
+    // Phase 2: select the hex — Travel/Enter buttons appear in WorldUI
     store.selectHex(hit.col, hit.row)
-
-    // Clicking sanctuary tile just opens the panel in WorldUI
-    if (hit.col === sanctuaryPos.col && hit.row === sanctuaryPos.row) return
-
-    // Non-passable: just select
-    if (!TERRAIN[tile.terrain]?.passable) return
-
-    // Already here: nothing to do
-    if (worldPos && hit.col === worldPos.col && hit.row === worldPos.row) return
-
-    // Compute BFS path and queue it
-    const path = bfsPath(
-      world.tiles, worldPos, hit,
-      t => TERRAIN[t.terrain]?.passable && t.fog !== 'hidden',
-      world.width, world.height
-    )
-    if (path?.length) store.setWorldPath(path)
   }
 
   // Nearest hex to pixel coords (brute-force, fast enough for click events)

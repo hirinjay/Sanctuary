@@ -257,6 +257,11 @@ export default function SanctuaryScreen() {
           }}>
             ⬡ World Map
           </button>
+          <button onClick={() => setScreen('sanctuarymap')} style={{
+            ...btn(true,'#4a8a4a'), flex:1, padding:12, fontSize:12,
+          }}>
+            🗺 View Map
+          </button>
           <button onClick={() => setScreen('home')} style={{
             ...btn(true,'#4a4a6a'), padding:'12px 18px', fontSize:12,
           }}>
