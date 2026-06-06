@@ -9,6 +9,14 @@ import { LOCS } from '../data/locations';
 import { generateWorld, revealAround } from '../world/worldGen';
 import { hexesInRange } from '../world/hexMath';
 import { TERRAIN } from '../world/tileTypes';
+import { saveRun } from '../lib/persistence';
+
+// Debounced save — avoids hammering Supabase on rapid state changes
+let _saveTimer = null
+function debouncedSave(state) {
+  clearTimeout(_saveTimer)
+  _saveTimer = setTimeout(() => saveRun(state), 1500)
+}
 
 export const useGameStore = create(
   persist(
@@ -108,6 +116,7 @@ export const useGameStore = create(
         set(s => ({ vp:newVp, roster:newRoster, inv:newInv, ms:null, screen:'sanctuary',
           unlockedLocs: newUnlocked,
           log: [...logs, ...s.log].slice(0, 14) }));
+        debouncedSave(get());
       },
 
       resetGame() {
@@ -145,6 +154,7 @@ export const useGameStore = create(
         if (!TERRAIN[tile.terrain]?.passable) return;
         const newTiles = revealAround(world.tiles, col, row, 3, hexesInRange, world.width, world.height);
         set({ world:{ ...world, tiles:newTiles }, worldPos:{ col, row }, selectedHex:null });
+        debouncedSave(get());
       },
 
       placeSanctuary(col, row) {
@@ -158,6 +168,7 @@ export const useGameStore = create(
         );
         set({ world:{ ...world, tiles:newTiles }, sanctuaryPos:{ col, row },
           log:['⌂ Sanctuary established.', ...get().log].slice(0, 14) });
+        debouncedSave(get());
       },
 
       selectHex(col, row) { set({ selectedHex: col != null ? { col, row } : null }); },
