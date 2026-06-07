@@ -20,8 +20,8 @@ Each section lists status, files touched, and exact implementation notes.
 
 ---
 
-## ⬜ Section 2 — Holy Ground Terrain
-**Status: NOT STARTED**
+## ✅ Section 2 — Holy Ground Terrain
+**Status: DONE — code written and committed**
 
 **Mechanic:**
 - New tile type `TILE.HOLY = 'holy'` in `src/data/constants.js`
@@ -175,7 +175,7 @@ When the first enemy is alerted, check if any enemy has `ambushGroup: true`. If 
 ## Implementation Order
 
 1. ✅ **Section 1** — Movement Fix (done)
-2. ⬜ **Section 2** — Holy Ground (next: ~30 mins)
+2. ✅ **Section 2** — Holy Ground (done)
 3. ⬜ **Section 3** — Map Generators (largest effort: ~2 hrs)
 4. ⬜ **Section 4** — Enemy Placement Archetypes (~1 hr)
 5. ⬜ **Section 5** — New Terrain Types (~45 mins)

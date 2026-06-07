@@ -26,6 +26,7 @@ const TILE_BG = {
   [TILE.EXIT]:     '#0c1c28',
   [TILE.TRAP_X]:   '#340d0d',
   [TILE.RUBBLE]:   '#1a1510',
+  [TILE.HOLY]:     '#1e1c08',
 };
 
 const TILE_ICON = {
@@ -34,6 +35,7 @@ const TILE_ICON = {
   [TILE.EXIT]:     '🚪',
   [TILE.TRAP_X]:   '💥',
   [TILE.RUBBLE]:   '·',
+  [TILE.HOLY]:     '⛪',
 };
 
 // Deterministic wall icon based on position + theme

@@ -629,11 +629,13 @@ export const useGameStore = create(
             return u;
           });
 
+          // 1 XP for landing the hit
+          units = applyXpToUnits(units, sel, 1, luq);
+          // Kill bonus: 1 + 1 per 5 max HP
           const killed = units.find(u => u.id===enemy.id && u.fallen && u.raiseTurn===prev.ms.turn);
           if (killed) {
-            // 1 XP base + 1 XP per 5 max HP
-            const xpGain = 1 + Math.floor((enemy.maxHp || 5) / 5);
-            units = applyXpToUnits(units, sel, xpGain, luq);
+            const killXp = 1 + Math.floor((enemy.maxHp || 5) / 5);
+            units = applyXpToUnits(units, sel, killXp, luq);
           }
 
           if (att.type === UT.VAREK) {
@@ -776,6 +778,29 @@ export const useGameStore = create(
               return { ...v, hp:nh };
             });
           }
+
+          // Holy ground — damages undead each turn, Varek every 2 turns; living enemies unaffected
+          units = units.map(u => {
+            if (u.fallen) return u;
+            if (newTiles[u.y]?.[u.x]?.type !== TILE.HOLY) return u;
+            if (u.type === UT.UNDEAD) {
+              const nh = u.hp - 1;
+              if (nh <= 0) { logs.push(`☩ ${u.name} is destroyed by holy ground!`); return { ...u, hp:0, fallen:true, raiseTurn:ms.turn }; }
+              logs.push(`☩ ${u.name} burns on holy ground (-1hp).`);
+              return { ...u, hp:nh };
+            }
+            if (u.type === UT.VAREK) {
+              const ht = (u.holyTurns || 0) + 1;
+              if (ht % 2 === 0) {
+                const nh = u.hp - 1;
+                logs.push(`☩ Holy ground weakens Varek (-1hp).`);
+                if (nh <= 0) { setTimeout(() => get().setScreen('gameover'), 300); return { ...u, hp:0, holyTurns:ht }; }
+                return { ...u, hp:nh, holyTurns:ht };
+              }
+              return { ...u, holyTurns:ht };
+            }
+            return u;
+          });
 
           const newTurn = ms.turn + 1;
 

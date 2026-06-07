@@ -2,6 +2,7 @@ export const TILE = {
   FLOOR:'floor', WALL:'wall', RUBBLE:'rubble',
   LOOT:'loot', LOOT_OPEN:'loot_open', EXIT:'exit',
   TRAP:'trap', TRAP_X:'trap_x',
+  HOLY:'holy',
 };
 export const UT = { VAREK:'varek', UNDEAD:'undead', ENEMY:'enemy' };
 export const W = 16;

@@ -285,6 +285,15 @@ export function genDungeonMap(danger, mapW, mapH) {
     }
   }
 
+  // Holy ground — old shrines and sacred markings (0-2 per dungeon)
+  for (let i = 0; i < Math.floor(Math.random() * 3); i++) {
+    for (let a = 0; a < 40; a++) {
+      const x = 1 + Math.floor(Math.random() * (W - 2));
+      const y = 1 + Math.floor(Math.random() * (H - 2));
+      if (t[y][x].type === TILE.FLOOR) { t[y][x] = { type: TILE.HOLY }; break; }
+    }
+  }
+
   t[1][W - 2] = { type: TILE.EXIT };
   return t;
 }
@@ -317,6 +326,14 @@ export function genMap(danger, mapW, mapH) {
       const x = 1+Math.floor(Math.random()*(W-2));
       const y = 1+Math.floor(Math.random()*(H-2));
       if (t[y][x].type === TILE.FLOOR) { t[y][x] = { type:TILE.TRAP }; break; }
+    }
+  }
+  // Holy ground — battlefields and ruins occasionally have sacred remnants
+  if (Math.random() < 0.4) {
+    for (let a = 0; a < 30; a++) {
+      const x = 1+Math.floor(Math.random()*(W-2));
+      const y = 1+Math.floor(Math.random()*(H-2));
+      if (t[y][x].type === TILE.FLOOR) { t[y][x] = { type:TILE.HOLY }; break; }
     }
   }
   // Guarantee exit and spawn are accessible (3×3 clear zones)
