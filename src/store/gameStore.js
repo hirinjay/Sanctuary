@@ -211,6 +211,8 @@ export const useGameStore = create(
         }
         const revealedTiles = revealAround(world.tiles, col, row, 3, hexesInRange, world.width, world.height);
         set({ world:{ ...world, tiles:revealedTiles }, worldPos:{ col, row }, sanctuaryPos:null, selectedHex:null, screen:'world' });
+        // Save immediately so the world record exists from day one of a new game
+        debouncedSave(get);
       },
 
       // Show confirmation panel before committing sanctuary placement

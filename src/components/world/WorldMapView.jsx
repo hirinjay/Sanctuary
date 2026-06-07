@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Application, Graphics, Container, Text, TextStyle } from 'pixi.js'
 import { useGameStore } from '../../store/gameStore'
-import { hexToPixel, hexPoints, tileKey, hexNeighbors } from '../../world/hexMath'
+import { hexToPixel, hexPoints, tileKey, hexNeighbors, hexDist } from '../../world/hexMath'
 import { TERRAIN, LOC_TYPE } from '../../world/tileTypes'
 
 export default function WorldMapView() {
@@ -261,9 +261,12 @@ export default function WorldMapView() {
   // ── Camera interaction ────────────────────────────────────────────────
   function setupInteraction(canvas, _app) {
     const cam = cameraRef.current
+    let startX = 0, startY = 0
 
     canvas.addEventListener('pointerdown', e => {
-      cam.drag = true; cam.lx = e.clientX; cam.ly = e.clientY
+      cam.drag = true
+      startX = e.clientX; startY = e.clientY
+      cam.lx = e.clientX; cam.ly = e.clientY
     })
     canvas.addEventListener('pointermove', e => {
       if (!cam.drag) return
@@ -274,10 +277,10 @@ export default function WorldMapView() {
     })
     canvas.addEventListener('pointerup', e => {
       if (!cam.drag) return
-      const dx = Math.abs(e.clientX - cam.lx), dy = Math.abs(e.clientY - cam.ly)
       cam.drag = false
-      // Only fire click if not a drag
-      if (dx < 4 && dy < 4) handleClick(e.offsetX, e.offsetY)
+      // Measure against the original pointerdown position, not last pointermove delta
+      const dx = Math.abs(e.clientX - startX), dy = Math.abs(e.clientY - startY)
+      if (dx < 8 && dy < 8) handleClick(e.offsetX, e.offsetY)
     })
     canvas.addEventListener('pointerleave', () => { cam.drag = false })
     canvas.addEventListener('wheel', e => {
@@ -315,10 +318,11 @@ export default function WorldMapView() {
       return
     }
 
-    // Phase 2: select for info panel, then move instantly if passable
+    // Always show tile info for any visible tile
     store.selectHex(hit.col, hit.row)
-    const isCurrentPos = worldPos && hit.col === worldPos.col && hit.row === worldPos.row
-    if (TERRAIN[tile.terrain]?.passable && !isCurrentPos) {
+
+    // Only move if the tile is exactly one step from Varek's current position
+    if (worldPos && hexDist(worldPos, hit) === 1 && TERRAIN[tile.terrain]?.passable) {
       store.travelTo(hit.col, hit.row)
     }
   }

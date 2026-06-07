@@ -27,7 +27,13 @@ export async function saveRun(state, userId, slot) {
     const { error } = await supabase
       .from('runs')
       .upsert({ user_id: userId, slot, ...payload }, { onConflict: 'user_id,slot' })
-    if (error) console.warn('[save] Supabase error:', error.message)
+    if (error) {
+      console.error('[save] Supabase error:', error.message, error)
+      // Surface schema errors so they aren't invisible during development
+      if (error.code === '42703' || error.message?.includes('column')) {
+        console.error('[save] Missing column — run the latest migration in supabase/migrations/')
+      }
+    }
   }
 
   try { localStorage.setItem(lsKey(slot), JSON.stringify({ slot, ...payload })) } catch {}
