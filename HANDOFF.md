@@ -87,8 +87,8 @@ Each map generator places enemies via placement archetype functions instead of r
 
 ---
 
-## ⬜ Section 5 — New Terrain Types
-**Status: NOT STARTED**
+## ✅ Section 5 — New Terrain Types
+**Status: DONE — code written and committed**
 
 ### Tiles to add to `constants.js`:
 ```js
@@ -179,7 +179,7 @@ When the first enemy is alerted, check if any enemy has `ambushGroup: true`. If 
 3. ✅ **Section 3** — Map Generators (done)
 4. ✅ **Section 4** — Enemy Placement Archetypes (done)
 4b. ✅ **AP Glow** — Unit border glow by AP: green=2, yellow=1, red=0 (done)
-5. ⬜ **Section 5** — New Terrain Types (~45 mins)
+5. ✅ **Section 5** — New Terrain Types (done)
 6. ⬜ **Section 6** — Objectives (~1.5 hrs)
 7. ⬜ **Section 7** — Doors & Keys (~45 mins)
 8. ⬜ **Section 8** — Group Ambush (~1 hr)

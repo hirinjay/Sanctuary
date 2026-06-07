@@ -582,6 +582,27 @@ export const useGameStore = create(
         } else if (t.type === TILE.EXIT) {
           esc = true;
           logs.push(`🚪 ${unit.name} reaches the exit!`);
+        } else if (t.type === TILE.WATER) {
+          nn += 5;
+          logs.push(`${unit.name} wades through water.`);
+          units = units.map(u => u.id===sel ? { ...u, x, y, ap:u.ap-1 } : u);
+        } else if (t.type === TILE.FIRE) {
+          logs.push(`🔥 ${unit.name} runs through fire! (-1hp)`);
+          nn += 10;
+          units = units.map(u => u.id===sel ? { ...u, hp:u.hp-1, x, y, ap:u.ap-1 } : u);
+          const af = units.find(u => u.id === sel);
+          if (af && af.hp <= 0) {
+            if (sel === 'varek') { over=true; logs.push('Varek burns!'); }
+            else { units=units.map(u => u.id===sel ? { ...u, fallen:true, raiseTurn:ms.turn } : u); logs.push(`${unit.name} burns!`); }
+          }
+        } else if (t.type === TILE.DOOR) {
+          if (!t.open) {
+            tiles[y][x] = { ...t, open: true };
+            logs.push(`${unit.name} opens the door.`);
+            units = units.map(u => u.id===sel ? { ...u, ap:u.ap-1 } : u);
+          } else {
+            units = units.map(u => u.id===sel ? { ...u, x, y, ap:u.ap-1 } : u);
+          }
         } else {
           units = units.map(u => u.id===sel ? { ...u, x, y, ap:u.ap-1 } : u);
         }
@@ -687,11 +708,14 @@ export const useGameStore = create(
 
           const friendlies = () => units.filter(f => f.type!==UT.ENEMY && !f.fallen);
 
-          // Sight check (ambush units can't spot until triggered; sleeping halves spot chance)
+          // Sight check (ambush hidden; sleeping halves spot; shadow tiles reduce enemy sight range)
           units = units.map(u => {
             if (u.type!==UT.ENEMY || u.fallen || u.alerted) return u;
             if (u.placement === 'ambush' && !u.ambushTriggered) return u;
-            const spotted = friendlies().find(f => dist(u,f)<=(u.sight||3)+noiseMod && hasLOS(ms.tiles,u.x,u.y,f.x,f.y));
+            const spotted = friendlies().find(f => {
+              const shadowPen = ms.tiles[f.y]?.[f.x]?.type === TILE.SHADOW ? 1 : 0;
+              return dist(u,f) <= (u.sight||3)+noiseMod-shadowPen && hasLOS(ms.tiles,u.x,u.y,f.x,f.y);
+            });
             if (!spotted) return u;
             const spotChance = (u.spot||0.6) * (u.sleeping ? 0.5 : 1);
             if (Math.random() < spotChance) {
@@ -849,6 +873,20 @@ export const useGameStore = create(
             return u;
           });
 
+          // Fire spread — each FIRE tile has 40% chance to ignite one adjacent FLOOR tile
+          const finalTiles = newTiles.map(r => r.map(c => ({...c})));
+          for (let fy = 0; fy < finalTiles.length; fy++) {
+            for (let fx = 0; fx < (finalTiles[0]?.length||0); fx++) {
+              if (finalTiles[fy]?.[fx]?.type !== TILE.FIRE) continue;
+              if (Math.random() >= 0.4) continue;
+              const adj = [[1,0],[-1,0],[0,1],[0,-1]].filter(([dx,dy]) => finalTiles[fy+dy]?.[fx+dx]?.type === TILE.FLOOR);
+              if (adj.length) {
+                const [dx,dy] = adj[Math.floor(Math.random()*adj.length)];
+                finalTiles[fy+dy][fx+dx] = { type: TILE.FIRE };
+              }
+            }
+          }
+
           const newTurn = ms.turn + 1;
 
           // Raid reinforcements every 10 turns
@@ -869,7 +907,7 @@ export const useGameStore = create(
           }
 
           return {
-            ms:  { ...ms, tiles:newTiles, units, turn:newTurn },
+            ms:  { ...ms, tiles:finalTiles, units, turn:newTurn },
             luq,
             log: [...logs.reverse(), ...prev.log].slice(0, 14),
           };

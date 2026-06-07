@@ -29,6 +29,10 @@ const TILE_BG = {
   [TILE.TRAP_X]:   '#340d0d',
   [TILE.RUBBLE]:   '#1a1510',
   [TILE.HOLY]:     '#1e1c08',
+  [TILE.SHADOW]:   '#07070f',
+  [TILE.WATER]:    '#081e30',
+  [TILE.ELEVATED]: '#1c1508',
+  [TILE.FIRE]:     '#2c0800',
 };
 
 const TILE_ICON = {
@@ -38,6 +42,10 @@ const TILE_ICON = {
   [TILE.TRAP_X]:   '💥',
   [TILE.RUBBLE]:   '·',
   [TILE.HOLY]:     '⛪',
+  [TILE.SHADOW]:   '🌑',
+  [TILE.WATER]:    '💧',
+  [TILE.ELEVATED]: '⛰',
+  [TILE.FIRE]:     '🔥',
 };
 
 // Deterministic wall icon based on position + theme
@@ -74,16 +82,15 @@ function tileBg(tile, visible, theme) {
   if (tile.type === TILE.TRAP)  return tile.revealed ? '#240c0c' : (THEME_FLOOR_BG[theme] || THEME_FLOOR_BG.default);
   if (tile.type === TILE.WALL)  return THEME_WALL_BG[theme]  || THEME_WALL_BG.default;
   if (tile.type === TILE.FLOOR) return THEME_FLOOR_BG[theme] || THEME_FLOOR_BG.default;
+  if (tile.type === TILE.DOOR)  return tile.open ? (THEME_FLOOR_BG[theme] || THEME_FLOOR_BG.default) : '#1c0e06';
   return TILE_BG[tile.type] || THEME_FLOOR_BG.default;
 }
 
 function tileContent(tile, visible, theme, x, y) {
   if (!visible) return null;
   if (tile.type === TILE.TRAP) return tile.revealed ? '⚠️' : null;
-  if (tile.type === TILE.WALL) {
-    const icon = wallIcon(theme, x, y);
-    return icon || null;
-  }
+  if (tile.type === TILE.WALL) return wallIcon(theme, x, y) || null;
+  if (tile.type === TILE.DOOR) return tile.open ? null : '🚪';
   return TILE_ICON[tile.type] || null;
 }
 

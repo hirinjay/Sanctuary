@@ -5,24 +5,34 @@ export const dist = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 export function walkable(tiles, x, y, units) {
   const H = tiles.length, W = tiles[0]?.length ?? 0;
   if (x < 0 || x >= W || y < 0 || y >= H) return false;
-  if (tiles[y]?.[x]?.type === TILE.WALL) return false;
+  const tile = tiles[y]?.[x];
+  if (tile?.type === TILE.WALL) return false;
+  if (tile?.type === TILE.DOOR && !tile?.open) return false;
   if (units.find(u => u.x === x && u.y === y && !u.fallen)) return false;
   return true;
 }
 
 export function moveRange(unit, tiles, units) {
-  const r = new Set();
-  const q = [{ x:unit.x, y:unit.y, s:0 }];
-  const v = new Set([`${unit.x},${unit.y}`]);
+  const r    = new Set();
+  const best = new Map([[ `${unit.x},${unit.y}`, 0 ]]);
+  const q    = [{ x:unit.x, y:unit.y, s:0 }];
   while (q.length) {
+    q.sort((a,b) => a.s - b.s);
     const { x, y, s } = q.shift();
     if (s > 0) r.add(`${x},${y}`);
     if (s >= unit.moveRange) continue;
     for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
       const nx = x+dx, ny = y+dy, k = `${nx},${ny}`;
-      if (!v.has(k) && walkable(tiles, nx, ny, units)) {
-        v.add(k);
-        q.push({ x:nx, y:ny, s:s+1 });
+      const tile = tiles[ny]?.[nx];
+      if (!tile) continue;
+      // Closed doors: always reachable from adjacent (to open them)
+      if (tile.type === TILE.DOOR && !tile.open) { if (!r.has(k)) r.add(k); continue; }
+      if (!walkable(tiles, nx, ny, units)) continue;
+      const cost = tile.type === TILE.WATER ? 2 : 1;
+      const ns   = s + cost;
+      if (ns <= unit.moveRange && ns < (best.get(k) ?? Infinity)) {
+        best.set(k, ns);
+        q.push({ x:nx, y:ny, s:ns });
       }
     }
   }
@@ -46,9 +56,10 @@ export function hasLOS(tiles, ax, ay, bx, by) {
 export function fog(units, noise, tiles) {
   const H = tiles.length, W = tiles[0]?.length ?? 0;
   const noiseMod = noise < 30 ? -1 : noise < 60 ? 0 : 1;
-  const range = 4 + noiseMod;
   const v = new Set();
   for (const u of units.filter(u => u.type !== 'enemy' && !u.fallen)) {
+    const elevMod = tiles[u.y]?.[u.x]?.type === TILE.ELEVATED ? 1 : 0;
+    const range = 4 + noiseMod + elevMod;
     for (let dy = -range; dy <= range; dy++) {
       for (let dx = -range; dx <= range; dx++) {
         if (Math.abs(dx) + Math.abs(dy) > range) continue;
@@ -294,6 +305,29 @@ export function genDungeonMap(danger, mapW, mapH) {
     }
   }
 
+  // Shadow tiles — dark alcoves adjacent to walls
+  for (let i = 0; i < 2 + Math.floor(Math.random() * 2); i++) {
+    for (let a = 0; a < 50; a++) {
+      const x = 1 + Math.floor(Math.random() * (W - 2));
+      const y = 1 + Math.floor(Math.random() * (H - 2));
+      const adjWall = [[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy]) => t[y+dy]?.[x+dx]?.type === TILE.WALL);
+      if (t[y][x].type === TILE.FLOOR && adjWall) { t[y][x] = { type: TILE.SHADOW }; break; }
+    }
+  }
+  // Doors at corridor chokepoints
+  let doorsPlaced = 0;
+  for (let cy = 2; cy < H - 2 && doorsPlaced < 3; cy++) {
+    for (let cx = 2; cx < W - 2 && doorsPlaced < 3; cx++) {
+      if (t[cy][cx].type !== TILE.FLOOR) continue;
+      const hCorridor = t[cy][cx-1]?.type === TILE.WALL && t[cy][cx+1]?.type === TILE.WALL;
+      const vCorridor = t[cy-1]?.[cx]?.type === TILE.WALL && t[cy+1]?.[cx]?.type === TILE.WALL;
+      if ((hCorridor || vCorridor) && Math.random() < 0.35) {
+        t[cy][cx] = { type: TILE.DOOR, open: false };
+        doorsPlaced++;
+      }
+    }
+  }
+
   t[1][W - 2] = { type: TILE.EXIT };
   return t;
 }
@@ -430,6 +464,10 @@ export function genRuinedTown(danger, mapW, mapH) {
   for (let i = 0; i < 2+danger; i++) {
     for (let a = 0; a < 50; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.TRAP};break;} }
   }
+  // Elevated rubble mounds — high ground among the ruins
+  for (let i = 0; i < 2; i++) {
+    for (let a = 0; a < 30; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.RUBBLE){t[ly][lx]={type:TILE.ELEVATED};break;} }
+  }
   // Town square shrine
   if (Math.random() < 0.5) t[sr[0]][sc[0]] = { type: TILE.HOLY };
   t[1][W-2] = { type: TILE.EXIT };
@@ -476,6 +514,9 @@ export function genRaiderCamp(danger, mapW, mapH) {
   for (let i = 0; i < 1+danger; i++) {
     for (let a = 0; a < 40; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.TRAP};break;} }
   }
+  // Campfire in the center of the camp
+  const cfx=Math.floor(W/2), cfy=Math.floor(H/2);
+  if(t[cfy]?.[cfx]?.type===TILE.FLOOR) t[cfy][cfx] = { type: TILE.FIRE };
   t[1][W-2] = { type: TILE.EXIT };
   return t;
 }
@@ -501,6 +542,10 @@ export function genSwamp(danger, mapW, mapH) {
   }
   for (let i = 0; i < 2+danger; i++) {
     for (let a = 0; a < 40; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.TRAP};break;} }
+  }
+  // Water patches — flooded ground
+  for (let i = 0; i < 3+Math.floor(Math.random()*2); i++) {
+    for (let a = 0; a < 40; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.WATER};break;} }
   }
   t[1][W-2] = { type: TILE.EXIT };
   return t;
@@ -528,6 +573,14 @@ export function genBattlefield(_danger, mapW, mapH) {
   // Memorial holy ground patches (2-4)
   for (let i = 0; i < 2+Math.floor(Math.random()*3); i++) {
     for (let a = 0; a < 40; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.HOLY};break;} }
+  }
+  // Elevated earthworks — defensive berms and high ground
+  for (let i = 0; i < 2+Math.floor(Math.random()*2); i++) {
+    for (let a = 0; a < 30; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.ELEVATED};break;} }
+  }
+  // Water — shell craters filled with rain
+  for (let i = 0; i < 2; i++) {
+    for (let a = 0; a < 30; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.WATER};break;} }
   }
   t[1][W-2] = { type: TILE.EXIT };
   return t;
