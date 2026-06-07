@@ -11,6 +11,7 @@ import { hexesInRange } from '../world/hexMath';
 import { TERRAIN, rollWildEncounter, rollForageLoot } from '../world/tileTypes';
 import { bfsPath } from '../world/hexMath';
 import { BUILDINGS } from '../data/buildings';
+import { generateObjective } from '../systems/objectives';
 import { saveRun } from '../lib/persistence';
 
 // Debounced save — calls get() at fire time to capture most recent state
@@ -120,13 +121,19 @@ export const useGameStore = create(
           .filter(u => !u.atBase)
           .map((u, i) => ({ ...u, x:spawnX+1+i, y:spawnY, ap:2, fallen:false, raiseTurn:null, atBase:false }));
         const enemies = locType === 'battlefield' ? [] : spawnEnemies(danger, md, tiles, spawnX, spawnY, location.threats ?? null, locType);
+        const objective = generateObjective(locType || 'default', tiles, enemies, danger);
+        // Mark the target loot tile on the map for loot_named objectives
+        const missionTiles = (objective.type === 'loot_named' && objective.targetX !== undefined)
+          ? tiles.map((row, y) => row.map((t, x) =>
+              x === objective.targetX && y === objective.targetY ? { ...t, marked: true } : t))
+          : tiles;
         set({
-          ms:    { tiles, units:[varek,...activeUndead,...enemies], turn:1, loot:[], width:mapW, height:mapH },
+          ms:    { tiles:missionTiles, units:[varek,...activeUndead,...enemies], turn:1, loot:[], width:mapW, height:mapH, objective },
           noise: md === 'raid' ? 30 : 0,
           loc:   location,
           mode:  md,
           luq:   [],
-          log:   [`${location.name} — ${md==='raid'?'Raid: enemies alerted.':'Scavenge: stay quiet.'}`],
+          log:   [`${location.name} — ${md==='raid'?'Raid: enemies alerted.':'Scavenge: stay quiet.'}`, `◼ ${objective.label}`],
           phase: 'player',
           screen:'mission',
         });
@@ -556,6 +563,7 @@ export const useGameStore = create(
         let units  = ms.units.map(u => ({ ...u }));
         let esc    = false;
         let over   = false;
+        let objective = ms.objective ? { ...ms.objective } : null;
         const t    = tiles[y][x];
 
         if (t.type === TILE.TRAP) {
@@ -582,6 +590,12 @@ export const useGameStore = create(
           logs.push(`${unit.emoji} Found ${item(iid)?.emoji} ${item(iid)?.name}!`);
           nn += 5;
           units = units.map(u => u.id===sel ? { ...u, x, y, ap:u.ap-1 } : u);
+          // loot_named objective: opening the marked cache completes it
+          if (objective?.type === 'loot_named' && objective.targetX === x && objective.targetY === y && !objective.complete) {
+            objective = { ...objective, complete: true };
+            loot.push(...(objective.bonus || []));
+            logs.push(`⭐ Marked cache recovered — objective complete!`);
+          }
         } else if (t.type === TILE.RUBBLE) {
           nn += 3;
           units = units.map(u => u.id===sel ? { ...u, x, y, ap:u.ap-1 } : u);
@@ -589,6 +603,21 @@ export const useGameStore = create(
         } else if (t.type === TILE.EXIT) {
           esc = true;
           logs.push(`🚪 ${unit.name} reaches the exit!`);
+          if (objective && !objective.complete) {
+            if (objective.type === 'survive') {
+              if (ms.turn >= objective.turns) {
+                objective = { ...objective, complete: true };
+                loot.push(...(objective.bonus || []));
+                logs.push(`⭐ Survived ${objective.turns} turns — objective complete!`);
+              }
+            } else if (objective.type === 'silent_bonus' && !objective.failed) {
+              objective = { ...objective, complete: true };
+              loot.push(...(objective.bonus || []));
+              logs.push(`⭐ Silent extraction — bonus loot!`);
+            } else if (objective.type === 'exit') {
+              objective = { ...objective, complete: true };
+            }
+          }
         } else if (t.type === TILE.WATER) {
           nn += 5;
           logs.push(`${unit.name} wades through water.`);
@@ -617,13 +646,19 @@ export const useGameStore = create(
         if (nn >= 50) {
           const was = ms.units.some(u => u.type===UT.ENEMY && u.alerted);
           units = units.map(u => u.type===UT.ENEMY ? { ...u, alerted:true } : u);
-          if (!was) logs.push('⚠️ Enemies alerted!');
+          if (!was) {
+            logs.push('⚠️ Enemies alerted!');
+            if (objective?.type === 'silent_bonus' && !objective.failed) {
+              objective = { ...objective, failed: true };
+              logs.push('✗ Silent extraction failed.');
+            }
+          }
         }
 
         tiles = revealTraps(tiles, units);
 
         set(prev => ({
-          ms:    { ...ms, tiles, units, loot },
+          ms:    { ...ms, tiles, units, loot, objective },
           noise: nn,
           log:   [...logs.reverse(), ...prev.log].slice(0, 14),
         }));
@@ -648,6 +683,8 @@ export const useGameStore = create(
         set(prev => {
           let units = prev.ms.units.map(u => ({ ...u }));
           let luq   = [...prev.luq];
+          let objective = prev.ms.objective ? { ...prev.ms.objective } : null;
+          let bonusLoot = [...prev.ms.loot];
           const logs = [`${att.emoji} ${att.name} → ${enemy.name} for ${dmg}!`];
 
           units = units.map(u => {
@@ -667,6 +704,11 @@ export const useGameStore = create(
           if (killed) {
             const killXp = 1 + Math.floor((enemy.maxHp || 5) / 5);
             units = applyXpToUnits(units, sel, killXp, luq);
+            if (objective?.type === 'eliminate' && objective.targetId === enemy.id && !objective.complete) {
+              objective = { ...objective, complete: true };
+              bonusLoot = [...bonusLoot, ...(objective.bonus || [])];
+              logs.push(`⭐ Target eliminated — objective complete!`);
+            }
           }
 
           if (att.type === UT.VAREK) {
@@ -694,7 +736,7 @@ export const useGameStore = create(
           }
 
           return {
-            ms:  { ...prev.ms, units },
+            ms:  { ...prev.ms, units, loot: bonusLoot, objective },
             luq,
             log: [...logs.reverse(), ...prev.log].slice(0, 14),
           };
@@ -712,10 +754,12 @@ export const useGameStore = create(
           let units      = ms.units.map(u => ({ ...u, ap:u.fallen?0:2 }));
           const logs     = [];
           let luq        = [...prev.luq];
+          let objective  = ms.objective ? { ...ms.objective } : null;
 
           const friendlies = () => units.filter(f => f.type!==UT.ENEMY && !f.fallen);
 
           // Sight check (ambush hidden; sleeping halves spot; shadow tiles reduce enemy sight range)
+          const preAlertCount = units.filter(u => u.type===UT.ENEMY && u.alerted).length;
           units = units.map(u => {
             if (u.type!==UT.ENEMY || u.fallen || u.alerted) return u;
             if (u.placement === 'ambush' && !u.ambushTriggered) return u;
@@ -731,6 +775,12 @@ export const useGameStore = create(
             }
             return u;
           });
+          if (units.filter(u => u.type===UT.ENEMY && u.alerted).length > preAlertCount) {
+            if (objective?.type === 'silent_bonus' && !objective.failed) {
+              objective = { ...objective, failed: true };
+              logs.push('✗ Detected — silent extraction failed.');
+            }
+          }
 
           const pendingAttacks = [];
 
@@ -920,7 +970,7 @@ export const useGameStore = create(
           }
 
           return {
-            ms:  { ...ms, tiles:finalTiles, units, turn:newTurn },
+            ms:  { ...ms, tiles:finalTiles, units, turn:newTurn, objective },
             luq,
             log: [...logs.reverse(), ...prev.log].slice(0, 14),
           };

@@ -114,8 +114,8 @@ Each new tile gets icon + distinct background colour from THEME_FLOOR_BG.
 
 ---
 
-## ⬜ Section 6 — Objective Pool
-**Status: NOT STARTED**
+## ✅ Section 6 — Objective Pool
+**Status: DONE — code written and committed**
 
 Every map has one active `objective` stored in `ms.objective`.
 Generated in `startMission` by a weighted random draw from the location-type pool.
@@ -139,7 +139,19 @@ Generated in `startMission` by a weighted random draw from the location-type poo
 ms.objective = { type, label, progress, target, complete }
 ```
 
-**Files:** New `src/systems/objectives.js`, `src/store/gameStore.js`, `src/components/screens/MissionScreen.jsx`
+**Implemented objective types:** `exit`, `eliminate`, `loot_named`, `survive`, `silent_bonus`
+Skipped for now: `escort`, `defend`, `investigate`, `rescue`, `sabotage` (require additional mechanics)
+
+**What was built:**
+- `src/systems/objectives.js` — `generateObjective(locType, tiles, units, danger)` picks from weighted pool per location type
+- `startMission`: generates objective, marks loot tile (`marked:true`) for `loot_named`, logs objective at mission start
+- `doMove`: checks loot_named on cache open, checks survive/silent_bonus on exit, fails silent_bonus on full alert
+- `doAttack`: checks eliminate on target kill, adds bonus loot to `ms.loot`
+- `endTurn`: fails silent_bonus if new enemy alerts during sight check
+- `MissionMap.jsx`: gold border + glow on marked cache tile
+- `MissionScreen.jsx`: objective bar between header and map (⭐/✗/◼ + label + survive counter)
+
+**Files:** `src/systems/objectives.js` (new), `src/store/gameStore.js`, `src/components/screens/MissionScreen.jsx`, `src/components/mission/MissionMap.jsx`
 
 ---
 
@@ -180,6 +192,6 @@ When the first enemy is alerted, check if any enemy has `ambushGroup: true`. If 
 4. ✅ **Section 4** — Enemy Placement Archetypes (done)
 4b. ✅ **AP Glow** — Unit border glow by AP: green=2, yellow=1, red=0 (done)
 5. ✅ **Section 5** — New Terrain Types (done)
-6. ⬜ **Section 6** — Objectives (~1.5 hrs)
+6. ✅ **Section 6** — Objectives (done)
 7. ⬜ **Section 7** — Doors & Keys (~45 mins)
 8. ⬜ **Section 8** — Group Ambush (~1 hr)

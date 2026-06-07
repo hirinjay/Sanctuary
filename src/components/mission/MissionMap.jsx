@@ -104,12 +104,13 @@ export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, on
       margin:'0 auto 7px',
     }}>
       {tiles.map((row, y) => row.map((tile, x) => {
-        const k   = `${x},${y}`;
-        const vis = fv.has(k);
-        const hi  = hilight.has(k);
-        const u   = units.find(u => u.x===x && u.y===y);
-        const isR = raiseable.some(r => r.x===x && r.y===y);
-        const bg  = hi ? '#0f2a0f' : isR ? '#0f0f2a' : tileBg(tile, vis, theme);
+        const k      = `${x},${y}`;
+        const vis    = fv.has(k);
+        const hi     = hilight.has(k);
+        const u      = units.find(u => u.x===x && u.y===y);
+        const isR    = raiseable.some(r => r.x===x && r.y===y);
+        const marked = tile.marked && tile.type === TILE.LOOT && vis;
+        const bg     = hi ? '#0f2a0f' : isR ? '#0f0f2a' : tileBg(tile, vis, theme);
         const content = tileContent(tile, vis, theme, x, y);
 
         const visibleUnit = u && u.ambushTriggered !== false;
@@ -124,8 +125,8 @@ export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, on
             style={{
               width:'100%', aspectRatio:'1',
               background: bg,
-              border: hi ? '1px solid #2a5a2a' : isR ? '1px solid #4a4a8a' : '1px solid transparent',
-              boxShadow: apGlow,
+              border: hi ? '1px solid #2a5a2a' : isR ? '1px solid #4a4a8a' : marked ? '1px solid #c4a882' : '1px solid transparent',
+              boxShadow: marked ? '0 0 5px 1px #c4a88288' : apGlow,
               display:'flex', alignItems:'center', justifyContent:'center',
               fontSize:9, cursor:vis ? 'pointer' : 'default', borderRadius:1,
             }}>

@@ -115,6 +115,26 @@ export default function MissionScreen() {
         </div>
       </div>
 
+      {/* Objective */}
+      {ms.objective && (() => {
+        const obj = ms.objective;
+        const done = obj.complete, fail = obj.failed;
+        return (
+          <div style={{ maxWidth:510, margin:'0 auto 4px', padding:'3px 8px', borderRadius:4, fontSize:10,
+            background: done ? '#091509' : fail ? '#150909' : '#090e1a',
+            border: `1px solid ${done ? '#3a6a3a' : fail ? '#6a2a2a' : '#2a3a5a'}`,
+            color: done ? '#5a9a5a' : fail ? '#8a4a4a' : '#c4a882',
+            display:'flex', gap:8, alignItems:'center',
+          }}>
+            <span>{done ? '⭐' : fail ? '✗' : '◼'}</span>
+            <span>{obj.label}</span>
+            {obj.type === 'survive' && !done && (
+              <span style={{ color:'#4a5a6a', marginLeft:'auto' }}>turn {turn}/{obj.turns}</span>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Map */}
       <MissionMap
         tiles={tiles} units={units} W={mapW} fv={fv}
