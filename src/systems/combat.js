@@ -1,6 +1,38 @@
 import { UT, XP_LEVELS, VAREK_LU, UNDEAD_LU } from '../data/constants';
 import { ARCHETYPES, CLASS_STATS } from '../data/archetypes';
 
+const PLACEMENT_WEIGHTS = {
+  dungeon:     ['patrol','patrol','patrol','guard','guard','sleep','roam'],
+  cabin:       ['guard','guard','sleep','patrol'],
+  wild_forest: ['roam','roam','patrol','sleep','ambush'],
+  wild_ruins:  ['patrol','roam','roam','sleep','ambush'],
+  wild_swamp:  ['roam','roam','roam','ambush','ambush'],
+  camp:        ['guard','guard','patrol','sleep','sleep'],
+  village:     ['patrol','roam','sleep','guard'],
+  default:     ['patrol','patrol','roam'],
+};
+
+function pickPlacement(locType) {
+  const key = Object.keys(PLACEMENT_WEIGHTS).find(k => locType?.startsWith(k)) ?? 'default';
+  const tbl = PLACEMENT_WEIGHTS[key];
+  return tbl[Math.floor(Math.random() * tbl.length)];
+}
+
+function genWaypoints(tiles, mapW, mapH, spawnX, spawnY, count) {
+  const pts = [];
+  for (let i = 0; i < count; i++) {
+    for (let a = 0; a < 60; a++) {
+      const x = 1 + Math.floor(Math.random() * (mapW - 2));
+      const y = 1 + Math.floor(Math.random() * (mapH - 2));
+      if (tiles?.[y]?.[x]?.type !== 'wall'
+        && Math.abs(x-spawnX)+Math.abs(y-spawnY) > 4
+        && !pts.some(p => Math.abs(p.x-x)+Math.abs(p.y-y) < 4))
+      { pts.push({x,y}); break; }
+    }
+  }
+  return pts;
+}
+
 export function xpNext(lv) {
   return XP_LEVELS[Math.min(lv, XP_LEVELS.length-1)] || 999;
 }
@@ -40,25 +72,33 @@ export function applyXpToUnits(units, uid, amt, luqRef) {
   });
 }
 
-export function spawnEnemies(danger, mode, tiles, spawnX = 1, spawnY = 10, threats = null) {
+export function spawnEnemies(danger, mode, tiles, spawnX = 1, spawnY = 10, threats = null, locType = '') {
   const pool    = threats?.length ? threats : ARCHETYPES;
   const hpMult  = 1 + (danger-1) * 0.35;
   const dmgMult = 1 + (danger-1) * 0.25;
   const mapH = tiles?.length ?? 12;
   const mapW = tiles?.[0]?.length ?? 16;
   return Array.from({ length: 1+danger }, (_, i) => {
-    const a  = pool[Math.floor(Math.random() * pool.length)];
-    const hp = Math.round(a.hp * hpMult);
+    const a   = pool[Math.floor(Math.random() * pool.length)];
+    const hp  = Math.round(a.hp * hpMult);
     const dmg = Math.max(1, Math.round(a.dmg * dmgMult));
-    // Pick a spawn position at least 5 Manhattan distance from player start
+
+    const placement   = mode === 'raid' ? 'roam' : pickPlacement(locType);
+    const sleeping    = placement === 'sleep';
+    const waypoints   = placement === 'patrol' ? genWaypoints(tiles, mapW, mapH, spawnX, spawnY, 2+Math.floor(Math.random()*2)) : undefined;
+    const triggerRow  = placement === 'ambush' ? Math.floor(mapH * 0.5) : undefined;
+
+    // Pick spawn; ambush units go in the upper half of the map
     let ex = Math.floor(mapW / 2), ey = Math.floor(mapH / 3);
+    const maxEnemyY = placement === 'ambush' ? Math.floor(mapH * 0.5) - 1 : mapH - 2;
     for (let attempt = 0; attempt < 60; attempt++) {
       const tx = 1 + Math.floor(Math.random() * (mapW - 2));
-      const ty = 1 + Math.floor(Math.random() * (mapH - 2));
+      const ty = 1 + Math.floor(Math.random() * Math.max(1, maxEnemyY - 1));
       const tooClose = Math.abs(tx - spawnX) + Math.abs(ty - spawnY) <= 5;
       const passable = tiles?.[ty]?.[tx]?.type !== 'wall';
       if (!tooClose && passable) { ex = tx; ey = ty; break; }
     }
+
     return {
       id: `e${i}`, type: UT.ENEMY,
       name: a.name, emoji: a.emoji,
@@ -67,6 +107,10 @@ export function spawnEnemies(danger, mode, tiles, spawnX = 1, spawnY = 10, threa
       ap: 2, moveRange: a.move, attackRange: a.attackRange || 1,
       fallen: false, raiseTurn: null,
       alerted: mode === 'raid',
+      placement, sleeping,
+      waypoints, wi: 0,
+      ambushTriggered: placement !== 'ambush',
+      triggerRow,
       patrol: [{ dx:1, dy:0 }, { dx:-1, dy:0 }], pi: 0,
       xp: a.xp, dc: a.dc, sight: a.sight, spot: a.spot,
       weapon: null, armor: null, level: 1, xpVal: 0,

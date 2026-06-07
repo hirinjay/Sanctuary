@@ -68,8 +68,8 @@ everything else                       → genMap (plains fallback)
 
 ---
 
-## ⬜ Section 4 — Enemy Placement Archetypes
-**Status: NOT STARTED**
+## ✅ Section 4 — Enemy Placement Archetypes
+**Status: DONE — code written and committed**
 
 Each spawned enemy gets a `placement` field that drives their AI:
 
@@ -177,7 +177,8 @@ When the first enemy is alerted, check if any enemy has `ambushGroup: true`. If 
 1. ✅ **Section 1** — Movement Fix (done)
 2. ✅ **Section 2** — Holy Ground (done)
 3. ✅ **Section 3** — Map Generators (done)
-4. ⬜ **Section 4** — Enemy Placement Archetypes (~1 hr)
+4. ✅ **Section 4** — Enemy Placement Archetypes (done)
+4b. ✅ **AP Glow** — Unit border glow by AP: green=2, yellow=1, red=0 (done)
 5. ⬜ **Section 5** — New Terrain Types (~45 mins)
 6. ⬜ **Section 6** — Objectives (~1.5 hrs)
 7. ⬜ **Section 7** — Doors & Keys (~45 mins)

@@ -118,7 +118,7 @@ export const useGameStore = create(
         const activeUndead = roster
           .filter(u => !u.atBase)
           .map((u, i) => ({ ...u, x:spawnX+1+i, y:spawnY, ap:2, fallen:false, raiseTurn:null, atBase:false }));
-        const enemies = locType === 'battlefield' ? [] : spawnEnemies(danger, md, tiles, spawnX, spawnY, location.threats ?? null);
+        const enemies = locType === 'battlefield' ? [] : spawnEnemies(danger, md, tiles, spawnX, spawnY, location.threats ?? null, locType);
         set({
           ms:    { tiles, units:[varek,...activeUndead,...enemies], turn:1, loot:[], width:mapW, height:mapH },
           noise: md === 'raid' ? 30 : 0,
@@ -687,13 +687,15 @@ export const useGameStore = create(
 
           const friendlies = () => units.filter(f => f.type!==UT.ENEMY && !f.fallen);
 
-          // Sight check
+          // Sight check (ambush units can't spot until triggered; sleeping halves spot chance)
           units = units.map(u => {
             if (u.type!==UT.ENEMY || u.fallen || u.alerted) return u;
+            if (u.placement === 'ambush' && !u.ambushTriggered) return u;
             const spotted = friendlies().find(f => dist(u,f)<=(u.sight||3)+noiseMod && hasLOS(ms.tiles,u.x,u.y,f.x,f.y));
             if (!spotted) return u;
-            if (Math.random() < (u.spot||0.6)) {
-              logs.push(`👁 ${u.name} spots ${spotted.name}! (${Math.round((u.spot||0.6)*100)}%)`);
+            const spotChance = (u.spot||0.6) * (u.sleeping ? 0.5 : 1);
+            if (Math.random() < spotChance) {
+              logs.push(`👁 ${u.name} spots ${spotted.name}!`);
               return { ...u, alerted:true };
             }
             return u;
@@ -705,6 +707,27 @@ export const useGameStore = create(
             if (u.type!==UT.ENEMY || u.fallen) return u;
             const fr  = friendlies();
             if (!fr.length) return u;
+
+            // Sleep: check wake conditions; if still asleep, skip turn
+            if (u.placement === 'sleep' && u.sleeping) {
+              const adj2 = fr.find(f => dist(u, f) <= 1);
+              if (prev.noise >= 60 || adj2) {
+                logs.push(`💀 ${u.name} jolts awake!`);
+                return { ...u, sleeping: false, alerted: true };
+              }
+              return u;
+            }
+
+            // Ambush: hidden until player crosses trigger row
+            if (u.placement === 'ambush' && !u.ambushTriggered) {
+              const trigY = u.triggerRow ?? Math.floor(ms.tiles.length / 2);
+              if (fr.some(f => f.y <= trigY)) {
+                logs.push(`⚠️ ${u.name} springs from hiding!`);
+                return { ...u, ambushTriggered: true, alerted: true };
+              }
+              return u;
+            }
+
             const adj = fr.find(f => dist(u,f) <= 1);
 
             if (adj || u.alerted) {
@@ -756,9 +779,30 @@ export const useGameStore = create(
               }
               return { ...u, alerted:true, chaseTurns:0, lastKnown };
             }
-            const p  = u.patrol[u.pi % u.patrol.length];
+            // Unalerted movement by placement type
+            if (u.placement === 'guard') return u; // stationary
+
+            if (u.placement === 'patrol' && u.waypoints?.length) {
+              const wi = u.wi ?? 0;
+              const wp = u.waypoints[wi % u.waypoints.length];
+              if (u.x === wp.x && u.y === wp.y) return { ...u, wi: (wi+1) % u.waypoints.length };
+              const path = bfsGridPath(ms.tiles, u.x, u.y, wp.x, wp.y, units);
+              if (path.length) {
+                let nx = u.x, ny = u.y, steps = 0;
+                for (const step of path) {
+                  if (steps >= (u.moveRange||1)) break;
+                  if (!walkable(ms.tiles, step.x, step.y, units)) break;
+                  nx = step.x; ny = step.y; steps++;
+                }
+                if (nx !== u.x || ny !== u.y) return { ...u, x:nx, y:ny };
+              }
+              return { ...u, wi: (wi+1) % u.waypoints.length };
+            }
+
+            // Roam / fallback: delta patrol
+            const p  = u.patrol?.[u.pi % (u.patrol?.length||1)] ?? { dx:1, dy:0 };
             const nx = u.x+p.dx, ny = u.y+p.dy;
-            return walkable(ms.tiles,nx,ny,units) ? { ...u, x:nx, y:ny, pi:u.pi+1 } : { ...u, pi:u.pi+1 };
+            return walkable(ms.tiles,nx,ny,units) ? { ...u, x:nx, y:ny, pi:(u.pi||0)+1 } : { ...u, pi:(u.pi||0)+1 };
           });
 
           const newTiles = revealTraps(ms.tiles, units);

@@ -105,9 +105,10 @@ export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, on
         const bg  = hi ? '#0f2a0f' : isR ? '#0f0f2a' : tileBg(tile, vis, theme);
         const content = tileContent(tile, vis, theme, x, y);
 
+        const visibleUnit = u && u.ambushTriggered !== false;
         return (
           <div key={k}
-            onClick={() => onCellClick(x, y, u, vis, hi)}
+            onClick={() => onCellClick(x, y, visibleUnit ? u : null, vis, hi)}
             style={{
               width:'100%', aspectRatio:'1',
               background: bg,
@@ -116,8 +117,8 @@ export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, on
               fontSize:9, cursor:vis ? 'pointer' : 'default', borderRadius:1,
             }}>
             {vis && (
-              u
-                ? <span style={{ opacity:u.fallen?.3:1, fontSize:u.id==='varek'?12:9 }}>{u.emoji}</span>
+              visibleUnit
+                ? <span style={{ opacity:u.fallen?0.3:1, fontSize:u.id==='varek'?12:9 }}>{u.sleeping ? '💤' : u.emoji}</span>
                 : content
                   ? <span style={{ fontSize: tile.type===TILE.WALL ? 10 : 7, opacity: tile.type===TILE.WALL ? 0.7 : 0.6 }}>{content}</span>
                   : null
