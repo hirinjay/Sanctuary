@@ -3,7 +3,7 @@ export const TILE = {
   LOOT:'loot', LOOT_OPEN:'loot_open', EXIT:'exit',
   TRAP:'trap', TRAP_X:'trap_x',
   HOLY:'holy',
-  SHADOW:'shadow', WATER:'water', ELEVATED:'elevated', FIRE:'fire', DOOR:'door',
+  SHADOW:'shadow', WATER:'water', ELEVATED:'elevated', FIRE:'fire', DOOR:'door', CAGE:'cage',
 };
 export const UT = { VAREK:'varek', UNDEAD:'undead', ENEMY:'enemy' };
 export const W = 16;

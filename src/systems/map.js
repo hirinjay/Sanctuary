@@ -7,6 +7,7 @@ export function walkable(tiles, x, y, units) {
   if (x < 0 || x >= W || y < 0 || y >= H) return false;
   const tile = tiles[y]?.[x];
   if (tile?.type === TILE.WALL) return false;
+  if (tile?.type === TILE.CAGE) return false;
   if (tile?.type === TILE.DOOR && !tile?.open) return false;
   if (units.find(u => u.x === x && u.y === y && !u.fallen)) return false;
   return true;
@@ -25,8 +26,8 @@ export function moveRange(unit, tiles, units) {
       const nx = x+dx, ny = y+dy, k = `${nx},${ny}`;
       const tile = tiles[ny]?.[nx];
       if (!tile) continue;
-      // Closed doors: always reachable from adjacent (to open them)
-      if (tile.type === TILE.DOOR && !tile.open) { if (!r.has(k)) r.add(k); continue; }
+      // Closed regular doors: reachable to open them. Locked doors require key — not highlighted.
+      if (tile.type === TILE.DOOR && !tile.open) { if (!tile.locked && !r.has(k)) r.add(k); continue; }
       if (!walkable(tiles, nx, ny, units)) continue;
       const cost = tile.type === TILE.WATER ? 2 : 1;
       const ns   = s + cost;
@@ -324,6 +325,34 @@ export function genDungeonMap(danger, mapW, mapH) {
       if ((hCorridor || vCorridor) && Math.random() < 0.35) {
         t[cy][cx] = { type: TILE.DOOR, open: false };
         doorsPlaced++;
+      }
+    }
+  }
+
+  // 0-2 locked doors deeper in the dungeon — require key held by a guard enemy
+  const maxLocked = danger >= 3 ? 2 : 1;
+  let lockedPlaced = 0;
+  for (let cy = Math.floor(H * 0.3); cy < H - 3 && lockedPlaced < maxLocked; cy++) {
+    for (let cx = Math.floor(W * 0.3); cx < W - 3 && lockedPlaced < maxLocked; cx++) {
+      if (t[cy][cx].type !== TILE.FLOOR) continue;
+      const hCorridor = t[cy][cx-1]?.type === TILE.WALL && t[cy][cx+1]?.type === TILE.WALL;
+      const vCorridor = t[cy-1]?.[cx]?.type === TILE.WALL && t[cy+1]?.[cx]?.type === TILE.WALL;
+      if ((hCorridor || vCorridor) && Math.random() < 0.25) {
+        t[cy][cx] = { type: TILE.DOOR, open: false, locked: true, keyId: `key_${lockedPlaced + 1}` };
+        lockedPlaced++;
+      }
+    }
+  }
+
+  // 0-1 cage in dungeon (danger 2+, 40% chance) — placed in upper-right area away from spawn
+  if (danger >= 2 && Math.random() < 0.4) {
+    let cagePlaced = false;
+    for (let cy = 2; cy < Math.floor(H * 0.4) && !cagePlaced; cy++) {
+      for (let cx = Math.floor(W * 0.6); cx < W - 2 && !cagePlaced; cx++) {
+        if (t[cy][cx].type === TILE.FLOOR) {
+          t[cy][cx] = { type: TILE.CAGE };
+          cagePlaced = true;
+        }
       }
     }
   }

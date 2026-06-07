@@ -127,8 +127,20 @@ export const useGameStore = create(
           ? tiles.map((row, y) => row.map((t, x) =>
               x === objective.targetX && y === objective.targetY ? { ...t, marked: true } : t))
           : tiles;
+        // Assign key items to guard enemies for each locked door in the map
+        const lockedKeyIds = [];
+        missionTiles.forEach(row => row.forEach(t => {
+          if (t.type === TILE.DOOR && t.locked && t.keyId) lockedKeyIds.push(t.keyId);
+        }));
+        let missionEnemies = [...enemies];
+        lockedKeyIds.forEach(keyId => {
+          const eligible = missionEnemies.filter(e => !e.holdsKey && !e.sleeping);
+          if (!eligible.length) return;
+          const tgt = eligible[Math.floor(Math.random() * eligible.length)];
+          missionEnemies = missionEnemies.map(e => e.id === tgt.id ? { ...e, holdsKey: true, keyId } : e);
+        });
         set({
-          ms:    { tiles:missionTiles, units:[varek,...activeUndead,...enemies], turn:1, loot:[], width:mapW, height:mapH, objective },
+          ms:    { tiles:missionTiles, units:[varek,...activeUndead,...missionEnemies], turn:1, loot:[], keys:[], width:mapW, height:mapH, objective },
           noise: md === 'raid' ? 30 : 0,
           loc:   location,
           mode:  md,
@@ -701,9 +713,14 @@ export const useGameStore = create(
           units = applyXpToUnits(units, sel, 1, luq);
           // Kill bonus: 1 + 1 per 5 max HP
           const killed = units.find(u => u.id===enemy.id && u.fallen && u.raiseTurn===prev.ms.turn);
+          let newKeys = prev.ms.keys ? [...prev.ms.keys] : [];
           if (killed) {
             const killXp = 1 + Math.floor((enemy.maxHp || 5) / 5);
             units = applyXpToUnits(units, sel, killXp, luq);
+            if (killed.holdsKey && killed.keyId) {
+              newKeys = [...newKeys, killed.keyId];
+              logs.push(`🔑 ${att.name} finds a key!`);
+            }
             if (objective?.type === 'eliminate' && objective.targetId === enemy.id && !objective.complete) {
               objective = { ...objective, complete: true };
               bonusLoot = [...bonusLoot, ...(objective.bonus || [])];
@@ -736,11 +753,48 @@ export const useGameStore = create(
           }
 
           return {
-            ms:  { ...prev.ms, units, loot: bonusLoot, objective },
+            ms:  { ...prev.ms, units, loot: bonusLoot, keys: newKeys, objective },
             luq,
             log: [...logs.reverse(), ...prev.log].slice(0, 14),
           };
         });
+      },
+
+      // ── Use Key ───────────────────────────────────────────────────────
+      doUseKey(x, y, sel) {
+        const s = get();
+        if (!sel || s.phase !== 'player') return;
+        const ms = s.ms;
+        const unit = ms.units.find(u => u.id === sel);
+        if (!unit || unit.fallen || unit.ap <= 0) return;
+        const tile = ms.tiles[y]?.[x];
+        if (!tile) return;
+        const isCage = tile.type === TILE.CAGE;
+        const isLockedDoor = tile.type === TILE.DOOR && tile.locked && !tile.open;
+        if (!isCage && !isLockedDoor) return;
+        const keyId = tile.keyId;
+        const keys = ms.keys || [];
+        if (keyId && !keys.includes(keyId)) {
+          get().addLog(`🔒 You don't have the right key.`);
+          return;
+        }
+        if (!keyId && keys.length === 0) {
+          get().addLog('🔒 No key to use.');
+          return;
+        }
+        const idx = keyId ? keys.indexOf(keyId) : 0;
+        const newKeys = [...keys.slice(0, idx), ...keys.slice(idx + 1)];
+        const newTiles = ms.tiles.map((row, ry) => row.map((t, rx) => {
+          if (rx !== x || ry !== y) return t;
+          if (isCage) return { type: TILE.FLOOR };
+          return { ...t, open: true, locked: false };
+        }));
+        const newUnits = ms.units.map(u => u.id === sel ? { ...u, ap: u.ap - 1 } : u);
+        const label = isCage ? 'Cage broken open!' : 'Door unlocked!';
+        set(prev => ({
+          ms: { ...prev.ms, tiles: newTiles, units: newUnits, keys: newKeys },
+          log: [`🔑 ${label}`, ...prev.log].slice(0, 14),
+        }));
       },
 
       // ── End turn (enemy AI) ──────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { useGameStore } from '../../store/gameStore';
-import { UT } from '../../data/constants';
+import { UT, TILE } from '../../data/constants';
 import { item } from '../../data/items';
 import { moveRange, fog, dist } from '../../systems/map';
 import MissionMap from '../mission/MissionMap';
@@ -22,7 +22,7 @@ function btn(on, c) {
 
 export default function MissionScreen() {
   const { ms, noise, phase, luq, log, vp, loc, mode, book, ti, travelBag, sanctuaryPos,
-          doMove, doAttack, doRaise, endTurn, endMission, setScreen, addLog } = useGameStore();
+          doMove, doAttack, doRaise, doUseKey, endTurn, endMission, setScreen, addLog } = useGameStore();
 
   // sel & hilight are local — they don't need persistence and use the hilightRef pattern
   // to avoid stale closures on grid click
@@ -92,6 +92,24 @@ export default function MissionScreen() {
   }
 
   const selUnit = sel ? units.find(u => u.id === sel) : null;
+  const keys = ms.keys || [];
+
+  // Find adjacent locked door or cage when a unit is selected and has AP
+  const adjacentKeyTarget = (selUnit && phase === 'player' && selUnit.ap > 0 && keys.length > 0) ? (() => {
+    const { x, y } = selUnit;
+    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const ax = x + dx, ay = y + dy;
+      const t = tiles[ay]?.[ax];
+      if (!t) continue;
+      const isCage = t.type === TILE.CAGE;
+      const isLockedDoor = t.type === TILE.DOOR && t.locked && !t.open;
+      if (isCage || isLockedDoor) {
+        const keyId = t.keyId;
+        if (!keyId || keys.includes(keyId)) return { x: ax, y: ay };
+      }
+    }
+    return null;
+  })() : null;
 
   const noiseColor = noise < 30 ? '#3a7a3a' : noise < 60 ? '#7a6a2a' : '#7a2a2a';
   const noiseLabel = noise < 30 ? 'Quiet (👁3)' : noise < 60 ? 'Tense (👁4)' : 'Alert! (👁5)';
@@ -112,6 +130,7 @@ export default function MissionScreen() {
           <span>❤️ {varek?.hp}/{varek?.maxHp}</span>
           <span style={{ color:t.fieldCount<t.fieldCap?'#3a7a3a':'#7a2a2a' }}>⛓ {fieldTether}</span>
           <span style={{ color:'#4a5a4a' }}>Lv{varek?.level}</span>
+          {keys.length > 0 && <span style={{ color:'#aa8833' }}>🔑×{keys.length}</span>}
         </div>
       </div>
 
@@ -164,6 +183,12 @@ export default function MissionScreen() {
 
       {/* Action buttons */}
       <div style={{ maxWidth:510, margin:'0 auto', display:'flex', gap:7, justifyContent:'flex-end' }}>
+        {adjacentKeyTarget && (
+          <button onClick={() => { doUseKey(adjacentKeyTarget.x, adjacentKeyTarget.y, sel); clearSel(); }}
+            style={btn(true,'#aa8833')}>
+            🔑 Use Key
+          </button>
+        )}
         <button onClick={() => {
           const kept = [], dropped = [];
           // Current mission loot always at risk
