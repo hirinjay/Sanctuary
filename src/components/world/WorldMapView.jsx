@@ -19,14 +19,18 @@ export default function WorldMapView() {
     let destroyed = false
 
     const app = new Application()
+    const initW = canvas.parentElement?.clientWidth || 800
+    const initH = canvas.parentElement?.clientHeight || 600
+    sizeRef.current = { w: initW, h: initH }
+
     app.init({
       canvas,
       backgroundColor: 0x020408,
       antialias: false,
       resolution: Math.min(window.devicePixelRatio || 1, 2),
       autoDensity: true,
-      width: canvas.parentElement?.clientWidth || 800,
-      height: canvas.parentElement?.clientHeight || 600,
+      width: initW,
+      height: initH,
     }).then(() => {
       if (destroyed) { app.destroy(true); return }
       appRef.current = app
@@ -101,13 +105,12 @@ export default function WorldMapView() {
       app._worldUnsubs = [unsubWorld, unsubFog, unsubPos, unsubSel]
     })
 
-    // Resize observer
+    // Resize observer — always update sizeRef; only resize renderer once app is ready
     const ro = new ResizeObserver(() => {
-      if (!appRef.current) return
       const w = canvas.parentElement?.clientWidth || 800
       const h = canvas.parentElement?.clientHeight || 600
       sizeRef.current = { w, h }
-      appRef.current.renderer.resize(w, h)
+      if (appRef.current) appRef.current.renderer.resize(w, h)
     })
     ro.observe(canvas.parentElement)
 
@@ -142,13 +145,25 @@ export default function WorldMapView() {
     for (const tile of world.tiles) {
       if (!tile.location && !tile.hasSanctuary) continue
       const { x, y } = hexToPixel(tile.col, tile.row)
-      const emoji = tile.hasSanctuary ? '⌂' : (LOC_TYPE[tile.location.type]?.emoji ?? '?')
-      const t = new Text({ text: emoji, style })
-      t.anchor.set(0.5)
-      t.position.set(x, y)
-      t.alpha = 0  // start hidden; fog layer reveals
-      t._tileKey = tileKey(tile.col, tile.row)
-      cont.addChild(t)
+
+      let child
+      if (tile.hasSanctuary) {
+        // Draw house shape with Graphics — reliable on all platforms unlike emoji canvas
+        const g = new Graphics()
+        g.poly([x, y - 11, x - 8, y - 3, x + 8, y - 3]).fill({ color: 0xdd8833, alpha: 1 })
+        g.rect(x - 6, y - 3, 12, 10).fill({ color: 0xaa5511, alpha: 1 })
+        g.rect(x - 2, y + 1, 4, 6).fill({ color: 0x220e00, alpha: 1 })
+        child = g
+      } else {
+        const t = new Text({ text: LOC_TYPE[tile.location.type]?.emoji ?? '?', style })
+        t.anchor.set(0.5)
+        t.position.set(x, y)
+        child = t
+      }
+
+      child.alpha = 0  // start hidden; fog layer reveals
+      child._tileKey = tileKey(tile.col, tile.row)
+      cont.addChild(child)
     }
   }
 

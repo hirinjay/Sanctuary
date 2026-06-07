@@ -113,7 +113,7 @@ export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, on
         const content = tileContent(tile, vis, theme, x, y);
 
         const visibleUnit = u && u.ambushTriggered !== false;
-        const apGlow = visibleUnit && !u.fallen
+        const apGlow = visibleUnit && !u.fallen && u.type !== 'enemy'
           ? u.ap >= 2 ? '0 0 4px 1px #2a7a2a'
           : u.ap === 1 ? '0 0 4px 1px #7a6a10'
           : '0 0 4px 1px #7a1a1a'

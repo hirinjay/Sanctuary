@@ -13,11 +13,12 @@ import { bfsPath } from '../world/hexMath';
 import { BUILDINGS } from '../data/buildings';
 import { saveRun } from '../lib/persistence';
 
-// Debounced save — only fires when user + slot are known
+// Debounced save — calls get() at fire time to capture most recent state
 let _saveTimer = null
-function debouncedSave(state) {
+function debouncedSave(get) {
   clearTimeout(_saveTimer)
   _saveTimer = setTimeout(() => {
+    const state = get()
     const { currentUser, activeSlot } = state
     if (activeSlot) saveRun(state, currentUser?.id ?? null, activeSlot)
   }, 1500)
@@ -132,7 +133,7 @@ export const useGameStore = create(
       },
 
       endMission(units, loot, success = false) {
-        const { roster, vp, nodes, inv, travelBag, loc } = get();
+        const { roster, vp, inv, travelBag, sanctuaryGrid } = get();
         const surv  = units.filter(u => u.type === UT.UNDEAD && !u.fallen);
         const varek = units.find(u => u.id === 'varek');
         const newVp = varek
@@ -146,11 +147,13 @@ export const useGameStore = create(
         const newBag = { ...travelBag };
         loot.forEach(id => { newBag[id] = (newBag[id]||0) + 1; });
 
-        // Node yields go to sanctuary inv directly (passive income from structures)
+        // Node yields — count placed tiles; each farm=2 food, each quarry=2 iron
         const newInv = { ...inv };
         const logs = [];
-        if (nodes.includes('farm'))   { newInv.food = (newInv.food||0)+2;             logs.push('🌱 Farm yields 2 food.'); }
-        if (nodes.includes('quarry')) { newInv.scrap_iron = (newInv.scrap_iron||0)+2; logs.push('⛏ Quarry yields 2 scrap iron.'); }
+        const farmCount   = sanctuaryGrid?.tiles?.filter(t => t.building === 'farm')?.length ?? 0;
+        const quarryCount = sanctuaryGrid?.tiles?.filter(t => t.building === 'quarry')?.length ?? 0;
+        if (farmCount > 0)   { newInv.food = (newInv.food||0)+farmCount*2; logs.push(`🌱 ${farmCount} farm${farmCount!==1?'s':''} yield${farmCount===1?'s':''} ${farmCount*2} food.`); }
+        if (quarryCount > 0) { newInv.scrap_iron = (newInv.scrap_iron||0)+quarryCount*2; logs.push(`⛏ ${quarryCount} quarr${quarryCount!==1?'ies':'y'} yield${quarryCount===1?'s':''} ${quarryCount*2} scrap iron.`); }
 
         if (success) logs.push(`✓ Secured ${loot.length} item${loot.length!==1?'s':''} — return to Sanctuary to deposit.`);
 
@@ -159,7 +162,7 @@ export const useGameStore = create(
           ms:null, worldPath:[], screen:'world',
           log: [...logs, ...s.log].slice(0, 14),
         }));
-        debouncedSave(get());
+        debouncedSave(get);
       },
 
       resetGame() {
@@ -214,7 +217,7 @@ export const useGameStore = create(
           pendingSanctuaryTile:null, selectedHex:null,
           log:['⌂ Sanctuary established. The work begins.', ...s.log].slice(0,14),
         }));
-        debouncedSave(get());
+        debouncedSave(get);
       },
 
       cancelSanctuaryPlacement() { set({ pendingSanctuaryTile:null, selectedHex:null }); },
@@ -253,7 +256,7 @@ export const useGameStore = create(
         // Single-step: just move directly (WorldMapView calls setWorldPath for multi-step)
         const newTiles = revealAround(world.tiles, col, row, 3, hexesInRange, world.width, world.height);
         set({ world:{ ...world, tiles:newTiles }, worldPos:{ col, row }, selectedHex:null });
-        debouncedSave(get());
+        debouncedSave(get);
       },
 
       depositLoot() {
@@ -268,7 +271,7 @@ export const useGameStore = create(
           inv: newInv, travelBag:{},
           log:[`⌂ Deposited ${total} item${total!==1?'s':''} into Sanctuary.`, ...s.log].slice(0,14),
         }));
-        debouncedSave(get());
+        debouncedSave(get);
       },
 
       selectHex(col, row) { set({ selectedHex: col != null ? { col, row } : null }); },
@@ -301,7 +304,7 @@ export const useGameStore = create(
         if (encounter) {
           setTimeout(() => get().startMission(encounter, 'raid'), 100);
         } else {
-          debouncedSave(get());
+          debouncedSave(get);
         }
       },
 
@@ -331,7 +334,7 @@ export const useGameStore = create(
         }
 
         set(s => ({ travelBag: newBag, world: newWorld, log: [...logs, ...s.log].slice(0, 14) }));
-        debouncedSave(get());
+        debouncedSave(get);
       },
 
       // ── Sanctuary grid ────────────────────────────────────────────────
@@ -365,6 +368,10 @@ export const useGameStore = create(
         const { baseCount } = get().ti(null);
         const hasWorkers = baseCount >= bld.workers;
         if (!canAfford || !hasWorkers) return;
+        if (bld.workerCost) {
+          const existingCount = sanctuaryGrid.tiles.filter(t => t.building === buildingId).length;
+          if (existingCount >= baseCount) return;
+        }
 
         const newInv = { ...inv };
         Object.entries(bld.cost).forEach(([id, amt]) => {
@@ -382,7 +389,7 @@ export const useGameStore = create(
           sanctuaryGrid: { ...sanctuaryGrid, tiles: newTiles },
           log: [`⌂ Built ${bld.name}!`, ...s.log].slice(0, 14),
         }));
-        debouncedSave(get());
+        debouncedSave(get);
       },
 
       demolishBuilding(col, row) {
@@ -406,7 +413,7 @@ export const useGameStore = create(
           nodes: newNodes, sanctuaryGrid: { ...sanctuaryGrid, tiles: newTiles }, inv: newInv,
           log: [`Demolished ${bld?.name || 'structure'} (50% back).`, ...s.log].slice(0, 14),
         }));
-        debouncedSave(get());
+        debouncedSave(get);
       },
 
       // ── Auth ──────────────────────────────────────────────────────────
@@ -799,7 +806,13 @@ export const useGameStore = create(
                   if (!walkable(ms.tiles, step.x, step.y, units)) break;
                   nx = step.x; ny = step.y; steps++;
                 }
-                if (nx !== u.x || ny !== u.y) return { ...u, x:nx, y:ny, alerted:true, chaseTurns:0, lastKnown };
+                if (nx !== u.x || ny !== u.y) {
+                  const movedU = { ...u, x:nx, y:ny, alerted:true, chaseTurns:0, lastKnown };
+                  // If movement brought enemy into attack range, queue attack
+                  const newAdj = fr.find(f => dist(movedU, f) <= aRange);
+                  if (newAdj) pendingAttacks.push({ attacker: movedU, target: newAdj });
+                  return movedU;
+                }
               }
               return { ...u, alerted:true, chaseTurns:0, lastKnown };
             }

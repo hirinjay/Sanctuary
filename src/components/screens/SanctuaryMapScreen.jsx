@@ -73,7 +73,11 @@ export default function SanctuaryMapScreen() {
 
   function canBuild(bld) {
     if (!established) return false
-    if (!bld.multi && nodes.includes(bld.id)) return false
+    if (!bld.multi && !bld.workerCost && nodes.includes(bld.id)) return false
+    if (bld.workerCost) {
+      const placed = tiles.filter(t => t.building === bld.id).length
+      if (placed >= workers) return false
+    }
     const afford = Object.entries(bld.cost).every(([id, amt]) => (inv[id] || 0) >= amt)
     return afford && workers >= bld.workers
   }
@@ -187,13 +191,16 @@ export default function SanctuaryMapScreen() {
               Build · {workers} worker{workers !== 1 ? 's' : ''} available
             </div>
             {BUILDINGS.map(bld => {
-              const built   = !bld.multi && nodes.includes(bld.id)
+              const built   = !bld.multi && !bld.workerCost && nodes.includes(bld.id)
               const canPlace = canBuild(bld)
               const selecting = placingId === bld.id
+              const placedCount = bld.workerCost ? tiles.filter(t => t.building === bld.id).length : 0
+              const workersFull = bld.workerCost && placedCount >= workers
               const missingWorkers = workers < bld.workers
               const missingMats = !Object.entries(bld.cost).every(([id, amt]) => (inv[id] || 0) >= amt)
               const why = !established ? 'No sanctuary'
                 : built ? 'Already built'
+                : workersFull ? `Workers full (${workers} available, ${placedCount} built)`
                 : missingWorkers ? `Need ${bld.workers} worker${bld.workers !== 1 ? 's' : ''}`
                 : missingMats ? 'Not enough materials'
                 : null
@@ -215,6 +222,7 @@ export default function SanctuaryMapScreen() {
                       <div style={{ color: '#c4a882', fontSize: 11, fontWeight: built ? 'normal' : 'bold' }}>
                         {bld.name}
                         {built && <span style={{ color: '#5a8a5a', fontWeight: 'normal', marginLeft: 6, fontSize: 10 }}>✓</span>}
+                        {bld.workerCost && placedCount > 0 && <span style={{ color: '#5a8a5a', fontWeight: 'normal', marginLeft: 6, fontSize: 10 }}>×{placedCount}</span>}
                       </div>
                       <div style={{ color: '#4a5a4a', fontSize: 9 }}>{bld.desc}</div>
                     </div>

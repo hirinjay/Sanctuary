@@ -1,13 +1,7 @@
 import { useGameStore } from '../../store/gameStore';
-import { item, RECIPES } from '../../data/items';
+import { item } from '../../data/items';
 import { xpNext } from '../../systems/combat';
 import EquipModal from '../sanctuary/EquipModal';
-
-const NODES_DEF = [
-  { id:'farm',   name:'Farm Plot', emoji:'🌱', cost:{ cloth:2, bone:1 },          builtDesc:'Yields 2 🥩 food on return' },
-  { id:'quarry', name:'Quarry',    emoji:'⛏',  cost:{ scrap_iron:2 },              builtDesc:'Yields 2 🔩 scrap iron on return' },
-  { id:'forge',  name:'Forge',     emoji:'🔥', cost:{ scrap_iron:3, bone:2 },      builtDesc:'Craft weapons & armor' },
-];
 
 const pg = { background:'#040810', minHeight:'100vh', fontFamily:'Georgia,serif', color:'#c4a882', padding:14 };
 const card = { background:'#090e1a', border:'1px solid #1a1a2a', borderRadius:8, padding:13, marginBottom:11 };
@@ -23,8 +17,8 @@ function btn(on, c) {
 }
 
 export default function SanctuaryScreen() {
-  const { vp, roster, inv, nodes, travelBag, sanctuaryPos,
-          setScreen, setEquipTgt, addLog, ti, depositLoot } = useGameStore();
+  const { vp, roster, inv, travelBag, sanctuaryPos,
+          setScreen, setEquipTgt, ti, depositLoot } = useGameStore();
   const set = useGameStore.setState;
   const t = ti(null);
   const baseCount  = t.baseCount;
@@ -193,62 +187,6 @@ export default function SanctuaryScreen() {
             {roster.length === 0 && <span style={{ fontSize:10, color:'#2a3a2a' }}>No undead in roster.</span>}
           </div>
           </>)}
-        </div>
-
-        {/* Resource Nodes */}
-        <div style={card}>
-          <div style={{ fontWeight:'bold', color:'#c4a882', marginBottom:8, fontSize:12 }}>🌐 Resource Nodes</div>
-          {!established ? (
-            <div style={{ fontSize:11, color:'#3a3a2a' }}>Establish Sanctuary to build resource nodes.</div>
-          ) : NODES_DEF.map(n => {
-            const built  = nodes.includes(n.id);
-            const afford = Object.entries(n.cost).every(([id, a]) => (inv[id]||0) >= a);
-            return (
-              <div key={n.id} style={{ padding:'7px 0', borderBottom:'1px solid #0f1220' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:11 }}>
-                  <span style={{ color:built?'#c4a882':'#6a6a5a' }}>
-                    {n.emoji} {n.name}
-                    {built && <span style={{ color:'#3a6a3a', fontSize:10 }}> — {n.builtDesc}</span>}
-                  </span>
-                  {!built && (
-                    <button disabled={!afford} onClick={() => {
-                      if (!afford) return;
-                      const ni = { ...inv };
-                      Object.entries(n.cost).forEach(([id, a]) => { ni[id]=(ni[id]||0)-a; if(!ni[id])delete ni[id]; });
-                      set(s => ({
-                        inv: ni, nodes:[...s.nodes, n.id],
-                        log:[`Built ${n.name}!`,...s.log].slice(0,14),
-                      }));
-                    }} style={btn(afford,'#5a8a5a')}>
-                      Build ({Object.entries(n.cost).map(([id,a]) => `${a}${item(id)?.emoji||''}`).join(' ')})
-                    </button>
-                  )}
-                </div>
-                {/* Forge craft panel */}
-                {built && n.id==='forge' && (
-                  <div style={{ marginTop:8 }}>
-                    <div style={{ fontSize:10, color:'#4a5a4a', marginBottom:5 }}>Craft:</div>
-                    <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
-                      {RECIPES.map(r => {
-                        const can = Object.entries(r.cost).every(([id,a]) => (inv[id]||0)>=a);
-                        return (
-                          <button key={r.id} disabled={!can} onClick={() => {
-                            if (!can) return;
-                            const ni = { ...inv };
-                            Object.entries(r.cost).forEach(([id,a]) => { ni[id]=(ni[id]||0)-a; if(!ni[id])delete ni[id]; });
-                            ni[r.id] = (ni[r.id]||0)+1;
-                            set(s => ({ inv:ni, log:[`Crafted ${r.name}!`,...s.log].slice(0,14) }));
-                          }} style={{ ...btn(can,'#8a6a3a'), fontSize:10 }}>
-                            {r.emoji} {r.name} ({Object.entries(r.cost).map(([id,a])=>`${a}${item(id)?.emoji||''}`).join(' ')})
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
         </div>
 
         <div style={{ display:'flex', gap:8 }}>

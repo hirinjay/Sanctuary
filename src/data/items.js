@@ -16,6 +16,7 @@ export const ITEMS = [
   { id:'sheet_metal',  name:'Sheet Metal',   tier:'u', emoji:'🔲', type:'mat' },
   { id:'lumber',       name:'Lumber',        tier:'u', emoji:'🪚', type:'mat' },
   { id:'coal',         name:'Coal',          tier:'c', emoji:'⚫', type:'mat' },
+  { id:'pickaxe',      name:'Pickaxe',       tier:'u', emoji:'⛏',  type:'tool' },
   { id:'rusty_blade',  name:'Rusty Blade',   tier:'c', emoji:'🗡️', type:'weapon', dmg:0, desc:'Restores full dmg (unarmed -1)' },
   { id:'iron_sword',   name:'Iron Sword',    tier:'u', emoji:'⚔️', type:'weapon', dmg:1, desc:'+1 above baseline' },
   { id:'bone_club',    name:'Bone Club',     tier:'c', emoji:'🏏', type:'weapon', dmg:0, desc:'Restores full dmg (unarmed -1)' },
@@ -33,6 +34,7 @@ export const LOOT = {
 };
 
 export const RECIPES = [
+  { id:'pickaxe',      name:'Pickaxe',      emoji:'⛏',  cost:{ scrap_iron:2, wood:1 } },
   { id:'rusty_blade',  name:'Rusty Blade',  emoji:'🗡️', cost:{ scrap_iron:2 } },
   { id:'bone_club',    name:'Bone Club',    emoji:'🏏', cost:{ bone:3 } },
   { id:'iron_sword',   name:'Iron Sword',   emoji:'⚔️', cost:{ scrap_iron:3, bone:1 } },
