@@ -1,10 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { Application, Graphics, Container, Text, TextStyle } from 'pixi.js'
 import { useGameStore } from '../../store/gameStore'
-import { hexToPixel, hexPoints, tileKey } from '../../world/hexMath'
+import { hexToPixel, hexPoints, tileKey, hexNeighbors } from '../../world/hexMath'
 import { TERRAIN, LOC_TYPE } from '../../world/tileTypes'
-
-const STEP_DELAY_MS = 220  // ms between auto-steps
 
 export default function WorldMapView() {
   const canvasRef   = useRef(null)
@@ -87,12 +85,12 @@ export default function WorldMapView() {
         }
       )
       const unsubSel = useGameStore.subscribe(
-        s => [s.selectedHex, s.worldPath],
-        ([sel, path]) => {
+        s => [s.selectedHex, s.worldPath, s.worldPos, s.world],
+        ([sel, path, pos, world]) => {
           if (!layersRef.current) return
-          redrawHighlight(sel, path, layersRef.current.hl)
+          redrawHighlight(sel, path, pos, world, layersRef.current.hl)
         },
-        { equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] }
+        { equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2] }
       )
 
       setupInteraction(canvas, app)
@@ -122,29 +120,6 @@ export default function WorldMapView() {
     }
   }, [])
 
-  // ── Auto-step along worldPath ─────────────────────────────────────────
-  useEffect(() => {
-    let timer = null
-    const step = () => {
-      const { worldPath, screen } = useGameStore.getState()
-      if (!worldPath?.length || screen !== 'world') return
-      useGameStore.getState().consumeStep()
-      // consumeStep may launch a mission (screen changes) — don't schedule next step
-      if (useGameStore.getState().screen === 'world' && useGameStore.getState().worldPath?.length) {
-        timer = setTimeout(step, STEP_DELAY_MS)
-      }
-    }
-    const unsub = useGameStore.subscribe(
-      s => s.worldPath?.length,
-      (len) => {
-        clearTimeout(timer)
-        if (len > 0 && useGameStore.getState().screen === 'world') {
-          timer = setTimeout(step, STEP_DELAY_MS)
-        }
-      }
-    )
-    return () => { clearTimeout(timer); unsub() }
-  }, [])
 
   // ── Draw terrain (static, only on world change) ──────────────────────
   function drawTerrain(world, g) {
@@ -219,17 +194,27 @@ export default function WorldMapView() {
     cont.addChild(v)
   }
 
-  // ── Highlight: selected hex + path preview ───────────────────────────
-  function redrawHighlight(sel, path, g) {
+  // ── Highlight: Varek position, reachable neighbors, selected hex ─────
+  function redrawHighlight(sel, _path, varekPos, world, g) {
     g.clear()
-    // Path preview (dim trail)
-    if (path?.length) {
-      for (const step of path) {
-        const { x, y } = hexToPixel(step.col, step.row)
-        g.poly(hexPoints(x, y)).fill({ color: 0x4a6a8a, alpha: 0.25 })
+
+    if (varekPos && world) {
+      // Orange: Varek's current tile
+      const { x: vx, y: vy } = hexToPixel(varekPos.col, varekPos.row)
+      g.poly(hexPoints(vx, vy)).fill({ color: 0xff8800, alpha: 0.28 })
+      g.poly(hexPoints(vx, vy)).stroke({ color: 0xff8800, width: 2.5, alpha: 0.95 })
+
+      // Green: adjacent passable visible tiles Varek can step to
+      for (const n of hexNeighbors(varekPos.col, varekPos.row, world.width, world.height)) {
+        const nt = world.tiles[n.row * world.width + n.col]
+        if (!nt || nt.fog === 'hidden' || !TERRAIN[nt.terrain]?.passable) continue
+        const { x: nx, y: ny } = hexToPixel(n.col, n.row)
+        g.poly(hexPoints(nx, ny)).fill({ color: 0x1a4a1a, alpha: 0.18 })
+        g.poly(hexPoints(nx, ny)).stroke({ color: 0x4a9a4a, width: 2, alpha: 0.8 })
       }
     }
-    // Selected hex
+
+    // Gold: hovered/selected hex
     if (!sel) return
     const { x, y } = hexToPixel(sel.col, sel.row)
     const pts = hexPoints(x, y)
@@ -302,10 +287,9 @@ export default function WorldMapView() {
   function handleClick(ox, oy) {
     const cam   = cameraRef.current
     const store = useGameStore.getState()
-    const { world, sanctuaryPos, pendingSanctuaryTile } = store
+    const { world, sanctuaryPos, pendingSanctuaryTile, worldPos } = store
     if (!world) return
 
-    // Cancel any pending confirmation on background click
     if (pendingSanctuaryTile) { store.cancelSanctuaryPlacement(); return }
 
     const wx  = (ox - cam.x) / cam.zoom
@@ -315,15 +299,19 @@ export default function WorldMapView() {
     const tile = world.tiles[hit.row * world.width + hit.col]
     if (!tile || tile.fog === 'hidden') return
 
-    // Phase 1: first click ever → request sanctuary placement
+    // Phase 1: place sanctuary
     if (!sanctuaryPos) {
       if (TERRAIN[tile.terrain]?.passable)
         store.requestSanctuaryPlacement(hit.col, hit.row)
       return
     }
 
-    // Phase 2: select the hex — Travel/Enter buttons appear in WorldUI
+    // Phase 2: select for info panel, then move instantly if passable
     store.selectHex(hit.col, hit.row)
+    const isCurrentPos = worldPos && hit.col === worldPos.col && hit.row === worldPos.row
+    if (TERRAIN[tile.terrain]?.passable && !isCurrentPos) {
+      store.travelTo(hit.col, hit.row)
+    }
   }
 
   // Nearest hex to pixel coords (brute-force, fast enough for click events)

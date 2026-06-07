@@ -6,10 +6,10 @@ import { item } from '../../data/items'
 export default function WorldUI() {
   const {
     world, worldPos, sanctuaryPos, selectedHex,
-    pendingSanctuaryTile, travelBag, worldPath,
+    pendingSanctuaryTile, travelBag,
     startMission, setScreen, selectHex,
     confirmSanctuaryPlacement, cancelSanctuaryPlacement,
-    depositLoot, travelTo, forageCurrentTile,
+    depositLoot, forageCurrentTile,
   } = useGameStore()
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -19,20 +19,11 @@ export default function WorldUI() {
     ? world.tiles[selectedHex.row * world.width + selectedHex.col]
     : null
 
-  const onSanctuaryTile = sanctuaryPos && worldPos &&
-    worldPos.col === sanctuaryPos.col && worldPos.row === sanctuaryPos.row
-
-  const isMoving = worldPath?.length > 0
-
   const bagCount = Object.values(travelBag).reduce((a, b) => a + b, 0)
   const bagItems = Object.entries(travelBag).map(([id, cnt]) => ({ it: item(id), cnt })).filter(x => x.it)
 
   const isVarekHere = worldPos && selectedHex &&
     worldPos.col === selectedHex.col && worldPos.row === selectedHex.row
-
-  const canTravel = selTile && !isVarekHere &&
-    TERRAIN[selTile.terrain]?.passable &&
-    selTile.fog !== 'hidden' && !isMoving
 
   const canForage = isVarekHere && selTile && !selTile.location
 
@@ -55,7 +46,6 @@ export default function WorldUI() {
         {worldPos && (
           <div style={{ color: '#4a5a4a', fontSize: 10 }}>
             {worldPos.col},{worldPos.row}
-            {isMoving && <span style={{ color: '#3a7a3a', marginLeft: 8 }}>▶ Moving…</span>}
           </div>
         )}
         {bagCount > 0 && (
@@ -85,7 +75,7 @@ export default function WorldUI() {
           background: '#06091466', border: '1px solid #1a1a2a', borderRadius: 6,
           padding: '6px 10px', fontSize: 9, color: '#2a3a3a', pointerEvents: 'none', textAlign: 'right',
         }}>
-          Click tile → select · Travel button → move<br />Scroll → zoom · Drag → pan
+          Click tile → move · Scroll → zoom · Drag → pan
         </div>
         <button onClick={() => setMenuOpen(o => !o)} style={{
           background: '#06091488', border: '1px solid #2a2a3a', borderRadius: 6,
@@ -244,18 +234,6 @@ export default function WorldUI() {
               </button>
             )}
 
-            {/* ── Varek is NOT here: travel ── */}
-            {canTravel && (
-              <button onClick={() => { travelTo(selTile.col, selTile.row); selectHex(null); }} style={actionBtn('#4a6a8a')}>
-                ▶ Travel Here
-              </button>
-            )}
-
-            {isMoving && (
-              <button onClick={() => useGameStore.getState().setWorldPath([])} style={actionBtn('#6a4a2a')}>
-                ✕ Cancel
-              </button>
-            )}
           </div>
         </div>
       )}

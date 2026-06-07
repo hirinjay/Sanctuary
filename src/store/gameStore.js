@@ -261,7 +261,7 @@ export const useGameStore = create(
 
       selectHex(col, row) { set({ selectedHex: col != null ? { col, row } : null }); },
 
-      // Compute BFS path to (col,row) and start Varek walking
+      // Walk the full BFS path instantly, stopping at first wild encounter
       travelTo(col, row) {
         const { world, worldPos } = get();
         if (!world || !worldPos) return;
@@ -273,7 +273,24 @@ export const useGameStore = create(
           t => TERRAIN[t.terrain]?.passable && t.fog !== 'hidden',
           world.width, world.height
         );
-        if (path?.length) set({ worldPath: path });
+        if (!path?.length) return;
+        let curTiles = world.tiles;
+        let finalPos = worldPos;
+        let encounter = null;
+        for (const step of path) {
+          const stepTile = curTiles[step.row * world.width + step.col];
+          if (!stepTile) break;
+          curTiles = revealAround(curTiles, step.col, step.row, 3, hexesInRange, world.width, world.height);
+          finalPos = { col: step.col, row: step.row };
+          const enc = rollWildEncounter(stepTile.terrain);
+          if (enc) { encounter = enc; break; }
+        }
+        set({ world: { ...world, tiles: curTiles }, worldPos: finalPos, worldPath: [] });
+        if (encounter) {
+          setTimeout(() => get().startMission(encounter, 'raid'), 100);
+        } else {
+          debouncedSave(get());
+        }
       },
 
       // Forage the current tile for materials; chance to discover a hidden cabin
