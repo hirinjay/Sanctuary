@@ -106,6 +106,11 @@ export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, on
         const content = tileContent(tile, vis, theme, x, y);
 
         const visibleUnit = u && u.ambushTriggered !== false;
+        const apGlow = visibleUnit && !u.fallen
+          ? u.ap >= 2 ? '0 0 4px 1px #2a7a2a'
+          : u.ap === 1 ? '0 0 4px 1px #7a6a10'
+          : '0 0 4px 1px #7a1a1a'
+          : undefined;
         return (
           <div key={k}
             onClick={() => onCellClick(x, y, visibleUnit ? u : null, vis, hi)}
@@ -113,6 +118,7 @@ export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, on
               width:'100%', aspectRatio:'1',
               background: bg,
               border: hi ? '1px solid #2a5a2a' : isR ? '1px solid #4a4a8a' : '1px solid transparent',
+              boxShadow: apGlow,
               display:'flex', alignItems:'center', justifyContent:'center',
               fontSize:9, cursor:vis ? 'pointer' : 'default', borderRadius:1,
             }}>
