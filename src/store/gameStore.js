@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { DEFAULT_VP, UT, TILE, UNAMES, VAREK_LU, UNDEAD_LU, H } from '../data/constants';
+import { DEFAULT_VP, UT, TILE, UNAMES, VAREK_LU, UNDEAD_LU } from '../data/constants';
 import { item, LOOT, BODY_LOOT } from '../data/items';
 import { genMap, genDungeonMap, genCabinMap, revealTraps, walkable, hasLOS, dist, bfsStepToward } from '../systems/map';
-import { spawnEnemies, classStats, xpNext, applyXpToUnits } from '../systems/combat';
+import { spawnEnemies, applyXpToUnits } from '../systems/combat';
 import { ARCHETYPES } from '../data/archetypes';
 import { LOCS } from '../data/locations';
 import { generateWorld, revealAround } from '../world/worldGen';
@@ -92,16 +92,7 @@ export const useGameStore = create(
       // ── Mission lifecycle ─────────────────────────────────────────────
       startMission(location, md) {
         const { vp, roster } = get();
-        const varek = {
-          id:'varek', type:UT.VAREK, name:'Varek', emoji:'🧙',
-          x:1, y:H-2, ...vp,
-          moveRange: vp.moveRange || 3,
-          trapReveal: vp.trapReveal || 1,
-          ap:2, fallen:false, raiseTurn:null,
-        };
-        const activeUndead = roster
-          .filter(u => !u.atBase)
-          .map((u, i) => ({ ...u, x:2+i, y:H-2, ap:2, fallen:false, raiseTurn:null, atBase:false }));
+        // Compute map dims first so spawn positions are correct
         const isDungeon = location.type === 'dungeon' || location.id?.startsWith('dungeon_');
         const isCabin   = location.type === 'cabin';
         const mapFn     = isDungeon ? genDungeonMap : isCabin ? genCabinMap : genMap;
@@ -112,9 +103,19 @@ export const useGameStore = create(
         const mapH = isCabin ? 12 : isDungeon
           ? 12 + Math.floor(Math.random() * 7)   // 12-18
           : 12 + Math.floor(Math.random() * 5);  // 12-16
+        const spawnX = 1, spawnY = mapH - 2;
         const tiles  = mapFn(danger, mapW, mapH);
-        const spawnY = mapH - 2;
-        const enemies = spawnEnemies(location.danger, md, tiles, 1, spawnY);
+        const varek = {
+          id:'varek', type:UT.VAREK, name:'Varek', emoji:'🧙',
+          x:spawnX, y:spawnY, ...vp,
+          moveRange: vp.moveRange || 3,
+          trapReveal: vp.trapReveal || 1,
+          ap:2, fallen:false, raiseTurn:null,
+        };
+        const activeUndead = roster
+          .filter(u => !u.atBase)
+          .map((u, i) => ({ ...u, x:spawnX+1+i, y:spawnY, ap:2, fallen:false, raiseTurn:null, atBase:false }));
+        const enemies = spawnEnemies(danger, md, tiles, spawnX, spawnY, location.threats ?? null);
         set({
           ms:    { tiles, units:[varek,...activeUndead,...enemies], turn:1, loot:[], width:mapW, height:mapH },
           noise: md === 'raid' ? 30 : 0,
@@ -504,12 +505,17 @@ export const useGameStore = create(
         const avail  = UNAMES.filter(n => !usedN.has(n));
         const pname  = avail.length ? avail[Math.floor(Math.random()*avail.length)] : `Shade${Math.floor(Math.random()*99)}`;
         const ub     = book?.ub || null;
-        const stats  = fresh
-          ? classStats(fallen.dc, true, ub)
-          : { hp:Math.ceil(fallen.maxHp*.6)+(ub?.hp||0), maxHp:Math.ceil(fallen.maxHp*.6)+(ub?.hp||0),
-              dmg:Math.max(1,fallen.dmg-1)+(ub?.dmg||0), def:0,
-              moveRange:fallen.moveRange, trapReveal:1, attackRange:fallen.attackRange||1 };
-        const cls    = fresh ? fallen.dc : `Broken ${fallen.dc}`;
+        const hpBase = Math.ceil(fallen.maxHp * (fresh ? 1.0 : 0.6));
+        const stats  = {
+          hp:          hpBase + (ub?.hp||0),
+          maxHp:       hpBase + (ub?.hp||0),
+          dmg:         (fresh ? fallen.dmg : Math.max(1, fallen.dmg-1)) + (ub?.dmg||0),
+          def:         0,
+          moveRange:   fallen.moveRange || 3,
+          trapReveal:  1,
+          attackRange: fallen.attackRange || 1,
+        };
+        const cls    = fresh ? `Risen ${fallen.name}` : `Broken ${fallen.name}`;
         const raised = {
           id:`u${Date.now()}`, type:UT.UNDEAD,
           name:`${pname} the ${cls}`, pname, cls,
@@ -625,7 +631,8 @@ export const useGameStore = create(
 
           const killed = units.find(u => u.id===enemy.id && u.fallen && u.raiseTurn===prev.ms.turn);
           if (killed) {
-            const xpGain = ((enemy.xp||6) * (prev.mode==='raid' ? 1.5 : 1)) | 0;
+            // 1 XP base + 1 XP per 5 max HP
+            const xpGain = 1 + Math.floor((enemy.maxHp || 5) / 5);
             units = applyXpToUnits(units, sel, xpGain, luq);
           }
 

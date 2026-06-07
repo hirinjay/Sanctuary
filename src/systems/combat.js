@@ -40,13 +40,14 @@ export function applyXpToUnits(units, uid, amt, luqRef) {
   });
 }
 
-export function spawnEnemies(danger, mode, tiles, spawnX = 1, spawnY = 10) {
+export function spawnEnemies(danger, mode, tiles, spawnX = 1, spawnY = 10, threats = null) {
+  const pool    = threats?.length ? threats : ARCHETYPES;
   const hpMult  = 1 + (danger-1) * 0.35;
   const dmgMult = 1 + (danger-1) * 0.25;
   const mapH = tiles?.length ?? 12;
   const mapW = tiles?.[0]?.length ?? 16;
   return Array.from({ length: 1+danger }, (_, i) => {
-    const a  = ARCHETYPES[Math.floor(Math.random() * ARCHETYPES.length)];
+    const a  = pool[Math.floor(Math.random() * pool.length)];
     const hp = Math.round(a.hp * hpMult);
     const dmg = Math.max(1, Math.round(a.dmg * dmgMult));
     // Pick a spawn position at least 5 Manhattan distance from player start

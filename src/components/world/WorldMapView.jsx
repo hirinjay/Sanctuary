@@ -70,7 +70,7 @@ export default function WorldMapView() {
       )
       const unsubFog = useGameStore.subscribe(
         s => s.world?.tiles,
-        (tiles) => {
+        (_tiles) => {
           const { world } = useGameStore.getState()
           if (!world || !layersRef.current) return
           redrawFog(world, layersRef.current.fog)
@@ -184,16 +184,17 @@ export default function WorldMapView() {
   }
 
   // ── Unit positions ────────────────────────────────────────────────────
-  function drawUnits(world, cont) {
+  function drawUnits(_world, cont) {
     cont.removeChildren()
-    const { worldPos, sanctuaryPos } = useGameStore.getState()
+    const { worldPos } = useGameStore.getState()
     if (!worldPos) return
-    const style = new TextStyle({ fontSize: 16, fill: 0xffffff })
-    const v = new Text({ text: '🧙', style })
     const { x, y } = hexToPixel(worldPos.col, worldPos.row)
-    v.anchor.set(0.5)
-    v.position.set(x, y - 4)
-    cont.addChild(v)
+    // Solid shape — reliable on all platforms unlike emoji canvas rendering
+    const g = new Graphics()
+    g.circle(x, y - 3, 7).fill({ color: 0xffffff, alpha: 0.95 })
+    g.circle(x, y - 3, 7).stroke({ color: 0xff8800, width: 2.5, alpha: 1 })
+    g.circle(x, y - 3, 3).fill({ color: 0xff8800, alpha: 0.9 })
+    cont.addChild(g)
   }
 
   // ── Highlight: Varek position, reachable neighbors, selected hex ─────
@@ -225,7 +226,7 @@ export default function WorldMapView() {
   }
 
   // ── Center camera on (col,row) ────────────────────────────────────────
-  function centerOn(col, row, app, world) {
+  function centerOn(col, row, _app, _world) {
     const cam = cameraRef.current
     const size = sizeRef.current
     const { x, y } = hexToPixel(col, row)
@@ -243,7 +244,7 @@ export default function WorldMapView() {
   }
 
   // ── Camera interaction ────────────────────────────────────────────────
-  function setupInteraction(canvas, app) {
+  function setupInteraction(canvas, _app) {
     const cam = cameraRef.current
 
     canvas.addEventListener('pointerdown', e => {

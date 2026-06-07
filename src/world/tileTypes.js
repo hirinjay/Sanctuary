@@ -96,6 +96,7 @@ export function rollWildEncounter(terrain, rng = Math.random) {
     lq:       enc.lq,
     isWild:   true,
     wildUnit: threat,
+    threats:  enc.threats,
     links:    [],
     desc:     '',
   }
