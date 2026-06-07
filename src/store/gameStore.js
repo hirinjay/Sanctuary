@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { DEFAULT_VP, UT, TILE, UNAMES, VAREK_LU, UNDEAD_LU } from '../data/constants';
 import { item, LOOT, BODY_LOOT } from '../data/items';
-import { genMap, genDungeonMap, genCabinMap, revealTraps, walkable, hasLOS, dist, bfsStepToward } from '../systems/map';
+import { genMap, genDungeonMap, genCabinMap, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath } from '../systems/map';
 import { spawnEnemies, applyXpToUnits } from '../systems/combat';
 import { ARCHETYPES } from '../data/archetypes';
 import { LOCS } from '../data/locations';
@@ -715,8 +715,16 @@ export const useGameStore = create(
                     if (nc >= 2) { logs.push(`${u.name} finds nothing — resuming patrol.`); return { ...u, alerted:false, chaseTurns:0, lastKnown:null }; }
                     return { ...u, chaseTurns:nc, lastKnown:null };
                   }
-                  const step = bfsStepToward(ms.tiles, u.x, u.y, lastKnown.x, lastKnown.y, units);
-                  if (step) return { ...u, x:step.x, y:step.y, chaseTurns:0, lastKnown };
+                  const path = bfsGridPath(ms.tiles, u.x, u.y, lastKnown.x, lastKnown.y, units);
+                  if (path.length) {
+                    let nx = u.x, ny = u.y, steps = 0;
+                    for (const step of path) {
+                      if (steps >= (u.moveRange || 1)) break;
+                      if (!walkable(ms.tiles, step.x, step.y, units)) break;
+                      nx = step.x; ny = step.y; steps++;
+                    }
+                    if (nx !== u.x || ny !== u.y) return { ...u, x:nx, y:ny, chaseTurns:0, lastKnown };
+                  }
                   return { ...u, chaseTurns:(u.chaseTurns||0)+1, lastKnown };
                 }
                 const nc = (u.chaseTurns||0)+1;
@@ -730,8 +738,17 @@ export const useGameStore = create(
                 pendingAttacks.push({ attacker:u, target:tgt });
                 return { ...u, alerted:true, chaseTurns:0, lastKnown };
               }
-              const step = bfsStepToward(ms.tiles, u.x, u.y, tgt.x, tgt.y, units);
-              if (step) return { ...u, x:step.x, y:step.y, alerted:true, chaseTurns:0, lastKnown };
+              const path = bfsGridPath(ms.tiles, u.x, u.y, tgt.x, tgt.y, units);
+              if (path.length) {
+                let nx = u.x, ny = u.y, steps = 0;
+                for (const step of path) {
+                  if (steps >= (u.moveRange || 1)) break;
+                  if (step.x === tgt.x && step.y === tgt.y) break;
+                  if (!walkable(ms.tiles, step.x, step.y, units)) break;
+                  nx = step.x; ny = step.y; steps++;
+                }
+                if (nx !== u.x || ny !== u.y) return { ...u, x:nx, y:ny, alerted:true, chaseTurns:0, lastKnown };
+              }
               return { ...u, alerted:true, chaseTurns:0, lastKnown };
             }
             const p  = u.patrol[u.pi % u.patrol.length];

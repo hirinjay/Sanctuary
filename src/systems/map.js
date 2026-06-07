@@ -79,6 +79,38 @@ export function revealTraps(tiles, units) {
   return t;
 }
 
+// BFS full path from (fromX,fromY) to (toX,toY) — returns ordered step array (not including start)
+export function bfsPath(tiles, fromX, fromY, toX, toY, units) {
+  if (fromX === toX && fromY === toY) return [];
+  const prev = new Map();
+  const q = [{ x: fromX, y: fromY }];
+  prev.set(`${fromX},${fromY}`, null);
+
+  while (q.length) {
+    const cur = q.shift();
+    if (cur.x === toX && cur.y === toY) {
+      const path = [];
+      let node = cur;
+      while (true) {
+        const par = prev.get(`${node.x},${node.y}`);
+        if (par === null) break;
+        path.unshift(node);
+        node = par;
+      }
+      return path;
+    }
+    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const nx = cur.x + dx, ny = cur.y + dy;
+      const k = `${nx},${ny}`;
+      if (!prev.has(k)) {
+        const canStep = (nx === toX && ny === toY) || walkable(tiles, nx, ny, units);
+        if (canStep) { prev.set(k, cur); q.push({ x: nx, y: ny }); }
+      }
+    }
+  }
+  return [];
+}
+
 // BFS next-step pathfinding for alerted enemies — routes around walls
 export function bfsStepToward(tiles, fromX, fromY, toX, toY, units) {
   if (fromX === toX && fromY === toY) return null;
