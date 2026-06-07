@@ -10,11 +10,12 @@ export const TERRAIN = {
 
 // Location types that can appear on world tiles
 export const LOC_TYPE = {
-  dungeon:  { id:'dungeon',  label:'Dungeon',        emoji:'⚔',  danger:2, lq:'uncommon', tint:0x8a2a2a, noEnemies:false },
-  camp:     { id:'camp',     label:'Raider Camp',    emoji:'🔥', danger:2, lq:'uncommon', tint:0x8a6a2a, noEnemies:false },
-  village:  { id:'village',  label:'Village',        emoji:'🏘', danger:1, lq:'common',   tint:0x4a8a4a, noEnemies:false },
-  merchant: { id:'merchant', label:'Merchant',       emoji:'💰', danger:0, lq:'uncommon', tint:0x8a8a2a, noEnemies:false },
-  cabin:    { id:'cabin',    label:'Abandoned Cabin',emoji:'🛖', danger:1, lq:'common',   tint:0x8a6a3a, noEnemies:false },
+  dungeon:     { id:'dungeon',     label:'Dungeon',        emoji:'⚔',  danger:2, lq:'uncommon', tint:0x8a2a2a, noEnemies:false },
+  camp:        { id:'camp',        label:'Raider Camp',    emoji:'🔥', danger:2, lq:'uncommon', tint:0x8a6a2a, noEnemies:false },
+  village:     { id:'village',     label:'Village',        emoji:'🏘', danger:1, lq:'common',   tint:0x4a8a4a, noEnemies:false },
+  merchant:    { id:'merchant',    label:'Merchant',       emoji:'💰', danger:0, lq:'uncommon', tint:0x8a8a2a, noEnemies:false },
+  cabin:       { id:'cabin',       label:'Abandoned Cabin',emoji:'🛖', danger:1, lq:'common',   tint:0x8a6a3a, noEnemies:false },
+  battlefield: { id:'battlefield', label:'Battlefield',    emoji:'🗡', danger:1, lq:'uncommon', tint:0x6a5a3a, noEnemies:true  },
 }
 
 // Per-terrain forage loot pools and hidden-find chance

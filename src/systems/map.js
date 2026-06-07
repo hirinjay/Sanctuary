@@ -348,3 +348,238 @@ export function genMap(danger, mapW, mapH) {
   t[1][W-2] = { type:TILE.EXIT };
   return t;
 }
+
+// Forest: dense tree walls, organic winding paths carved by drunkard's walk
+export function genForest(danger, mapW, mapH) {
+  const W = mapW ?? 22, H = mapH ?? 18;
+  const t = Array.from({ length: H }, () =>
+    Array.from({ length: W }, () => ({ type: TILE.WALL }))
+  );
+  const carve = (x, y) => { if (x > 0 && x < W-1 && y > 0 && y < H-1) t[y][x] = { type: TILE.FLOOR }; };
+  // Four drunken walks from random starts to open up clearings
+  for (let walk = 0; walk < 4; walk++) {
+    let x = 1 + Math.floor(Math.random() * (W-2));
+    let y = 1 + Math.floor(Math.random() * (H-2));
+    for (let step = 0; step < Math.floor(W * H / 3); step++) {
+      carve(x, y);
+      const d = Math.floor(Math.random() * 4);
+      if (d === 0 && x < W-2) x++;
+      else if (d === 1 && x > 1) x--;
+      else if (d === 2 && y < H-2) y++;
+      else if (d === 3 && y > 1)  y--;
+    }
+  }
+  // Guarantee L-path from spawn to exit so map is always traversable
+  const [sx, sy, ex, ey] = [1, H-2, W-2, 1];
+  let x = sx, y = sy;
+  while (x !== ex) { carve(x, y); x += x < ex ? 1 : -1; }
+  while (y !== ey) { carve(x, y); y += y < ey ? 1 : -1; }
+  // Clear spawn + exit zones
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const fx = sx+dx, fy = sy+dy; if (fx > 0 && fx < W-1 && fy > 0 && fy < H-1) t[fy][fx] = { type: TILE.FLOOR };
+    const fx2 = ex+dx, fy2 = ey+dy; if (fx2 > 0 && fx2 < W-1 && fy2 > 0 && fy2 < H-1) t[fy2][fx2] = { type: TILE.FLOOR };
+  }
+  for (let i = 0; i < 3+danger; i++) {
+    for (let a = 0; a < 40; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.LOOT};break;} }
+  }
+  for (let i = 0; i < 1+danger; i++) {
+    for (let a = 0; a < 40; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.TRAP};break;} }
+  }
+  t[1][W-2] = { type: TILE.EXIT };
+  return t;
+}
+
+// Ruined town: street grid with building-block interiors, some collapsed to rubble
+export function genRuinedTown(danger, mapW, mapH) {
+  const W = mapW ?? 20, H = mapH ?? 16;
+  const t = Array.from({ length: H }, () =>
+    Array.from({ length: W }, () => ({ type: TILE.WALL }))
+  );
+  const sr = [Math.floor(H*0.35), Math.floor(H*0.65)];
+  const sc = [Math.floor(W*0.35), Math.floor(W*0.65)];
+  // Carve streets
+  for (let x = 1; x < W-1; x++) { t[sr[0]][x] = { type: TILE.FLOOR }; t[sr[1]][x] = { type: TILE.FLOOR }; }
+  for (let y = 1; y < H-1; y++) { t[y][sc[0]] = { type: TILE.FLOOR }; t[y][sc[1]] = { type: TILE.FLOOR }; }
+  // Carve building blocks between streets
+  const blocks = [
+    [1,1,sc[0]-1,sr[0]-1],[sc[0]+1,1,sc[1]-1,sr[0]-1],[sc[1]+1,1,W-2,sr[0]-1],
+    [1,sr[0]+1,sc[0]-1,sr[1]-1],[sc[0]+1,sr[0]+1,sc[1]-1,sr[1]-1],[sc[1]+1,sr[0]+1,W-2,sr[1]-1],
+    [1,sr[1]+1,sc[0]-1,H-2],[sc[0]+1,sr[1]+1,sc[1]-1,H-2],[sc[1]+1,sr[1]+1,W-2,H-2],
+  ];
+  for (const [x1,y1,x2,y2] of blocks) {
+    if (x2 < x1 || y2 < y1) continue;
+    const collapsed = Math.random() < 0.4;
+    for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) {
+      if (x < 1 || x > W-2 || y < 1 || y > H-2) continue;
+      t[y][x] = { type: collapsed ? TILE.RUBBLE : TILE.FLOOR };
+    }
+    // Door cut into bottom wall of intact buildings
+    if (!collapsed && y2+1 < H-1) {
+      const doorX = Math.min(W-2, Math.max(1, x1+Math.floor((x2-x1)/2)));
+      t[y2][doorX] = { type: TILE.FLOOR };
+    }
+  }
+  // Ensure spawn/exit clear
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const fx=1+dx,fy=H-2+dy; if(fx>0&&fx<W-1&&fy>0&&fy<H-1) t[fy][fx]={type:TILE.FLOOR};
+    const fx2=W-2+dx,fy2=1+dy; if(fx2>0&&fx2<W-1&&fy2>0&&fy2<H-1) t[fy2][fx2]={type:TILE.FLOOR};
+  }
+  for (let i = 0; i < 5+danger*2; i++) {
+    for (let a = 0; a < 50; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.LOOT};break;} }
+  }
+  for (let i = 0; i < 2+danger; i++) {
+    for (let a = 0; a < 50; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.TRAP};break;} }
+  }
+  // Town square shrine
+  if (Math.random() < 0.5) t[sr[0]][sc[0]] = { type: TILE.HOLY };
+  t[1][W-2] = { type: TILE.EXIT };
+  return t;
+}
+
+// Raider camp: open ground, tent clusters, rear stash, perimeter traps
+export function genRaiderCamp(danger, mapW, mapH) {
+  const W = mapW ?? 18, H = mapH ?? 14;
+  // Camps are open — start with floor, add border walls and tent walls
+  const t = Array.from({ length: H }, (_, y) =>
+    Array.from({ length: W }, (_, x) =>
+      (x===0||x===W-1||y===0||y===H-1) ? { type: TILE.WALL } : { type: TILE.FLOOR }
+    )
+  );
+  // Tent clusters (small walled rooms scattered around camp)
+  const tentSpots = [
+    [2,2],[W-6,2],[2,H-6],[W-6,H-6],[Math.floor(W/2)-2,Math.floor(H/2)-2],
+  ];
+  for (const [tx,ty] of tentSpots) {
+    if (Math.random() < 0.7) {
+      const tw=3, th=2;
+      for (let y=ty; y<=ty+th+1&&y<H-1; y++) for (let x=tx; x<=tx+tw+1&&x<W-1; x++) {
+        if(y===ty||y===ty+th+1||x===tx||x===tx+tw+1) t[y][x]={type:TILE.WALL};
+      }
+      // Door cut in tent wall
+      const openY = ty+1;
+      if (openY < H-1 && tx > 0) t[openY][tx] = { type: TILE.FLOOR };
+    }
+  }
+  // Clear spawn/exit
+  for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++) {
+    const fx=1+dx,fy=H-2+dy; if(fx>0&&fx<W-1&&fy>0&&fy<H-1) t[fy][fx]={type:TILE.FLOOR};
+    const fx2=W-2+dx,fy2=1+dy; if(fx2>0&&fx2<W-1&&fy2>0&&fy2<H-1) t[fy2][fx2]={type:TILE.FLOOR};
+  }
+  // Loot stash in back-right quadrant
+  for (let i = 0; i < 4+danger; i++) {
+    for (let a = 0; a < 40; a++) {
+      const lx=Math.floor(W*0.55)+Math.floor(Math.random()*Math.floor(W*0.4));
+      const ly=Math.floor(H*0.55)+Math.floor(Math.random()*Math.floor(H*0.4));
+      if(lx>0&&lx<W-1&&ly>0&&ly<H-1&&t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.LOOT};break;}
+    }
+  }
+  for (let i = 0; i < 1+danger; i++) {
+    for (let a = 0; a < 40; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.TRAP};break;} }
+  }
+  t[1][W-2] = { type: TILE.EXIT };
+  return t;
+}
+
+// Swamp: open muddy terrain, scattered debris and sinkholes
+export function genSwamp(danger, mapW, mapH) {
+  const W = mapW ?? 20, H = mapH ?? 16;
+  const t = [];
+  for (let y = 0; y < H; y++) {
+    t[y] = [];
+    for (let x = 0; x < W; x++) {
+      if (x===0||x===W-1||y===0||y===H-1) { t[y][x]={type:TILE.WALL}; continue; }
+      const r = Math.random();
+      t[y][x] = { type: r < 0.07 ? TILE.WALL : r < 0.17 ? TILE.RUBBLE : TILE.FLOOR };
+    }
+  }
+  for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++) {
+    const fx=1+dx,fy=H-2+dy; if(fx>0&&fx<W-1&&fy>0&&fy<H-1) t[fy][fx]={type:TILE.FLOOR};
+    const fx2=W-2+dx,fy2=1+dy; if(fx2>0&&fx2<W-1&&fy2>0&&fy2<H-1) t[fy2][fx2]={type:TILE.FLOOR};
+  }
+  for (let i = 0; i < 4+danger; i++) {
+    for (let a = 0; a < 40; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.LOOT};break;} }
+  }
+  for (let i = 0; i < 2+danger; i++) {
+    for (let a = 0; a < 40; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.TRAP};break;} }
+  }
+  t[1][W-2] = { type: TILE.EXIT };
+  return t;
+}
+
+// Battlefield: open crater-filled field, rich loot, holy memorial patches, no live enemies
+export function genBattlefield(_danger, mapW, mapH) {
+  const W = mapW ?? 24, H = mapH ?? 18;
+  const t = [];
+  for (let y = 0; y < H; y++) {
+    t[y] = [];
+    for (let x = 0; x < W; x++) {
+      if (x===0||x===W-1||y===0||y===H-1) { t[y][x]={type:TILE.WALL}; continue; }
+      t[y][x] = { type: Math.random() < 0.14 ? TILE.RUBBLE : TILE.FLOOR };
+    }
+  }
+  for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++) {
+    const fx=1+dx,fy=H-2+dy; if(fx>0&&fx<W-1&&fy>0&&fy<H-1) t[fy][fx]={type:TILE.FLOOR};
+    const fx2=W-2+dx,fy2=1+dy; if(fx2>0&&fx2<W-1&&fy2>0&&fy2<H-1) t[fy2][fx2]={type:TILE.FLOOR};
+  }
+  // Rich loot from fallen soldiers
+  for (let i = 0; i < 12; i++) {
+    for (let a = 0; a < 50; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.LOOT};break;} }
+  }
+  // Memorial holy ground patches (2-4)
+  for (let i = 0; i < 2+Math.floor(Math.random()*3); i++) {
+    for (let a = 0; a < 40; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.HOLY};break;} }
+  }
+  t[1][W-2] = { type: TILE.EXIT };
+  return t;
+}
+
+// Abandoned village: mix of intact and collapsed buildings around a central square
+export function genAbandonedVillage(danger, mapW, mapH) {
+  const W = mapW ?? 18, H = mapH ?? 16;
+  const t = Array.from({ length: H }, () =>
+    Array.from({ length: W }, () => ({ type: TILE.WALL }))
+  );
+  // Central square
+  const qx=Math.floor(W/2)-2, qy=Math.floor(H/2)-2;
+  for (let y=qy; y<qy+5&&y<H-1; y++) for (let x=qx; x<qx+5&&x<W-1; x++)
+    if (x>0&&y>0) t[y][x]={type:TILE.FLOOR};
+  // Buildings scattered around square
+  for (let i = 0; i < 5+Math.floor(Math.random()*2); i++) {
+    const bw=3+Math.floor(Math.random()*3), bh=2+Math.floor(Math.random()*3);
+    const bx=1+Math.floor(Math.random()*(W-bw-2)), by=1+Math.floor(Math.random()*(H-bh-2));
+    const collapsed = Math.random() < 0.35;
+    for (let y=by; y<by+bh; y++) for (let x=bx; x<bx+bw; x++) {
+      if (x<1||x>W-2||y<1||y>H-2) continue;
+      if (y===by||y===by+bh-1||x===bx||x===bx+bw-1)
+        t[y][x] = { type: collapsed ? TILE.RUBBLE : TILE.WALL };
+      else
+        t[y][x] = { type: collapsed ? TILE.RUBBLE : TILE.FLOOR };
+    }
+    // Door on bottom wall of intact buildings
+    if (!collapsed && by+bh < H-1) {
+      const doorX = Math.min(W-2, Math.max(1, bx+Math.floor(bw/2)));
+      t[by+bh-1][doorX] = { type: TILE.FLOOR };
+    }
+  }
+  // Carve path: spawn → square center → exit
+  const cx=qx+2, cy=qy+2;
+  let px=1, py=H-2;
+  while(px!==cx){if(px>0&&px<W-1&&py>0&&py<H-1)t[py][px]={type:TILE.FLOOR};px+=px<cx?1:-1;}
+  while(py!==cy){if(px>0&&px<W-1&&py>0&&py<H-1)t[py][px]={type:TILE.FLOOR};py+=py<cy?1:-1;}
+  px=W-2; py=1;
+  while(px!==cx){if(px>0&&px<W-1&&py>0&&py<H-1)t[py][px]={type:TILE.FLOOR};px+=px<cx?1:-1;}
+  while(py!==cy){if(px>0&&px<W-1&&py>0&&py<H-1)t[py][px]={type:TILE.FLOOR};py+=py<cy?1:-1;}
+  // Clear spawn/exit zones
+  for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++) {
+    const fx=1+dx,fy=H-2+dy; if(fx>0&&fx<W-1&&fy>0&&fy<H-1) t[fy][fx]={type:TILE.FLOOR};
+    const fx2=W-2+dx,fy2=1+dy; if(fx2>0&&fx2<W-1&&fy2>0&&fy2<H-1) t[fy2][fx2]={type:TILE.FLOOR};
+  }
+  for (let i = 0; i < 4+danger; i++) {
+    for (let a = 0; a < 50; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.LOOT};break;} }
+  }
+  for (let i = 0; i < 1+danger; i++) {
+    for (let a = 0; a < 40; a++) { const lx=1+Math.floor(Math.random()*(W-2)),ly=1+Math.floor(Math.random()*(H-2)); if(t[ly][lx].type===TILE.FLOOR){t[ly][lx]={type:TILE.TRAP};break;} }
+  }
+  t[1][W-2] = { type: TILE.EXIT };
+  return t;
+}

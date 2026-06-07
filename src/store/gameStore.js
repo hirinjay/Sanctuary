@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { DEFAULT_VP, UT, TILE, UNAMES, VAREK_LU, UNDEAD_LU } from '../data/constants';
 import { item, LOOT, BODY_LOOT } from '../data/items';
-import { genMap, genDungeonMap, genCabinMap, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath } from '../systems/map';
+import { genMap, genDungeonMap, genCabinMap, genForest, genRuinedTown, genRaiderCamp, genSwamp, genBattlefield, genAbandonedVillage, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath } from '../systems/map';
 import { spawnEnemies, applyXpToUnits } from '../systems/combat';
 import { ARCHETYPES } from '../data/archetypes';
 import { LOCS } from '../data/locations';
@@ -92,17 +92,20 @@ export const useGameStore = create(
       // ── Mission lifecycle ─────────────────────────────────────────────
       startMission(location, md) {
         const { vp, roster } = get();
-        // Compute map dims first so spawn positions are correct
-        const isDungeon = location.type === 'dungeon' || location.id?.startsWith('dungeon_');
-        const isCabin   = location.type === 'cabin';
-        const mapFn     = isDungeon ? genDungeonMap : isCabin ? genCabinMap : genMap;
-        const danger    = location.danger ?? 1;
-        const mapW = isCabin ? 16 : isDungeon
-          ? 18 + Math.floor(Math.random() * 9)   // 18-26
-          : 16 + Math.floor(Math.random() * 7);  // 16-22
-        const mapH = isCabin ? 12 : isDungeon
-          ? 12 + Math.floor(Math.random() * 7)   // 12-18
-          : 12 + Math.floor(Math.random() * 5);  // 12-16
+        const danger  = location.danger ?? 1;
+        const locId   = location.id ?? '';
+        const locType = location.type ?? '';
+        // Pick generator + map size by location type / id prefix
+        let mapFn, mapW, mapH;
+        if      (locType==='dungeon'||locId.startsWith('dungeon_'))  { mapFn=genDungeonMap;       mapW=18+Math.floor(Math.random()*9);  mapH=12+Math.floor(Math.random()*7); }
+        else if (locType==='cabin')                                   { mapFn=genCabinMap;         mapW=16; mapH=12; }
+        else if (locId.startsWith('wild_forest'))                     { mapFn=genForest;           mapW=22; mapH=18; }
+        else if (locId.startsWith('wild_ruins')||locId.startsWith('ruined_')) { mapFn=genRuinedTown; mapW=20; mapH=16; }
+        else if (locId.startsWith('wild_swamp'))                      { mapFn=genSwamp;            mapW=20; mapH=16; }
+        else if (locType==='camp')                                    { mapFn=genRaiderCamp;       mapW=18; mapH=14; }
+        else if (locType==='village')                                 { mapFn=genAbandonedVillage; mapW=18; mapH=16; }
+        else if (locType==='battlefield')                             { mapFn=genBattlefield;      mapW=24; mapH=18; }
+        else                                                          { mapFn=genMap;              mapW=16+Math.floor(Math.random()*7); mapH=12+Math.floor(Math.random()*5); }
         const spawnX = 1, spawnY = mapH - 2;
         const tiles  = mapFn(danger, mapW, mapH);
         const varek = {
@@ -115,7 +118,7 @@ export const useGameStore = create(
         const activeUndead = roster
           .filter(u => !u.atBase)
           .map((u, i) => ({ ...u, x:spawnX+1+i, y:spawnY, ap:2, fallen:false, raiseTurn:null, atBase:false }));
-        const enemies = spawnEnemies(danger, md, tiles, spawnX, spawnY, location.threats ?? null);
+        const enemies = locType === 'battlefield' ? [] : spawnEnemies(danger, md, tiles, spawnX, spawnY, location.threats ?? null);
         set({
           ms:    { tiles, units:[varek,...activeUndead,...enemies], turn:1, loot:[], width:mapW, height:mapH },
           noise: md === 'raid' ? 30 : 0,

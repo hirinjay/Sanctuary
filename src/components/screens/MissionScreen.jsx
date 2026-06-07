@@ -45,13 +45,16 @@ export default function MissionScreen() {
 
   // Derive visual theme from location type or wild-encounter terrain
   const locId = loc?.id ?? '';
-  const theme = loc?.type === 'cabin'   ? 'cabin'
+  const theme = loc?.type === 'cabin'       ? 'cabin'
     : loc?.type === 'dungeon' || locId.startsWith('dungeon') ? 'dungeon'
-    : locId.startsWith('wild_forest')   ? 'forest'
-    : locId.startsWith('wild_swamp')    ? 'swamp'
-    : locId.startsWith('wild_ruins')    ? 'ruins'
-    : locId.startsWith('wild_plains')   ? 'plains'
-    : loc?.type === 'camp' || loc?.type === 'village' ? 'plains'
+    : loc?.type === 'battlefield'           ? 'battlefield'
+    : locId.startsWith('wild_forest')       ? 'forest'
+    : locId.startsWith('wild_swamp')        ? 'swamp'
+    : locId.startsWith('wild_ruins')        ? 'ruins'
+    : locId.startsWith('wild_plains')       ? 'plains'
+    : locId.startsWith('ruined_')           ? 'ruins'
+    : loc?.type === 'camp'                  ? 'plains'
+    : loc?.type === 'village'               ? 'plains'
     : 'dungeon';
   const varek    = units.find(u => u.id === 'varek');
   const t        = ti(units);
