@@ -1,10 +1,11 @@
-import { TILE, W, H } from '../data/constants';
+import { TILE, W as DEF_W, H as DEF_H } from '../data/constants';
 
 export const dist = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 
 export function walkable(tiles, x, y, units) {
+  const H = tiles.length, W = tiles[0]?.length ?? 0;
   if (x < 0 || x >= W || y < 0 || y >= H) return false;
-  if (tiles[y][x].type === TILE.WALL) return false;
+  if (tiles[y]?.[x]?.type === TILE.WALL) return false;
   if (units.find(u => u.x === x && u.y === y && !u.fallen)) return false;
   return true;
 }
@@ -43,6 +44,7 @@ export function hasLOS(tiles, ax, ay, bx, by) {
 }
 
 export function fog(units, noise, tiles) {
+  const H = tiles.length, W = tiles[0]?.length ?? 0;
   const noiseMod = noise < 30 ? -1 : noise < 60 ? 0 : 1;
   const range = 4 + noiseMod;
   const v = new Set();
@@ -60,6 +62,7 @@ export function fog(units, noise, tiles) {
 }
 
 export function revealTraps(tiles, units) {
+  const H = tiles.length, W = tiles[0]?.length ?? 0;
   const t = tiles.map(r => r.map(c => ({ ...c })));
   const friendly = units.filter(u => u.type !== 'enemy' && !u.fallen);
   for (let y = 0; y < H; y++) {
@@ -76,8 +79,43 @@ export function revealTraps(tiles, units) {
   return t;
 }
 
+// BFS next-step pathfinding for alerted enemies — routes around walls
+export function bfsStepToward(tiles, fromX, fromY, toX, toY, units) {
+  if (fromX === toX && fromY === toY) return null;
+  const prev = new Map();
+  const q = [{ x: fromX, y: fromY }];
+  prev.set(`${fromX},${fromY}`, null);
+
+  while (q.length) {
+    const cur = q.shift();
+    if (cur.x === toX && cur.y === toY) {
+      // Trace back to find first step after origin
+      let node = cur;
+      while (true) {
+        const par = prev.get(`${node.x},${node.y}`);
+        if (!par || (par.x === fromX && par.y === fromY)) break;
+        node = par;
+      }
+      return { x: node.x, y: node.y };
+    }
+    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const nx = cur.x + dx, ny = cur.y + dy;
+      const k = `${nx},${ny}`;
+      if (!prev.has(k)) {
+        const canStep = (nx === toX && ny === toY) || walkable(tiles, nx, ny, units);
+        if (canStep) {
+          prev.set(k, cur);
+          q.push({ x: nx, y: ny });
+        }
+      }
+    }
+  }
+  return null;
+}
+
 // Cabin interior: one or two cozy rooms, lots of loot, minimal enemies
-export function genCabinMap() {
+export function genCabinMap(_danger, mapW, mapH) {
+  const W = mapW ?? DEF_W, H = mapH ?? DEF_H;
   const t = Array.from({ length: H }, () =>
     Array.from({ length: W }, () => ({ type: TILE.WALL }))
   );
@@ -141,7 +179,8 @@ export function genCabinMap() {
 }
 
 // Dungeon map: carved rooms connected by corridors, rich with loot and traps
-export function genDungeonMap(danger) {
+export function genDungeonMap(danger, mapW, mapH) {
+  const W = mapW ?? DEF_W, H = mapH ?? DEF_H;
   const t = Array.from({ length: H }, () =>
     Array.from({ length: W }, () => ({ type: TILE.WALL }))
   );
@@ -165,7 +204,7 @@ export function genDungeonMap(danger) {
   }
 
   // Fall back to generic map if room carving failed completely
-  if (rooms.length === 0) return genMap(danger);
+  if (rooms.length === 0) return genMap(danger, W, H);
 
   // Connect rooms with L-shaped corridors
   for (let i = 1; i < rooms.length; i++) {
@@ -218,7 +257,8 @@ export function genDungeonMap(danger) {
   return t;
 }
 
-export function genMap(danger) {
+export function genMap(danger, mapW, mapH) {
+  const W = mapW ?? DEF_W, H = mapH ?? DEF_H;
   const t = [];
   for (let y = 0; y < H; y++) {
     t[y] = [];

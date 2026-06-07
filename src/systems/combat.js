@@ -40,17 +40,28 @@ export function applyXpToUnits(units, uid, amt, luqRef) {
   });
 }
 
-export function spawnEnemies(danger, mode) {
+export function spawnEnemies(danger, mode, tiles, spawnX = 1, spawnY = 10) {
   const hpMult  = 1 + (danger-1) * 0.35;
   const dmgMult = 1 + (danger-1) * 0.25;
+  const mapH = tiles?.length ?? 12;
+  const mapW = tiles?.[0]?.length ?? 16;
   return Array.from({ length: 1+danger }, (_, i) => {
     const a  = ARCHETYPES[Math.floor(Math.random() * ARCHETYPES.length)];
     const hp = Math.round(a.hp * hpMult);
     const dmg = Math.max(1, Math.round(a.dmg * dmgMult));
+    // Pick a spawn position at least 5 Manhattan distance from player start
+    let ex = Math.floor(mapW / 2), ey = Math.floor(mapH / 3);
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const tx = 1 + Math.floor(Math.random() * (mapW - 2));
+      const ty = 1 + Math.floor(Math.random() * (mapH - 2));
+      const tooClose = Math.abs(tx - spawnX) + Math.abs(ty - spawnY) <= 5;
+      const passable = tiles?.[ty]?.[tx]?.type !== 'wall';
+      if (!tooClose && passable) { ex = tx; ey = ty; break; }
+    }
     return {
       id: `e${i}`, type: UT.ENEMY,
       name: a.name, emoji: a.emoji,
-      x: 2+Math.floor(Math.random()*(14)), y: 1+Math.floor(Math.random()*4),
+      x: ex, y: ey,
       hp, maxHp: hp, dmg, def: 0,
       ap: 2, moveRange: a.move, attackRange: a.attackRange || 1,
       fallen: false, raiseTurn: null,

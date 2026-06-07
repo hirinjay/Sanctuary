@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { DEFAULT_VP, UT, TILE, UNAMES, VAREK_LU, UNDEAD_LU, H } from '../data/constants';
 import { item, LOOT, BODY_LOOT } from '../data/items';
-import { genMap, genDungeonMap, genCabinMap, revealTraps, walkable, hasLOS, dist } from '../systems/map';
+import { genMap, genDungeonMap, genCabinMap, revealTraps, walkable, hasLOS, dist, bfsStepToward } from '../systems/map';
 import { spawnEnemies, classStats, xpNext, applyXpToUnits } from '../systems/combat';
 import { ARCHETYPES } from '../data/archetypes';
 import { LOCS } from '../data/locations';
@@ -102,13 +102,21 @@ export const useGameStore = create(
         const activeUndead = roster
           .filter(u => !u.atBase)
           .map((u, i) => ({ ...u, x:2+i, y:H-2, ap:2, fallen:false, raiseTurn:null, atBase:false }));
-        const enemies = spawnEnemies(location.danger, md);
         const isDungeon = location.type === 'dungeon' || location.id?.startsWith('dungeon_');
         const isCabin   = location.type === 'cabin';
         const mapFn     = isDungeon ? genDungeonMap : isCabin ? genCabinMap : genMap;
         const danger    = location.danger ?? 1;
+        const mapW = isCabin ? 16 : isDungeon
+          ? 18 + Math.floor(Math.random() * 9)   // 18-26
+          : 16 + Math.floor(Math.random() * 7);  // 16-22
+        const mapH = isCabin ? 12 : isDungeon
+          ? 12 + Math.floor(Math.random() * 7)   // 12-18
+          : 12 + Math.floor(Math.random() * 5);  // 12-16
+        const tiles  = mapFn(danger, mapW, mapH);
+        const spawnY = mapH - 2;
+        const enemies = spawnEnemies(location.danger, md, tiles, 1, spawnY);
         set({
-          ms:    { tiles: mapFn(danger), units:[varek,...activeUndead,...enemies], turn:1, loot:[] },
+          ms:    { tiles, units:[varek,...activeUndead,...enemies], turn:1, loot:[], width:mapW, height:mapH },
           noise: md === 'raid' ? 30 : 0,
           loc:   location,
           mode:  md,
@@ -700,9 +708,8 @@ export const useGameStore = create(
                     if (nc >= 2) { logs.push(`${u.name} finds nothing — resuming patrol.`); return { ...u, alerted:false, chaseTurns:0, lastKnown:null }; }
                     return { ...u, chaseTurns:nc, lastKnown:null };
                   }
-                  const dx=Math.sign(lastKnown.x-u.x), dy=Math.sign(lastKnown.y-u.y);
-                  for (const [nx,ny] of [[u.x+dx,u.y],[u.x,u.y+dy],[u.x+dx,u.y+dy]])
-                    if (walkable(ms.tiles,nx,ny,units)) return { ...u, x:nx, y:ny, chaseTurns:0, lastKnown };
+                  const step = bfsStepToward(ms.tiles, u.x, u.y, lastKnown.x, lastKnown.y, units);
+                  if (step) return { ...u, x:step.x, y:step.y, chaseTurns:0, lastKnown };
                   return { ...u, chaseTurns:(u.chaseTurns||0)+1, lastKnown };
                 }
                 const nc = (u.chaseTurns||0)+1;
@@ -716,9 +723,8 @@ export const useGameStore = create(
                 pendingAttacks.push({ attacker:u, target:tgt });
                 return { ...u, alerted:true, chaseTurns:0, lastKnown };
               }
-              const dx=Math.sign(tgt.x-u.x), dy=Math.sign(tgt.y-u.y);
-              for (const [nx,ny] of [[u.x+dx,u.y],[u.x,u.y+dy],[u.x+dx,u.y+dy]])
-                if (walkable(ms.tiles,nx,ny,units)) return { ...u, x:nx, y:ny, alerted:true, chaseTurns:0, lastKnown };
+              const step = bfsStepToward(ms.tiles, u.x, u.y, tgt.x, tgt.y, units);
+              if (step) return { ...u, x:step.x, y:step.y, alerted:true, chaseTurns:0, lastKnown };
               return { ...u, alerted:true, chaseTurns:0, lastKnown };
             }
             const p  = u.patrol[u.pi % u.patrol.length];

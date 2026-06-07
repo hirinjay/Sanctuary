@@ -40,19 +40,21 @@ export default function WorldMapView() {
 
       worldCont.addChild(terrain)
       worldCont.addChild(locs)
-      worldCont.addChild(units)
       worldCont.addChild(fog)
+      worldCont.addChild(units)   // units above fog so Varek is always visible
       worldCont.addChild(hl)
       app.stage.addChild(worldCont)
       layersRef.current = { worldCont, terrain, fog, locs, units, hl }
 
       // Draw current world if already generated
-      const { world, worldPos, sanctuaryPos, selectedHex } = useGameStore.getState()
+      const { world, worldPos, selectedHex, worldPath } = useGameStore.getState()
       if (world) {
         drawTerrain(world, terrain)
         drawLocIcons(world, locs)
         redrawFog(world, fog)
+        drawUnits(world, units)
         if (worldPos) centerOn(worldPos.col, worldPos.row, app, world)
+        redrawHighlight(selectedHex, worldPath, worldPos, world, hl)
       }
 
       // Subscribe to store changes
@@ -248,16 +250,7 @@ export default function WorldMapView() {
       cam.drag = true; cam.lx = e.clientX; cam.ly = e.clientY
     })
     canvas.addEventListener('pointermove', e => {
-      if (!cam.drag) {
-        // Hover highlight
-        const { world } = useGameStore.getState()
-        if (!world) return
-        const wx = (e.offsetX - cam.x) / cam.zoom
-        const wy = (e.offsetY - cam.y) / cam.zoom
-        const hit = nearestHex(wx, wy, world)
-        if (hit) useGameStore.getState().selectHex(hit.col, hit.row)
-        return
-      }
+      if (!cam.drag) return
       cam.x += e.clientX - cam.lx
       cam.y += e.clientY - cam.ly
       cam.lx = e.clientX; cam.ly = e.clientY

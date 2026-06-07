@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { useGameStore } from '../../store/gameStore';
-import { UT, W } from '../../data/constants';
+import { UT } from '../../data/constants';
 import { item } from '../../data/items';
 import { moveRange, fog, dist } from '../../systems/map';
 import MissionMap from '../mission/MissionMap';
@@ -41,6 +41,18 @@ export default function MissionScreen() {
   if (!ms) return null;
 
   const { tiles, units, turn } = ms;
+  const mapW = ms.width ?? tiles[0]?.length ?? 16;
+
+  // Derive visual theme from location type or wild-encounter terrain
+  const locId = loc?.id ?? '';
+  const theme = loc?.type === 'cabin'   ? 'cabin'
+    : loc?.type === 'dungeon' || locId.startsWith('dungeon') ? 'dungeon'
+    : locId.startsWith('wild_forest')   ? 'forest'
+    : locId.startsWith('wild_swamp')    ? 'swamp'
+    : locId.startsWith('wild_ruins')    ? 'ruins'
+    : locId.startsWith('wild_plains')   ? 'plains'
+    : loc?.type === 'camp' || loc?.type === 'village' ? 'plains'
+    : 'dungeon';
   const varek    = units.find(u => u.id === 'varek');
   const t        = ti(units);
   const fieldTether = `${t.fieldCount}/${t.fieldCap}`;
@@ -102,9 +114,9 @@ export default function MissionScreen() {
 
       {/* Map */}
       <MissionMap
-        tiles={tiles} units={units} W={W} fv={fv}
+        tiles={tiles} units={units} W={mapW} fv={fv}
         hilight={hilight} raiseable={raiseable}
-        onCellClick={handleCellClick}
+        onCellClick={handleCellClick} theme={theme}
       />
 
       {/* Unit bar */}
