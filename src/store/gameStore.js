@@ -190,9 +190,11 @@ export const useGameStore = create(
           newBestiary[boss.bossType] = { encounters: pb.encounters + 1, abilitiesSeen: pb.encounters >= 1 };
         }
 
+        const initialUnits = [varek, ...activeUndead, ...missionEnemies];
+        const revealedTiles = revealTraps(missionTiles, initialUnits);
         const bossLog = boss ? [`⚠️ A powerful presence stirs — ${boss.name} lurks within!`] : [];
         set({
-          ms:    { tiles:missionTiles, units:[varek,...activeUndead,...missionEnemies], turn:1, loot:[], keys:[], width:mapW, height:mapH, objective, locationId:locId },
+          ms:    { tiles:revealedTiles, units:initialUnits, turn:1, loot:[], keys:[], width:mapW, height:mapH, objective, locationId:locId },
           noise: md === 'raid' ? 30 : 0,
           loc:   location,
           mode:  md,
@@ -1181,7 +1183,7 @@ export const useGameStore = create(
         const unit = ms.units.find(u => u.id === sel);
         if (!unit || unit.fallen || unit.ap < 2) return;
         const tile = ms.tiles[y]?.[x];
-        if (!tile || tile.type !== TILE.TRAP || !tile.revealed) return;
+        if (!tile || tile.type !== TILE.TRAP) return;
         const dx = Math.abs(unit.x - x), dy = Math.abs(unit.y - y);
         if (dx + dy !== 1) return;
         const newTiles = ms.tiles.map((row, ry) =>
