@@ -114,6 +114,58 @@ export default function MissionScreen() {
   const noiseColor = noise < 30 ? '#3a7a3a' : noise < 60 ? '#7a6a2a' : '#7a2a2a';
   const noiseLabel = noise < 30 ? 'Quiet (👁3)' : noise < 60 ? 'Tense (👁4)' : 'Alert! (👁5)';
 
+  // ── Build legend entries for this encounter ──────────────────────────
+  const legendEntries = (() => {
+    const out = [];
+
+    // Units present
+    const varekU  = units.find(u => u.id === 'varek');
+    const undeadU = units.filter(u => u.type === UT.UNDEAD && !u.fallen);
+    const enemyU  = units.filter(u => u.type === UT.ENEMY  && !u.fallen);
+    const fallenU = units.filter(u => u.fallen && u.type !== UT.VAREK);
+
+    if (varekU)      out.push({ icon: varekU.emoji,    label: 'You',     bg: '#1a0e00', border: '#ff880055' });
+    if (undeadU.length) out.push({ icon: undeadU[0].emoji, label: 'Undead', bg: '#060e14', border: '#3a6a8a55' });
+    if (enemyU.length)  out.push({ icon: enemyU[0].emoji,  label: 'Enemy',  bg: '#140606', border: '#8a3a3a55' });
+    if (fallenU.length) out.push({ icon: '⊗',            label: 'Fallen',  bg: '#0a0a0a', border: '#3a3a3a55', dim: true });
+
+    out.push({ divider: true });
+
+    // Tile types — scan the full tile grid
+    const tileDefs = {
+      [TILE.EXIT]:      { icon: '🚪', label: 'Exit',     bg: '#0c1c28', border: '#2a4a6a' },
+      [TILE.LOOT]:      { icon: '📦', label: 'Cache',    bg: '#0c240c', border: '#2a5a2a' },
+      [TILE.LOOT_OPEN]: { icon: '📭', label: 'Looted',   bg: '#091509', border: '#1a3a1a' },
+      [TILE.TRAP_X]:    { icon: '💥', label: 'Trap',     bg: '#340d0d', border: '#5a2a2a' },
+      [TILE.HOLY]:      { icon: '⛪', label: 'Holy gnd', bg: '#1e1c08', border: '#4a4a1a' },
+      [TILE.SHADOW]:    { icon: '🌑', label: 'Shadow',   bg: '#07070f', border: '#1a1a3a' },
+      [TILE.WATER]:     { icon: '💧', label: 'Water',    bg: '#081e30', border: '#1a3a5a' },
+      [TILE.ELEVATED]:  { icon: '⛰', label: 'High gnd', bg: '#1c1508', border: '#3a3a1a' },
+      [TILE.FIRE]:      { icon: '🔥', label: 'Fire',     bg: '#2c0800', border: '#5a2a0a' },
+      [TILE.CAGE]:      { icon: '⛓', label: 'Cage',     bg: '#0a0a14', border: '#2a2a3a' },
+    };
+
+    const seen = new Set();
+    let hasRevealedTrap = false, hasLockedDoor = false, hasRegularDoor = false;
+
+    tiles.forEach(row => row.forEach(t => {
+      if (t.type === TILE.TRAP && t.revealed) { hasRevealedTrap = true; return; }
+      if (t.type === TILE.DOOR) {
+        if (t.locked && !t.open) hasLockedDoor = true;
+        else if (!t.open) hasRegularDoor = true;
+        return;
+      }
+      if (tileDefs[t.type] && !seen.has(t.type)) seen.add(t.type);
+    }));
+
+    seen.forEach(type => out.push(tileDefs[type]));
+    if (hasRevealedTrap)  out.push({ icon: '⚠',  label: 'Trap!',  bg: '#240c0c', border: '#5a2a1a' });
+    if (hasLockedDoor)    out.push({ icon: '🔒', label: 'Locked',  bg: '#1c0305', border: '#5a1a1a' });
+    if (hasRegularDoor)   out.push({ icon: '🚪', label: 'Door',    bg: '#1c0e06', border: '#3a2a1a' });
+
+    return out;
+  })();
+
   return (
     <div style={pg}>
       {/* Header */}
@@ -154,12 +206,32 @@ export default function MissionScreen() {
         );
       })()}
 
-      {/* Map */}
-      <MissionMap
-        tiles={tiles} units={units} W={mapW} fv={fv}
-        hilight={hilight} raiseable={raiseable}
-        onCellClick={handleCellClick} theme={theme}
-      />
+      {/* Map + Legend */}
+      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'center', gap:6, maxWidth:660, margin:'0 auto' }}>
+        <MissionMap
+          tiles={tiles} units={units} W={mapW} fv={fv}
+          hilight={hilight} raiseable={raiseable}
+          onCellClick={handleCellClick} theme={theme}
+        />
+        <div style={{ flexShrink:0, width:78, background:'#04040a', border:'1px solid #0e0e1a', borderRadius:4, padding:'5px 5px 3px', marginTop:0, alignSelf:'flex-start' }}>
+          <div style={{ fontSize:7, color:'#2a3a2a', letterSpacing:1, marginBottom:4, textTransform:'uppercase' }}>Key</div>
+          {legendEntries.map((e, i) =>
+            e.divider
+              ? <div key={i} style={{ height:1, background:'#0e0e1a', margin:'4px 0' }} />
+              : (
+                <div key={i} style={{ display:'flex', alignItems:'center', gap:4, marginBottom:3 }}>
+                  <span style={{
+                    display:'inline-flex', alignItems:'center', justifyContent:'center',
+                    width:16, height:16, fontSize:9, flexShrink:0,
+                    background: e.bg, border:`1px solid ${e.border}`, borderRadius:2,
+                    opacity: e.dim ? 0.45 : 1,
+                  }}>{e.icon}</span>
+                  <span style={{ fontSize:8, color:'#5a6a5a', lineHeight:1 }}>{e.label}</span>
+                </div>
+              )
+          )}
+        </div>
+      </div>
 
       {/* Unit bar */}
       <UnitBar units={units} sel={sel} onSelect={handleSelect} />
