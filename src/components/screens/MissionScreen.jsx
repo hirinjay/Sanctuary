@@ -37,7 +37,7 @@ function btn(on, c) {
 
 export default function MissionScreen() {
   const { ms, noise, phase, luq, log, loc, mode, book, ti, travelBag, sanctuaryPos,
-          doMove, doAttack, doUseKey, doAbility, toggleAbilityArmed,
+          doMove, doAttack, doUseKey, disarmTrap, doAbility, toggleAbilityArmed,
           endTurn, endMission, addLog } = useGameStore();
 
   // sel & hilight are local — they don't need persistence and use the hilightRef pattern
@@ -153,6 +153,17 @@ export default function MissionScreen() {
 
   const selUnit = sel ? units.find(u => u.id === sel) : null;
   const keys = ms.keys || [];
+
+  // Find adjacent revealed trap when unit has 2+ AP
+  const adjacentTrapTarget = (selUnit && phase === 'player' && selUnit.ap >= 2) ? (() => {
+    const { x, y } = selUnit;
+    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const ax = x + dx, ay = y + dy;
+      const t = tiles[ay]?.[ax];
+      if (t?.type === TILE.TRAP && t.revealed) return { x: ax, y: ay };
+    }
+    return null;
+  })() : null;
 
   // Find adjacent locked door or cage when a unit is selected and has AP
   const adjacentKeyTarget = (selUnit && phase === 'player' && selUnit.ap > 0 && keys.length > 0) ? (() => {
@@ -372,6 +383,12 @@ export default function MissionScreen() {
 
         {/* Action buttons */}
         <div style={{ display:'flex', gap:7, justifyContent:'flex-end' }}>
+        {adjacentTrapTarget && (
+          <button onClick={() => { disarmTrap(adjacentTrapTarget.x, adjacentTrapTarget.y, sel); clearSel(); }}
+            style={btn(true,'#4a8a6a')}>
+            🔧 Disarm Trap (2AP)
+          </button>
+        )}
         {adjacentKeyTarget && (
           <button onClick={() => { doUseKey(adjacentKeyTarget.x, adjacentKeyTarget.y, sel); clearSel(); }}
             style={btn(true,'#aa8833')}>

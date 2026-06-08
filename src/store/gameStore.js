@@ -1173,6 +1173,27 @@ export const useGameStore = create(
         }));
       },
 
+      // ── Disarm trap (2 AP, unit must be adjacent) ────────────────────
+      disarmTrap(x, y, sel) {
+        const s = get();
+        if (!sel || s.phase !== 'player') return;
+        const ms = s.ms;
+        const unit = ms.units.find(u => u.id === sel);
+        if (!unit || unit.fallen || unit.ap < 2) return;
+        const tile = ms.tiles[y]?.[x];
+        if (!tile || tile.type !== TILE.TRAP || !tile.revealed) return;
+        const dx = Math.abs(unit.x - x), dy = Math.abs(unit.y - y);
+        if (dx + dy !== 1) return;
+        const newTiles = ms.tiles.map((row, ry) =>
+          row.map((t, rx) => (rx === x && ry === y) ? { type: TILE.FLOOR } : t)
+        );
+        const newUnits = ms.units.map(u => u.id === sel ? { ...u, ap: u.ap - 2 } : u);
+        set(prev => ({
+          ms: { ...prev.ms, tiles: newTiles, units: newUnits },
+          log: [`🔧 ${unit.name} disarms the trap.`, ...prev.log].slice(0, 14),
+        }));
+      },
+
       // ── Toggle reactive ability armed ────────────────────────────────
       toggleAbilityArmed(unitId) {
         set(prev => ({
