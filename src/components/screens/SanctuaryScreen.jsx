@@ -1,6 +1,10 @@
+import { useState } from 'react';
 import { useGameStore } from '../../store/gameStore';
 import { item } from '../../data/items';
 import { xpNext } from '../../systems/combat';
+import { getTier3Class } from '../../data/classes';
+import { ABILITIES } from '../../data/abilities';
+import { CLASS_STATS } from '../../data/archetypes';
 import EquipModal from '../sanctuary/EquipModal';
 
 const pg = { background:'#040810', minHeight:'100vh', fontFamily:'Georgia,serif', color:'#c4a882', padding:14 };
@@ -17,10 +21,12 @@ function btn(on, c) {
 }
 
 export default function SanctuaryScreen() {
-  const { vp, roster, inv, travelBag, sanctuaryPos,
-          setScreen, setEquipTgt, ti, depositLoot } = useGameStore();
+  const { vp, roster, inv, nodes, travelBag, sanctuaryPos,
+          setScreen, setEquipTgt, ti, depositLoot, ascendUnit, rebirthUnit } = useGameStore();
   const set = useGameStore.setState;
   const t = ti(null);
+  const [ascendingId, setAscendingId] = useState(null);
+  const [rebirthConfirmId, setRebirthConfirmId] = useState(null);
   const baseCount  = t.baseCount;
   const fieldCount = t.fieldCount;
   const established = !!sanctuaryPos;
@@ -188,6 +194,96 @@ export default function SanctuaryScreen() {
           </div>
           </>)}
         </div>
+
+        {/* Ascension Forge */}
+        {nodes.includes('ascension_forge') && (() => {
+          const eligible = roster.filter(u => u.tier === 2 && u.level >= 5 && getTier3Class(u.classId));
+          return (
+            <div style={card}>
+              <div style={{ fontWeight:'bold', color:'#c4a882', marginBottom:7, fontSize:12 }}>⚗️ Ascension Forge</div>
+              {eligible.length === 0 ? (
+                <div style={{ fontSize:11, color:'#3a3a2a' }}>No units ready — reach Level 5 (Tier 2) to ascend.</div>
+              ) : eligible.map(u => {
+                const t3 = getTier3Class(u.classId);
+                if (!t3) return null;
+                const expanded = ascendingId === u.id;
+                return (
+                  <div key={u.id} style={{ borderBottom:'1px solid #0f1220', paddingBottom:8, marginBottom:8 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: expanded ? 8 : 0 }}>
+                      <span style={{ fontSize:11 }}>{u.emoji} {u.name} <span style={{ color:'#5a4a7a' }}>→ {t3.emoji} {t3.name}</span></span>
+                      <button onClick={() => setAscendingId(expanded ? null : u.id)} style={btn(true, expanded ? '#4a4a6a' : '#6a4a9a')}>
+                        {expanded ? 'Cancel' : 'Ascend'}
+                      </button>
+                    </div>
+                    {expanded && (
+                      <div>
+                        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:4, fontSize:10, color:'#4a6a5a', marginBottom:8 }}>
+                          <span>❤️ {t3.stats.hp}</span>
+                          <span>⚔️ {t3.stats.dmg}</span>
+                          <span>🛡 {t3.stats.def}</span>
+                          <span>👟 {t3.stats.move}</span>
+                        </div>
+                        <div style={{ fontSize:10, color:'#5a5a3a', marginBottom:6 }}>Choose ability:</div>
+                        <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                          {(t3.abilityChoice ?? []).map(aid => {
+                            const ab = ABILITIES[aid];
+                            if (!ab) return null;
+                            return (
+                              <button key={aid} onClick={() => { ascendUnit(u.id, t3.id, aid); setAscendingId(null); }} style={{
+                                background:'#0b0f1c', border:'1px solid #3a3a5a', borderRadius:5,
+                                padding:'6px 10px', color:'#c4a882', cursor:'pointer', fontSize:11, flex:1,
+                              }}>
+                                <div style={{ fontWeight:'bold', fontSize:11 }}>{ab.name}</div>
+                                <div style={{ fontSize:9, color:'#4a5a4a', marginTop:2 }}>{ab.desc}</div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+
+        {/* Rebirth Table */}
+        {nodes.includes('rebirth_table') && (() => {
+          const promoted = roster.filter(u => u.classId);
+          return (
+            <div style={card}>
+              <div style={{ fontWeight:'bold', color:'#c4a882', marginBottom:5, fontSize:12 }}>🔄 Rebirth Table</div>
+              <div style={{ fontSize:10, color:'#3a4a3a', marginBottom:8 }}>
+                Resets stats to Lv1 baseline. Class, abilities, and special features are retained.
+              </div>
+              {promoted.length === 0 ? (
+                <div style={{ fontSize:11, color:'#3a3a2a' }}>No promoted units available for rebirth.</div>
+              ) : promoted.map(u => {
+                const base = CLASS_STATS[u.dc] ?? { hp:6, dmg:3 };
+                const isConfirm = rebirthConfirmId === u.id;
+                return (
+                  <div key={u.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                    padding:'5px 0', borderBottom:'1px solid #0f1220', fontSize:11 }}>
+                    <div>
+                      {u.emoji} {u.name}
+                      <span style={{ color:'#4a5a4a' }}> Lv{u.level} ❤️{u.hp}/{u.maxHp}</span>
+                      {isConfirm && <span style={{ color:'#7a3a3a', fontSize:10 }}> → Lv1 ❤️{base.hp}</span>}
+                    </div>
+                    {isConfirm ? (
+                      <div style={{ display:'flex', gap:5 }}>
+                        <button onClick={() => { rebirthUnit(u.id); setRebirthConfirmId(null); }} style={btn(true,'#8a3a3a')}>Confirm</button>
+                        <button onClick={() => setRebirthConfirmId(null)} style={btn(true,'#4a4a6a')}>Cancel</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setRebirthConfirmId(u.id)} style={btn(true,'#5a3a2a')}>Rebirth</button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         <div style={{ display:'flex', gap:8 }}>
           <button onClick={() => setScreen('world')} style={{

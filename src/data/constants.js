@@ -8,7 +8,7 @@ export const TILE = {
 export const UT = { VAREK:'varek', UNDEAD:'undead', ENEMY:'enemy' };
 export const W = 16;
 export const H = 12;
-export const XP_LEVELS = [0, 12, 18, 27, 40, 60];
+export const XP_LEVELS = [0, 12, 18, 27, 40, 60, 80, 100, 120, 150];
 
 export const UNAMES = [
   'Marn','Brel','Tosk','Veth','Gorr','Ilde','Sorn','Cael','Thev','Dusk',

@@ -4,7 +4,7 @@ import { DEFAULT_VP, UT, TILE, UNAMES } from '../data/constants';
 import { item, LOOT, BODY_LOOT } from '../data/items';
 import { genMap, genDungeonMap, genCabinMap, genForest, genRuinedTown, genRaiderCamp, genSwamp, genBattlefield, genAbandonedVillage, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath } from '../systems/map';
 import { spawnEnemies, applyXpToUnits } from '../systems/combat';
-import { ARCHETYPES } from '../data/archetypes';
+import { ARCHETYPES, CLASS_STATS } from '../data/archetypes';
 import { generateWorld, revealAround } from '../world/worldGen';
 import { hexesInRange } from '../world/hexMath';
 import { TERRAIN, rollWildEncounter, rollForageLoot } from '../world/tileTypes';
@@ -12,7 +12,8 @@ import { bfsPath } from '../world/hexMath';
 import { BUILDINGS } from '../data/buildings';
 import { generateObjective } from '../systems/objectives';
 import { saveRun, saveBestiary, loadBestiary } from '../lib/persistence';
-import { CLASSES, isPromotionEligible } from '../data/classes';
+import { CLASSES, DC_TO_BASE } from '../data/classes';
+import { deleteSave } from '../lib/persistence';
 import { ABILITIES } from '../data/abilities';
 import { spawnBoss } from '../data/bosses';
 
@@ -70,7 +71,15 @@ export const useGameStore = create(
       bestiary: {},         // { [entityId]: { encounters: N, abilitiesSeen: bool } }
 
       // ── Simple setters ────────────────────────────────────────────────
-      setScreen:   (screen)   => set({ screen }),
+      setScreen(screen) {
+        if (screen === 'gameover') {
+          const { currentUser, activeSlot } = get();
+          if (activeSlot) deleteSave(currentUser?.id ?? null, activeSlot);
+          set({ screen, activeSlot: null });
+          return;
+        }
+        set({ screen });
+      },
       setEquipTgt: (id)       => set({ equipTgt: id }),
       setPhase:    (phase)    => set({ phase }),
 
@@ -249,15 +258,6 @@ export const useGameStore = create(
           : vp;
         const newRoster = [...roster.filter(u => u.atBase), ...surv.map(u => ({ ...u, atBase:false }))];
 
-        // Scan for promotion-eligible survivors
-        const bookId = get().book?.id ?? 'pale';
-        const newPromotions = newRoster
-          .filter(u => isPromotionEligible(u, bookId))
-          .map(u => ({
-            unit: u,
-            level: (u.level >= 5 && u.classId) ? 5 : 2,
-          }));
-
         // Loot goes into travelBag — Varek carries it; must return to Sanctuary to deposit
         const newBag = { ...travelBag };
         finalLoot.forEach(id => { newBag[id] = (newBag[id]||0) + 1; });
@@ -288,7 +288,6 @@ export const useGameStore = create(
         set(s => ({
           vp:newVp, roster:newRoster, inv:newInv, travelBag:newBag,
           luq: [...s.luq, ...luqExtra],
-          promotionQueue: [...s.promotionQueue, ...newPromotions],
           locationVisits: newLocationVisits,
           bestiary: newBestiary,
           ms:null, worldPath:[], screen:'world',
@@ -312,9 +311,10 @@ export const useGameStore = create(
               ...u,
               cls:           cls.name,
               classId:       cls.id,
+              tier:          cls.tier,
+              baseClass:     cls.baseClass,
               emoji:         cls.emoji,
               name:          promotedName,
-              // Full stat replacement
               hp:            cls.stats.hp,
               maxHp:         cls.stats.hp,
               dmg:           cls.stats.dmg,
@@ -322,38 +322,159 @@ export const useGameStore = create(
               moveRange:     cls.stats.move,
               attackRange:   cls.stats.range ?? 1,
               trapReveal:    cls.stats.trapReveal ?? 1,
-              // Class flags
-              silentAttacks:       cls.silentAttacks ?? false,
-              untargetableInShadow:cls.untargetableInShadow ?? false,
-              cannotInteract:      cls.cannotInteract ?? false,
-              forestCostZero:      cls.forestCostZero ?? false,
-              fullMapRevealOnEntry:cls.fullMapRevealOnEntry ?? false,
-              boneExplosion:       cls.boneExplosion ?? false,
-              surviveOnce:         cls.surviveOnce ?? false,
-              regenPerTurn:        cls.regenPerTurn ?? 0,
-              immunities:          cls.immunities ?? [],
-              // Ability
+              silentAttacks:        cls.silentAttacks ?? false,
+              untargetableInShadow: cls.untargetableInShadow ?? false,
+              cannotInteract:       cls.cannotInteract ?? false,
+              forestCostZero:       cls.forestCostZero ?? false,
+              fullMapRevealOnEntry: cls.fullMapRevealOnEntry ?? false,
+              boneExplosion:        cls.boneExplosion ?? false,
+              surviveOnce:          cls.surviveOnce ?? false,
+              regenPerTurn:         cls.regenPerTurn ?? 0,
+              immunities:           cls.immunities ?? [],
               classAbility:  abilityId,
               abilityUses:   { [abilityId]: ab?.usesPerEncounter ?? 0 },
               abilityArmed:  ab?.type === 'reactive',
-              // Per-encounter counters reset
               encounterKills: 0, encounterBonusDmg: 0, encounterBonusMove: 0,
               surviveUsed: false,
-              // Bone Explosion tracking
               lifetime_levels: u.lifetime_levels ?? u.level ?? 1,
             };
           });
-          // Remove only the first matching entry from the queue
           const idx = s.promotionQueue.findIndex(p => p.unit.id === unitId);
           const trimmedQueue = idx >= 0
             ? [...s.promotionQueue.slice(0, idx), ...s.promotionQueue.slice(idx + 1)]
             : s.promotionQueue;
-
           const pname = newRoster.find(u => u.id === unitId)?.pname ?? '?';
           return {
             roster: newRoster,
             promotionQueue: trimmedQueue,
             log: [`${cls.emoji} ${pname} promoted to ${cls.name}!`, ...s.log].slice(0, 14),
+          };
+        });
+        debouncedSave(get);
+      },
+
+      // Apply a class promotion from the level-up queue (level 2 class selection)
+      applyPromotionFromLu(unitId, classId, abilityId) {
+        const cls = CLASSES[classId];
+        if (!cls) return;
+        const ab = ABILITIES[abilityId];
+        set(s => {
+          const newRoster = s.roster.map(u => {
+            if (u.id !== unitId) return u;
+            const promotedName = `${u.pname} the ${cls.name}`;
+            return {
+              ...u,
+              cls:           cls.name,
+              classId:       cls.id,
+              tier:          cls.tier,
+              baseClass:     cls.baseClass,
+              emoji:         cls.emoji,
+              name:          promotedName,
+              hp:            cls.stats.hp,
+              maxHp:         cls.stats.hp,
+              dmg:           cls.stats.dmg,
+              def:           cls.stats.def ?? 0,
+              moveRange:     cls.stats.move,
+              attackRange:   cls.stats.range ?? 1,
+              trapReveal:    cls.stats.trapReveal ?? 1,
+              silentAttacks:        cls.silentAttacks ?? false,
+              untargetableInShadow: cls.untargetableInShadow ?? false,
+              cannotInteract:       cls.cannotInteract ?? false,
+              forestCostZero:       cls.forestCostZero ?? false,
+              fullMapRevealOnEntry: cls.fullMapRevealOnEntry ?? false,
+              boneExplosion:        cls.boneExplosion ?? false,
+              surviveOnce:          cls.surviveOnce ?? false,
+              regenPerTurn:         cls.regenPerTurn ?? 0,
+              immunities:           cls.immunities ?? [],
+              classAbility:  abilityId,
+              abilityUses:   { [abilityId]: ab?.usesPerEncounter ?? 0 },
+              abilityArmed:  ab?.type === 'reactive',
+              encounterKills: 0, encounterBonusDmg: 0, encounterBonusMove: 0,
+              surviveUsed: false,
+              lifetime_levels: u.lifetime_levels ?? u.level ?? 1,
+            };
+          });
+          const pname = s.roster.find(u => u.id === unitId)?.pname ?? '?';
+          return {
+            roster: newRoster,
+            luq: s.luq.slice(1),
+            log: [`${cls.emoji} ${pname} ascends to ${cls.name}!`, ...s.log].slice(0, 14),
+          };
+        });
+        debouncedSave(get);
+      },
+
+      // Ascend a tier-2 unit to tier-3 at the Ascension Forge
+      ascendUnit(unitId, classId, abilityId) {
+        const cls = CLASSES[classId];
+        if (!cls || cls.tier !== 3) return;
+        const ab = ABILITIES[abilityId];
+        set(s => {
+          const u = s.roster.find(r => r.id === unitId);
+          if (!u || u.level < 5 || u.tier !== 2) return s;
+          const promotedName = `${u.pname} the ${cls.name}`;
+          const promoted = {
+            ...u,
+            cls:           cls.name,
+            classId:       cls.id,
+            tier:          3,
+            baseClass:     cls.baseClass,
+            emoji:         cls.emoji,
+            name:          promotedName,
+            hp:            cls.stats.hp,
+            maxHp:         cls.stats.hp,
+            dmg:           cls.stats.dmg,
+            def:           cls.stats.def ?? 0,
+            moveRange:     cls.stats.move,
+            attackRange:   cls.stats.range ?? 1,
+            trapReveal:    cls.stats.trapReveal ?? 1,
+            silentAttacks:        cls.silentAttacks ?? false,
+            untargetableInShadow: cls.untargetableInShadow ?? false,
+            cannotInteract:       cls.cannotInteract ?? false,
+            forestCostZero:       cls.forestCostZero ?? false,
+            fullMapRevealOnEntry: cls.fullMapRevealOnEntry ?? false,
+            boneExplosion:        cls.boneExplosion ?? false,
+            surviveOnce:          cls.surviveOnce ?? false,
+            regenPerTurn:         cls.regenPerTurn ?? 0,
+            immunities:           cls.immunities ?? [],
+            classAbility:  abilityId,
+            abilityUses:   { [abilityId]: ab?.usesPerEncounter ?? 0 },
+            abilityArmed:  ab?.type === 'reactive',
+            encounterKills: 0, encounterBonusDmg: 0, encounterBonusMove: 0,
+            surviveUsed: false,
+            lifetime_levels: u.lifetime_levels ?? u.level ?? 1,
+          };
+          return {
+            roster: s.roster.map(r => r.id === unitId ? promoted : r),
+            log: [`⚗️ ${u.pname} ascends to ${cls.name}!`, ...s.log].slice(0, 14),
+          };
+        });
+        debouncedSave(get);
+      },
+
+      // Reset a unit to level-1 baseline stats, retaining class and abilities
+      rebirthUnit(unitId) {
+        set(s => {
+          const u = s.roster.find(r => r.id === unitId);
+          if (!u || !u.classId) return s;
+          const base = CLASS_STATS[u.dc] ?? { hp:6, dmg:3, def:0, moveRange:3, trapReveal:1, attackRange:1 };
+          const reborn = {
+            ...u,
+            level:       1,
+            xp:          0,
+            hp:          base.hp,
+            maxHp:       base.hp,
+            dmg:         base.dmg,
+            def:         base.def,
+            moveRange:   base.moveRange,
+            attackRange: base.attackRange,
+            trapReveal:  base.trapReveal,
+            dmgUpgrades: 0,
+            lifetime_levels: (u.lifetime_levels ?? 0) + (u.level ?? 1),
+          };
+          return {
+            roster: s.roster.map(r => r.id === unitId ? reborn : r),
+            log: [`🔄 ${u.pname} reborn — stats reset, class retained.`, ...s.log].slice(0, 14),
           };
         });
         debouncedSave(get);
@@ -546,7 +667,7 @@ export const useGameStore = create(
             tiles.push({ col, row, type: 'ground', building: null });
 
         // Seed existing nodes at preset positions
-        const presets = { farm:[3,4], quarry:[5,4], forge:[7,4], storage:[9,4], barracks:[11,4], workshop:[13,4] };
+        const presets = { farm:[3,4], quarry:[5,4], forge:[7,4], storage:[9,4], barracks:[11,4], workshop:[13,4], ascension_forge:[3,6], rebirth_table:[7,6] };
         for (const nodeId of nodes) {
           const pos = presets[nodeId];
           if (pos) {
@@ -666,25 +787,45 @@ export const useGameStore = create(
       applyLu(choice) {
         set(s => {
           if (!s.luq.length) return s;
-          const { uid } = s.luq[0];
-          const newMs = s.ms ? {
-            ...s.ms,
-            units: s.ms.units.map(u => {
-              if (u.id !== uid) return u;
-              // Varek always gains +1 tether per level up (automatic base gain)
-              const autoTether = uid === 'varek' ? 1 : 0;
-              const base = { ...u, tetherCap: (u.tetherCap||1) + autoTether };
-              if (choice==='tether') return { ...base, tetherCap: base.tetherCap + 1 };
-              if (choice==='drain')  return { ...base, drainRange:u.drainRange+1 };
-              if (choice==='hp')     return { ...base, maxHp:u.maxHp+4, hp:u.hp+4 };
-              if (choice==='raise')  return { ...base, raiseRange:u.raiseRange+1 };
-              if (choice==='dmg')    return { ...base, dmg:u.dmg+1, dmgUpgrades:(u.dmgUpgrades||0)+1 };
-              if (choice==='move')   return { ...base, moveRange:u.moveRange+1 };
-              return base;
-            }),
-          } : null;
-          return { ms:newMs, luq:s.luq.slice(1),
-            log:['Level up applied!', ...s.log].slice(0, 14) };
+          const entry = s.luq[0];
+          if (entry.type === 'class_promotion') return s;
+          const { uid } = entry;
+          const isVarek = uid === 'varek';
+          const hpGain = isVarek ? 4 : 3;
+          const boost = (u) => {
+            const autoTether = isVarek ? 1 : 0;
+            const base = { ...u, tetherCap: (u.tetherCap||1) + autoTether };
+            if (choice==='tether') return { ...base, tetherCap: base.tetherCap + 1 };
+            if (choice==='drain')  return { ...base, drainRange: u.drainRange + 1 };
+            if (choice==='hp')     return { ...base, maxHp: u.maxHp + hpGain, hp: u.hp + hpGain };
+            if (choice==='raise')  return { ...base, raiseRange: u.raiseRange + 1 };
+            if (choice==='dmg')    return { ...base, dmg: u.dmg + 1, dmgUpgrades: (u.dmgUpgrades||0) + 1 };
+            if (choice==='move')   return { ...base, moveRange: u.moveRange + 1 };
+            return base;
+          };
+          const newLuq = s.luq.slice(1);
+          const logLine = 'Level up applied!';
+          if (s.ms) {
+            return {
+              ms: { ...s.ms, units: s.ms.units.map(u => u.id !== uid ? u : boost(u)) },
+              luq: newLuq,
+              log: [logLine, ...s.log].slice(0, 14),
+            };
+          }
+          if (isVarek) {
+            const fake = { tetherCap:s.vp.tetherCap||1, drainRange:s.vp.drainRange||2, raiseRange:s.vp.raiseRange||2, hp:s.vp.hp, maxHp:s.vp.maxHp, moveRange:s.vp.moveRange||3 };
+            const b = boost(fake);
+            return {
+              vp: { ...s.vp, tetherCap:b.tetherCap, drainRange:b.drainRange, raiseRange:b.raiseRange, hp:b.hp, maxHp:b.maxHp, moveRange:b.moveRange },
+              luq: newLuq,
+              log: [logLine, ...s.log].slice(0, 14),
+            };
+          }
+          return {
+            roster: s.roster.map(u => u.id !== uid ? u : boost(u)),
+            luq: newLuq,
+            log: [logLine, ...s.log].slice(0, 14),
+          };
         });
       },
 
@@ -738,6 +879,8 @@ export const useGameStore = create(
           id:`u${Date.now()}`, type:UT.UNDEAD,
           name:`${pname} the ${cls}`, pname, cls,
           emoji: fresh ? '💀' : '🪦',
+          dc: fallen.dc,
+          baseClass: DC_TO_BASE[fallen.dc] ?? null,
           x:fallen.x, y:fallen.y, ...stats,
           ap:0, fallen:false, raiseTurn:null, atBase:false,
           xp:0, level:1, weapon:null, armor:null, dmgUpgrades:0,

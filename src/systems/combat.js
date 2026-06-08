@@ -63,11 +63,18 @@ export function applyXpToUnits(units, uid, amt, luqRef) {
   return units.map(u => {
     if (u.id !== uid) return u;
     let xp = u.xp + amt, lv = u.level;
-    while (xp >= xpNext(lv) && lv < 5) {
+    const maxLv = u.tier === 3 ? 10 : 5;
+    while (xp >= xpNext(lv) && lv < maxLv) {
       xp -= xpNext(lv);
       lv++;
-      luqRef.push({ uid, opts: u.type === UT.VAREK ? VAREK_LU : UNDEAD_LU });
+      const isClassPromo = u.type !== UT.VAREK && !u.classId && lv === 2;
+      luqRef.push({
+        uid,
+        opts: u.type === UT.VAREK ? VAREK_LU : UNDEAD_LU,
+        ...(isClassPromo ? { type: 'class_promotion' } : {}),
+      });
     }
+    if (lv >= maxLv) xp = Math.min(xp, xpNext(maxLv) - 1);
     return { ...u, xp, level: lv };
   });
 }
