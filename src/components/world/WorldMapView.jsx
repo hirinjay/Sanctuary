@@ -86,6 +86,7 @@ export default function WorldMapView() {
         (pos) => {
           const { world } = useGameStore.getState()
           if (!pos || !world || !layersRef.current) return
+          console.log('[Pixi] unsubPos fired → redrawing at', pos.col, pos.row);
           drawUnits(world, layersRef.current.units)
           centerOn(pos.col, pos.row, app, world)
         }
@@ -323,6 +324,7 @@ export default function WorldMapView() {
 
     // Only move if the tile is exactly one step from Varek's current position
     if (worldPos && hexDist(worldPos, hit) === 1 && TERRAIN[tile.terrain]?.passable) {
+      console.log('[WorldMap] click → travelTo', hit.col, hit.row, 'from', worldPos);
       store.travelTo(hit.col, hit.row)
     }
   }

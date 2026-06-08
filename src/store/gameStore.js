@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, subscribeWithSelector } from 'zustand/middleware';
 import { DEFAULT_VP, UT, TILE, UNAMES, VAREK_LU, UNDEAD_LU } from '../data/constants';
 import { item, LOOT, BODY_LOOT } from '../data/items';
 import { genMap, genDungeonMap, genCabinMap, genForest, genRuinedTown, genRaiderCamp, genSwamp, genBattlefield, genAbandonedVillage, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath } from '../systems/map';
@@ -26,6 +26,7 @@ function debouncedSave(get) {
 }
 
 export const useGameStore = create(
+  subscribeWithSelector(
   persist(
     (set, get) => ({
       // ── Persistent state ──────────────────────────────────────────────
@@ -152,9 +153,40 @@ export const useGameStore = create(
       },
 
       endMission(units, loot, success = false) {
-        const { roster, vp, inv, travelBag, sanctuaryGrid } = get();
+        const { roster, vp, inv, travelBag, sanctuaryGrid, ms: currentMs } = get();
+        const objective = currentMs?.objective ?? null;
+
+        // ── Objective outcome ─────────────────────────────────────────────
+        const CRITICAL = ['eliminate', 'loot_named', 'survive'];
+        let finalLoot = [...loot];
+        let varekXpBonus = 0;
+        const objLogs = [];
+
+        if (success && objective) {
+          if (objective.complete) {
+            varekXpBonus = 5;
+            objLogs.push(`⭐ Objective complete — Varek +5 XP.`);
+          } else if (CRITICAL.includes(objective.type)) {
+            // Randomly drop roughly half the mission loot as a failure penalty
+            const before = finalLoot.length;
+            finalLoot = finalLoot.filter(() => Math.random() > 0.5);
+            const dropped = before - finalLoot.length;
+            objLogs.push(dropped > 0
+              ? `✗ Objective failed — lost ${dropped} item${dropped !== 1 ? 's' : ''} in the chaos.`
+              : `✗ Objective failed.`);
+          }
+        }
+
+        // ── Unit / roster resolution ──────────────────────────────────────
         const surv  = units.filter(u => u.type === UT.UNDEAD && !u.fallen);
-        const varek = units.find(u => u.id === 'varek');
+        const luqExtra = [];
+        let varek = units.find(u => u.id === 'varek');
+
+        if (varek && varekXpBonus > 0) {
+          const updated = applyXpToUnits([varek], 'varek', varekXpBonus, luqExtra);
+          varek = updated[0];
+        }
+
         const newVp = varek
           ? { ...vp, hp:varek.hp, xp:varek.xp, level:varek.level, raiseRange:varek.raiseRange,
               drainRange:varek.drainRange, tetherCap:varek.tetherCap,
@@ -164,20 +196,21 @@ export const useGameStore = create(
 
         // Loot goes into travelBag — Varek carries it; must return to Sanctuary to deposit
         const newBag = { ...travelBag };
-        loot.forEach(id => { newBag[id] = (newBag[id]||0) + 1; });
+        finalLoot.forEach(id => { newBag[id] = (newBag[id]||0) + 1; });
 
         // Node yields — count placed tiles; each farm=2 food, each quarry=2 iron
         const newInv = { ...inv };
-        const logs = [];
+        const logs = [...objLogs];
         const farmCount   = sanctuaryGrid?.tiles?.filter(t => t.building === 'farm')?.length ?? 0;
         const quarryCount = sanctuaryGrid?.tiles?.filter(t => t.building === 'quarry')?.length ?? 0;
         if (farmCount > 0)   { newInv.food = (newInv.food||0)+farmCount*2; logs.push(`🌱 ${farmCount} farm${farmCount!==1?'s':''} yield${farmCount===1?'s':''} ${farmCount*2} food.`); }
         if (quarryCount > 0) { newInv.scrap_iron = (newInv.scrap_iron||0)+quarryCount*2; logs.push(`⛏ ${quarryCount} quarr${quarryCount!==1?'ies':'y'} yield${quarryCount===1?'s':''} ${quarryCount*2} scrap iron.`); }
 
-        if (success) logs.push(`✓ Secured ${loot.length} item${loot.length!==1?'s':''} — return to Sanctuary to deposit.`);
+        if (success) logs.push(`✓ Secured ${finalLoot.length} item${finalLoot.length!==1?'s':''} — return to Sanctuary to deposit.`);
 
         set(s => ({
           vp:newVp, roster:newRoster, inv:newInv, travelBag:newBag,
+          luq: [...s.luq, ...luqExtra],
           ms:null, worldPath:[], screen:'world',
           log: [...logs, ...s.log].slice(0, 14),
         }));
@@ -322,6 +355,7 @@ export const useGameStore = create(
           if (enc) { encounter = enc; break; }
         }
         set({ world: { ...world, tiles: curTiles }, worldPos: finalPos, worldPath: [] });
+        console.log('[travelTo] worldPos updated →', finalPos);
         if (encounter) {
           setTimeout(() => get().startMission(encounter, 'raid'), 100);
         } else {
@@ -1082,5 +1116,6 @@ export const useGameStore = create(
       },
     }),
     { name: 'sanctuary-save' }
+  )
   )
 );

@@ -78,12 +78,14 @@ export default function MissionScreen() {
 
   function handleCellClick(x, y, u, vis, hi) {
     if (!vis) return;
-    if (u) {
-      if (u.type === UT.ENEMY && !u.fallen && sel) {
-        doAttack(u, sel);
+    // Only treat living (non-fallen) units as blockers; fallen units are treated as empty
+    const live = u && !u.fallen ? u : null;
+    if (live) {
+      if (live.type === UT.ENEMY && sel) {
+        doAttack(live, sel);
         clearSel();
-      } else if (u.type !== UT.ENEMY && !u.fallen) {
-        handleSelect(u);
+      } else if (live.type !== UT.ENEMY) {
+        handleSelect(live);
       }
     } else if (hi) {
       doMove(x, y, sel, hilightRef.current);
