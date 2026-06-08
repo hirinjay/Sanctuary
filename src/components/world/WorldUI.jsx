@@ -2,11 +2,14 @@ import { useState } from 'react'
 import { useGameStore } from '../../store/gameStore'
 import { TERRAIN, LOC_TYPE } from '../../world/tileTypes'
 import { item } from '../../data/items'
+import LevelUpModal from '../mission/LevelUpModal'
+import PromotionModal from '../mission/PromotionModal'
 
 export default function WorldUI() {
   const {
     world, worldPos, sanctuaryPos, selectedHex,
     pendingSanctuaryTile, travelBag,
+    luq, promotionQueue,
     startMission, setScreen, selectHex,
     confirmSanctuaryPlacement, cancelSanctuaryPlacement,
     depositLoot, forageCurrentTile,
@@ -14,6 +17,10 @@ export default function WorldUI() {
   const [menuOpen, setMenuOpen] = useState(false)
 
   if (!world) return null
+
+  // Post-mission modals: level-up stat picks first, then promotions
+  if (luq.length > 0) return <LevelUpModal />
+  if (promotionQueue.length > 0) return <PromotionModal />
 
   const selTile = selectedHex
     ? world.tiles[selectedHex.row * world.width + selectedHex.col]

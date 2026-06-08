@@ -1,7 +1,7 @@
 import { useGameStore } from '../../store/gameStore';
 import { dist } from '../../systems/map';
 
-export default function RaisePanel({ units, turn, raiseable, book }) {
+export default function RaisePanel({ units, turn, raiseable }) {
   const { ti, doRaise, doGather } = useGameStore();
   const t = ti(units);
 

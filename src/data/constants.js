@@ -28,6 +28,18 @@ export const UNDEAD_LU = [
   { id:'move', label:'Move +1',   desc:'Faster' },
 ];
 
+// Status effect ids — stored as { id, duration, magnitude, sourceId } in unit.statusEffects[]
+export const STATUS = {
+  ROOT:     'root',     // cannot move; can attack and use abilities
+  SLOW:     'slow',     // move range halved (rounded down)
+  BIND:     'bind',     // cannot move or attack; abilities usable
+  STUN:     'stun',     // cannot move, attack, or use abilities (1 turn)
+  POISON:   'poison',   // lose magnitude hp per turn (does not affect undead unless arcane)
+  BURNING:  'burning',  // 1hp per turn; spreads to adjacent tiles each turn
+  MARKED:   'marked',   // takes +magnitude dmg from all sources
+  SHIELDED: 'shielded', // negates next magnitude damage
+};
+
 export const DEFAULT_VP = {
   hp:10, maxHp:10, xp:0, level:1,
   raiseRange:2, drainRange:2, tetherCap:1,

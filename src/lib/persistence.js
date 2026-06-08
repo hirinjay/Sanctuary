@@ -36,7 +36,7 @@ export async function saveRun(state, userId, slot) {
     }
   }
 
-  try { localStorage.setItem(lsKey(slot), JSON.stringify({ slot, ...payload })) } catch {}
+  try { localStorage.setItem(lsKey(slot), JSON.stringify({ slot, ...payload })) } catch (e) { console.warn('[save] localStorage error:', e) }
 }
 
 // ── Load slot summaries (for save-select screen) ──────────────────────

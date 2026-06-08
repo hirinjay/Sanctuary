@@ -367,7 +367,7 @@ export const useGameStore = create(
 
       // Called each auto-step from WorldMapView. Returns { encounter } or null.
       consumeStep() {
-        const { world, worldPath, travelBag } = get();
+        const { world, worldPath } = get();
         if (!world || !worldPath.length) { set({ worldPath:[] }); return null; }
 
         const [next, ...rest] = worldPath;

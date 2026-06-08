@@ -57,7 +57,7 @@ export default function WorldMapView() {
         drawLocIcons(world, locs)
         redrawFog(world, fog)
         drawUnits(world, units)
-        if (worldPos) centerOn(worldPos.col, worldPos.row, app, world)
+        if (worldPos) centerOn(worldPos.col, worldPos.row)
         redrawHighlight(selectedHex, worldPath, worldPos, world, hl)
       }
 
@@ -74,7 +74,7 @@ export default function WorldMapView() {
       )
       const unsubFog = useGameStore.subscribe(
         s => s.world?.tiles,
-        (_tiles) => {
+        () => {
           const { world } = useGameStore.getState()
           if (!world || !layersRef.current) return
           redrawFog(world, layersRef.current.fog)
@@ -88,7 +88,7 @@ export default function WorldMapView() {
           if (!pos || !world || !layersRef.current) return
           console.log('[Pixi] unsubPos fired → redrawing at', pos.col, pos.row);
           drawUnits(world, layersRef.current.units)
-          centerOn(pos.col, pos.row, app, world)
+          centerOn(pos.col, pos.row)
         }
       )
       const unsubSel = useGameStore.subscribe(
@@ -100,7 +100,7 @@ export default function WorldMapView() {
         { equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2] }
       )
 
-      setupInteraction(canvas, app)
+      setupInteraction(canvas)
 
       // Cleanup subscriptions on destroy
       app._worldUnsubs = [unsubWorld, unsubFog, unsubPos, unsubSel]
@@ -242,7 +242,7 @@ export default function WorldMapView() {
   }
 
   // ── Center camera on (col,row) ────────────────────────────────────────
-  function centerOn(col, row, _app, _world) {
+  function centerOn(col, row) {
     const cam = cameraRef.current
     const size = sizeRef.current
     const { x, y } = hexToPixel(col, row)
@@ -260,7 +260,7 @@ export default function WorldMapView() {
   }
 
   // ── Camera interaction ────────────────────────────────────────────────
-  function setupInteraction(canvas, _app) {
+  function setupInteraction(canvas) {
     const cam = cameraRef.current
     let startX = 0, startY = 0
 

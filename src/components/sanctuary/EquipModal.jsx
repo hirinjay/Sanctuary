@@ -1,5 +1,5 @@
 import { useGameStore } from '../../store/gameStore';
-import { item, ITEMS } from '../../data/items';
+import { item } from '../../data/items';
 
 export default function EquipModal() {
   const { vp, roster, inv, equipTgt, setEquipTgt, equipItem } = useGameStore();

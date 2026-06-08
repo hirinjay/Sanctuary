@@ -36,9 +36,9 @@ function btn(on, c) {
 }
 
 export default function MissionScreen() {
-  const { ms, noise, phase, luq, log, vp, loc, mode, book, ti, travelBag, sanctuaryPos,
-          doMove, doAttack, doRaise, doUseKey, doAbility, toggleAbilityArmed,
-          endTurn, endMission, setScreen, addLog } = useGameStore();
+  const { ms, noise, phase, luq, log, loc, mode, book, ti, travelBag, sanctuaryPos,
+          doMove, doAttack, doUseKey, doAbility, toggleAbilityArmed,
+          endTurn, endMission, addLog } = useGameStore();
 
   // sel & hilight are local — they don't need persistence and use the hilightRef pattern
   // to avoid stale closures on grid click

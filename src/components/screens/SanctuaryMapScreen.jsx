@@ -31,7 +31,7 @@ function btn(on, c) {
 
 export default function SanctuaryMapScreen() {
   const {
-    inv, nodes, vp, roster, sanctuaryGrid, sanctuaryPos,
+    inv, nodes, sanctuaryGrid, sanctuaryPos,
     setScreen, initSanctuaryGrid, placeBuilding, demolishBuilding, ti,
   } = useGameStore()
 
@@ -50,7 +50,7 @@ export default function SanctuaryMapScreen() {
     </div>
   )
 
-  const { tiles, width, height } = sanctuaryGrid
+  const { tiles, width } = sanctuaryGrid
 
   function handleTileClick(col, row) {
     const tile = tiles.find(t => t.col === col && t.row === row)
