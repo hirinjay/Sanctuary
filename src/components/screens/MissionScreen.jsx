@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useGameStore } from '../../store/gameStore';
 import { UT, TILE } from '../../data/constants';
 import { item } from '../../data/items';
@@ -45,7 +45,18 @@ export default function MissionScreen() {
   const [sel, setSel]               = useState(null);
   const [hilight, setHilight]       = useState(new Set());
   const hilightRef                  = useRef(new Set());
-  const [abilityMode, setAbilityMode] = useState(null); // abilityId string | null
+  const [abilityMode, setAbilityMode] = useState(null);
+  const [autoEnd, setAutoEnd]       = useState(true);
+
+  // Auto-end: fire when units or toggle change — if all friendlies are out of AP, end the turn
+  useEffect(() => {
+    if (!autoEnd) return;
+    const { ms: cur, phase: curPhase } = useGameStore.getState();
+    if (!cur || curPhase !== 'player') return;
+    const friendlies = cur.units.filter(u => u.type !== 'enemy' && !u.fallen);
+    if (friendlies.length > 0 && friendlies.every(u => u.ap <= 0)) endTurn();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ms?.units, autoEnd]);
 
   const clearSel = useCallback(() => {
     setSel(null);
@@ -402,6 +413,14 @@ export default function MissionScreen() {
           endMission(ms.units, kept);
         }} style={btn(true,'#4a4a8a')}>
           🏃 Retreat
+        </button>
+        <button
+          onClick={() => setAutoEnd(v => !v)}
+          style={{
+            ...btn(true, autoEnd ? '#2a6a4a' : '#4a4a4a'),
+            marginRight:'auto', order:-1,
+          }}>
+          {autoEnd ? '⚡ Auto-End: ON' : '○ Auto-End: OFF'}
         </button>
         <button onClick={endTurn} disabled={phase!=='player'} style={btn(phase==='player','#3a7a3a')}>
           ⏭ End Turn
