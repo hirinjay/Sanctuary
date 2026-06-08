@@ -23,7 +23,7 @@ const SELF_ABILITIES = new Set([
   'ambush','superior_ambush',
 ]);
 
-const pg = { background:'#040810', minHeight:'100vh', fontFamily:'Georgia,serif', color:'#c4a882', padding:9, userSelect:'none' };
+const pg = { background:'#040810', height:'100vh', overflow:'hidden', display:'flex', flexDirection:'column', fontFamily:'Georgia,serif', color:'#c4a882', boxSizing:'border-box', userSelect:'none' };
 
 function btn(on, c) {
   return {
@@ -217,143 +217,150 @@ export default function MissionScreen() {
 
   return (
     <div style={pg}>
-      {/* Header */}
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-        marginBottom:5, flexWrap:'wrap', gap:5, fontSize:11, maxWidth:510, margin:'0 auto 5px' }}>
-        <div>
-          <span style={{ color:'#e8d5b0' }}>{loc?.name}</span>
-          <span style={{ color:'#3a4a3a', marginLeft:8 }}>
-            {mode==='scavenge'?'🤫':'⚔️'} Turn {turn}
-          </span>
+
+      {/* ── Top: header + objective ───────────────────────────────────── */}
+      <div style={{ flexShrink:0, padding:'6px 9px 0' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+          flexWrap:'wrap', gap:5, fontSize:11, marginBottom:4 }}>
+          <div>
+            <span style={{ color:'#e8d5b0' }}>{loc?.name}</span>
+            <span style={{ color:'#3a4a3a', marginLeft:8 }}>
+              {mode==='scavenge'?'🤫':'⚔️'} Turn {turn}
+            </span>
+          </div>
+          <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+            <span style={{ color:noiseColor }}>🔊 {noiseLabel}</span>
+            <span>❤️ {varek?.hp}/{varek?.maxHp}</span>
+            <span style={{ color:t.fieldCount<t.fieldCap?'#3a7a3a':'#7a2a2a' }}>⛓ {fieldTether}</span>
+            <span style={{ color:'#4a5a4a' }}>Lv{varek?.level}</span>
+            {keys.length > 0 && <span style={{ color:'#aa8833' }}>🔑×{keys.length}</span>}
+          </div>
         </div>
-        <div style={{ display:'flex', gap:10, alignItems:'center' }}>
-          <span style={{ color:noiseColor }}>🔊 {noiseLabel}</span>
-          <span>❤️ {varek?.hp}/{varek?.maxHp}</span>
-          <span style={{ color:t.fieldCount<t.fieldCap?'#3a7a3a':'#7a2a2a' }}>⛓ {fieldTether}</span>
-          <span style={{ color:'#4a5a4a' }}>Lv{varek?.level}</span>
-          {keys.length > 0 && <span style={{ color:'#aa8833' }}>🔑×{keys.length}</span>}
-        </div>
+        {ms.objective && (() => {
+          const obj = ms.objective;
+          const done = obj.complete, fail = obj.failed;
+          return (
+            <div style={{ padding:'3px 8px', borderRadius:4, fontSize:10, marginBottom:4,
+              background: done ? '#091509' : fail ? '#150909' : '#090e1a',
+              border: `1px solid ${done ? '#3a6a3a' : fail ? '#6a2a2a' : '#2a3a5a'}`,
+              color: done ? '#5a9a5a' : fail ? '#8a4a4a' : '#c4a882',
+              display:'flex', gap:8, alignItems:'center',
+            }}>
+              <span>{done ? '⭐' : fail ? '✗' : '◼'}</span>
+              <span>{obj.label}</span>
+              {obj.type === 'survive' && !done && (
+                <span style={{ color:'#4a5a6a', marginLeft:'auto' }}>turn {turn}/{obj.turns}</span>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
-      {/* Objective */}
-      {ms.objective && (() => {
-        const obj = ms.objective;
-        const done = obj.complete, fail = obj.failed;
-        return (
-          <div style={{ maxWidth:510, margin:'0 auto 4px', padding:'3px 8px', borderRadius:4, fontSize:10,
-            background: done ? '#091509' : fail ? '#150909' : '#090e1a',
-            border: `1px solid ${done ? '#3a6a3a' : fail ? '#6a2a2a' : '#2a3a5a'}`,
-            color: done ? '#5a9a5a' : fail ? '#8a4a4a' : '#c4a882',
-            display:'flex', gap:8, alignItems:'center',
-          }}>
-            <span>{done ? '⭐' : fail ? '✗' : '◼'}</span>
-            <span>{obj.label}</span>
-            {obj.type === 'survive' && !done && (
-              <span style={{ color:'#4a5a6a', marginLeft:'auto' }}>turn {turn}/{obj.turns}</span>
-            )}
-          </div>
-        );
-      })()}
+      {/* ── Middle: map (scrollable) + sidebar (fixed) ───────────────── */}
+      <div style={{ flex:1, minHeight:0, display:'flex', gap:6, padding:'0 9px', overflow:'hidden' }}>
 
-      {/* Map + Legend */}
-      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'center', gap:6, maxWidth:660, margin:'0 auto' }}>
-        <MissionMap
-          tiles={tiles} units={units} W={mapW} fv={fv}
-          hilight={hilight} raiseable={raiseable}
-          onCellClick={handleCellClick} theme={theme}
-        />
-        <div style={{ flexShrink:0, width:78, background:'#04040a', border:'1px solid #0e0e1a', borderRadius:4, padding:'5px 5px 3px', marginTop:0, alignSelf:'flex-start' }}>
-          <div style={{ fontSize:7, color:'#2a3a2a', letterSpacing:1, marginBottom:4, textTransform:'uppercase' }}>Key</div>
+        {/* Map — scrolls freely in both axes */}
+        <div style={{ flex:1, overflow:'auto', minWidth:0 }}>
+          <MissionMap
+            tiles={tiles} units={units} W={mapW} fv={fv}
+            hilight={hilight} raiseable={raiseable}
+            onCellClick={handleCellClick} theme={theme}
+          />
+        </div>
+
+        {/* Legend sidebar — fixed width, never scrolls with the map */}
+        <div style={{ flexShrink:0, width:88, overflowY:'auto',
+          background:'#04040a', border:'1px solid #0e0e1a', borderRadius:4, padding:'6px 6px 4px',
+          alignSelf:'flex-start', maxHeight:'100%' }}>
+          <div style={{ fontSize:8, color:'#2a3a2a', letterSpacing:1, marginBottom:5, textTransform:'uppercase' }}>Key</div>
           {legendEntries.map((e, i) =>
             e.divider
               ? <div key={i} style={{ height:1, background:'#0e0e1a', margin:'4px 0' }} />
               : (
-                <div key={i} style={{ display:'flex', alignItems:'center', gap:4, marginBottom:3 }}>
+                <div key={i} style={{ display:'flex', alignItems:'center', gap:5, marginBottom:4 }}>
                   <span style={{
                     display:'inline-flex', alignItems:'center', justifyContent:'center',
-                    width:16, height:16, fontSize:9, flexShrink:0,
+                    width:18, height:18, fontSize:10, flexShrink:0,
                     background: e.bg, border:`1px solid ${e.border}`, borderRadius:2,
                     opacity: e.dim ? 0.45 : 1,
                   }}>{e.icon}</span>
-                  <span style={{ fontSize:8, color:'#5a6a5a', lineHeight:1 }}>{e.label}</span>
+                  <span style={{ fontSize:9, color:'#5a6a5a', lineHeight:1.2 }}>{e.label}</span>
                 </div>
               )
           )}
         </div>
       </div>
 
-      {/* Unit bar */}
-      <UnitBar units={units} sel={sel} onSelect={handleSelect} />
+      {/* ── Bottom: unit bar, raise panel, log, buttons ───────────────── */}
+      <div style={{ flexShrink:0, padding:'0 9px 7px' }}>
 
-      {/* Raise / gather panel */}
-      <RaisePanel units={units} turn={turn} raiseable={raiseable} book={book} />
+        {/* Unit bar */}
+        <UnitBar units={units} sel={sel} onSelect={handleSelect} />
 
-      {/* Hint */}
-      <div style={{ maxWidth:510, margin:'0 auto 5px', fontSize:10, color:'#2a3a2a' }}>
-        {abilityMode
-          ? `${ABILITIES[abilityMode]?.name}: ${UNIT_TARGET_ABILITIES.has(abilityMode) ? 'tap an enemy' : CELL_TARGET_ABILITIES.has(abilityMode) ? 'tap destination cell' : '...'}`
-          : selUnit ? `${selUnit.name} — tap green to move, tap enemy to attack` : 'Tap a unit to select'}
-      </div>
+        {/* Raise / gather panel */}
+        <RaisePanel units={units} turn={turn} raiseable={raiseable} book={book} />
 
-      {/* Combat log */}
-      <div style={{ maxWidth:510, margin:'0 auto', background:'#04040a',
-        border:'1px solid #111120', borderRadius:4, padding:6,
-        height:66, overflowY:'auto', marginBottom:7 }}>
-        {log.map((l, i) => (
-          <div key={i} style={{ fontSize:10, color:i===0?'#c4a882':'#333345', lineHeight:1.6 }}>{l}</div>
-        ))}
-      </div>
+        {/* Hint */}
+        <div style={{ fontSize:10, color:'#2a3a2a', marginBottom:4 }}>
+          {abilityMode
+            ? `${ABILITIES[abilityMode]?.name}: ${UNIT_TARGET_ABILITIES.has(abilityMode) ? 'tap an enemy' : CELL_TARGET_ABILITIES.has(abilityMode) ? 'tap destination cell' : '...'}`
+            : selUnit ? `${selUnit.name} — tap green to move, tap enemy to attack` : 'Tap a unit to select'}
+        </div>
 
-      {/* Ability buttons — shown when a unit with classAbility is selected */}
-      {selUnit && phase === 'player' && selUnit.type !== UT.ENEMY && (() => {
-        const ab = selUnit.classAbility ? ABILITIES[selUnit.classAbility] : null;
-        if (!ab) return null;
-        const usesLeft = selUnit.abilityUses?.[selUnit.classAbility] ?? 0;
-        const isActive   = ab.type === 'active';
-        const isReactive = ab.type === 'reactive';
-        return (
-          <div style={{ maxWidth:510, margin:'0 auto 5px', display:'flex', gap:6, alignItems:'center' }}>
-            <span style={{ fontSize:9, color:'#3a4a3a', flexShrink:0 }}>
-              {selUnit.name.split(' ')[0]}:
-            </span>
+        {/* Combat log */}
+        <div style={{ background:'#04040a', border:'1px solid #111120', borderRadius:4, padding:6,
+          height:58, overflowY:'auto', marginBottom:6 }}>
+          {log.map((l, i) => (
+            <div key={i} style={{ fontSize:10, color:i===0?'#c4a882':'#333345', lineHeight:1.6 }}>{l}</div>
+          ))}
+        </div>
 
-            {/* Active ability */}
-            {isActive && (
-              abilityMode === selUnit.classAbility
-                ? <button onClick={() => setAbilityMode(null)} style={btn(true,'#8a5a2a')}>
-                    ✕ Cancel {ab.name}
-                  </button>
-                : <button
-                    disabled={usesLeft <= 0 || selUnit.ap <= 0}
-                    onClick={() => {
-                      if (usesLeft <= 0 || selUnit.ap <= 0) return;
-                      if (SELF_ABILITIES.has(selUnit.classAbility)) {
-                        doAbility(selUnit.id, selUnit.classAbility, null, null, null);
-                      } else {
-                        setAbilityMode(selUnit.classAbility);
-                      }
-                    }}
-                    style={btn(usesLeft > 0 && selUnit.ap > 0, '#6a3a9a')}>
-                    ✦ {ab.name} {usesLeft > 0 ? `(${usesLeft}×)` : '(spent)'}
-                  </button>
-            )}
+        {/* Ability buttons */}
+        {selUnit && phase === 'player' && selUnit.type !== UT.ENEMY && (() => {
+          const ab = selUnit.classAbility ? ABILITIES[selUnit.classAbility] : null;
+          if (!ab) return null;
+          const usesLeft = selUnit.abilityUses?.[selUnit.classAbility] ?? 0;
+          const isActive   = ab.type === 'active';
+          const isReactive = ab.type === 'reactive';
+          return (
+            <div style={{ display:'flex', gap:6, alignItems:'center', marginBottom:5 }}>
+              <span style={{ fontSize:9, color:'#3a4a3a', flexShrink:0 }}>
+                {selUnit.name.split(' ')[0]}:
+              </span>
+              {isActive && (
+                abilityMode === selUnit.classAbility
+                  ? <button onClick={() => setAbilityMode(null)} style={btn(true,'#8a5a2a')}>
+                      ✕ Cancel {ab.name}
+                    </button>
+                  : <button
+                      disabled={usesLeft <= 0 || selUnit.ap <= 0}
+                      onClick={() => {
+                        if (usesLeft <= 0 || selUnit.ap <= 0) return;
+                        if (SELF_ABILITIES.has(selUnit.classAbility)) {
+                          doAbility(selUnit.id, selUnit.classAbility, null, null, null);
+                        } else {
+                          setAbilityMode(selUnit.classAbility);
+                        }
+                      }}
+                      style={btn(usesLeft > 0 && selUnit.ap > 0, '#6a3a9a')}>
+                      ✦ {ab.name} {usesLeft > 0 ? `(${usesLeft}×)` : '(spent)'}
+                    </button>
+              )}
+              {isReactive && (
+                <button
+                  disabled={usesLeft <= 0}
+                  onClick={() => usesLeft > 0 && toggleAbilityArmed(selUnit.id)}
+                  style={btn(usesLeft > 0, selUnit.abilityArmed ? '#2a6a5a' : '#5a3a2a')}>
+                  {selUnit.abilityArmed ? `🛡 Disarm ${ab.name}` : `⚡ Arm ${ab.name}`}
+                  {usesLeft > 0 ? ` (${usesLeft}×)` : ' (spent)'}
+                </button>
+              )}
+            </div>
+          );
+        })()}
 
-            {/* Reactive arm/disarm */}
-            {isReactive && (
-              <button
-                disabled={usesLeft <= 0}
-                onClick={() => usesLeft > 0 && toggleAbilityArmed(selUnit.id)}
-                style={btn(usesLeft > 0, selUnit.abilityArmed ? '#2a6a5a' : '#5a3a2a')}>
-                {selUnit.abilityArmed ? `🛡 Disarm ${ab.name}` : `⚡ Arm ${ab.name}`}
-                {usesLeft > 0 ? ` (${usesLeft}×)` : ' (spent)'}
-              </button>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* Action buttons */}
-      <div style={{ maxWidth:510, margin:'0 auto', display:'flex', gap:7, justifyContent:'flex-end' }}>
+        {/* Action buttons */}
+        <div style={{ display:'flex', gap:7, justifyContent:'flex-end' }}>
         {adjacentKeyTarget && (
           <button onClick={() => { doUseKey(adjacentKeyTarget.x, adjacentKeyTarget.y, sel); clearSel(); }}
             style={btn(true,'#aa8833')}>
@@ -399,6 +406,7 @@ export default function MissionScreen() {
         <button onClick={endTurn} disabled={phase!=='player'} style={btn(phase==='player','#3a7a3a')}>
           ⏭ End Turn
         </button>
+        </div>
       </div>
     </div>
   );

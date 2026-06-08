@@ -96,14 +96,19 @@ function tileContent(tile, visible, theme, x, y) {
   return TILE_ICON[tile.type] || null;
 }
 
-export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, onCellClick, theme = 'dungeon' }) {
+export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, onCellClick, theme = 'dungeon', tileSize = 46 }) {
+  const uFont = Math.round(tileSize * 0.30);   // regular unit emoji
+  const vFont = Math.round(tileSize * 0.38);   // varek emoji (slightly larger)
+  const sFont = Math.round(tileSize * 0.17);   // status effect badge
+  const wFont = Math.round(tileSize * 0.28);   // wall decoration
+  const iFont = Math.round(tileSize * 0.22);   // tile icon (loot, exit, etc.)
+
   return (
     <div style={{
       display:'grid',
-      gridTemplateColumns:`repeat(${W},1fr)`,
+      gridTemplateColumns:`repeat(${W},${tileSize}px)`,
       gap:1,
-      maxWidth:560,
-      margin:'0 auto 7px',
+      width:'fit-content',
     }}>
       {tiles.map((row, y) => row.map((tile, x) => {
         const k      = `${x},${y}`;
@@ -121,7 +126,6 @@ export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, on
           : u.ap === 1 ? '0 0 4px 1px #7a6a10'
           : '0 0 4px 1px #7a1a1a'
           : undefined;
-        // Status effect icon overlay — show most severe active effect
         const STATUS_ICONS = { root:'🌿', slow:'🐢', bind:'⛓', stun:'💫', poison:'☠', burning:'🔥', marked:'🎯', shielded:'🛡' };
         const statusIcon = visibleUnit && u?.statusEffects?.length
           ? STATUS_ICONS[u.statusEffects[0]?.id] ?? null
@@ -131,24 +135,24 @@ export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, on
           <div key={k}
             onClick={() => onCellClick(x, y, visibleUnit ? u : null, vis, hi)}
             style={{
-              width:'100%', aspectRatio:'1',
+              width:tileSize, height:tileSize,
               background: bg,
               border: hi ? '1px solid #2a5a2a' : isR ? '1px solid #4a4a8a' : marked ? '1px solid #c4a882' : '1px solid transparent',
               boxShadow: marked ? '0 0 5px 1px #c4a88288' : apGlow,
               display:'flex', alignItems:'center', justifyContent:'center',
-              fontSize:9, cursor:vis ? 'pointer' : 'default', borderRadius:1,
-              position:'relative',
+              cursor:vis ? 'pointer' : 'default', borderRadius:1,
+              position:'relative', flexShrink:0,
             }}>
             {vis && (
               visibleUnit
                 ? <>
-                    <span style={{ opacity:u.fallen?0.3:1, fontSize:u.id==='varek'?12:9 }}>{u.sleeping ? '💤' : u.emoji}</span>
+                    <span style={{ opacity:u.fallen?0.3:1, fontSize:u.id==='varek'?vFont:uFont }}>{u.sleeping ? '💤' : u.emoji}</span>
                     {statusIcon && !u.fallen && (
-                      <span style={{ position:'absolute', top:0, right:0, fontSize:5, lineHeight:1 }}>{statusIcon}</span>
+                      <span style={{ position:'absolute', top:1, right:1, fontSize:sFont, lineHeight:1 }}>{statusIcon}</span>
                     )}
                   </>
                 : content
-                  ? <span style={{ fontSize: tile.type===TILE.WALL ? 10 : 7, opacity: tile.type===TILE.WALL ? 0.7 : 0.6 }}>{content}</span>
+                  ? <span style={{ fontSize: tile.type===TILE.WALL ? wFont : iFont, opacity: tile.type===TILE.WALL ? 0.7 : 0.6 }}>{content}</span>
                   : null
             )}
           </div>
