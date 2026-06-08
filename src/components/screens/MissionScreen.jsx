@@ -339,44 +339,62 @@ export default function MissionScreen() {
 
         {/* Ability buttons */}
         {selUnit && phase === 'player' && selUnit.type !== UT.ENEMY && (() => {
-          const ab = selUnit.classAbility ? ABILITIES[selUnit.classAbility] : null;
-          if (!ab) return null;
-          const usesLeft = selUnit.abilityUses?.[selUnit.classAbility] ?? 0;
-          const isActive   = ab.type === 'active';
-          const isReactive = ab.type === 'reactive';
+          const allAbilityIds = [
+            selUnit.classAbility,
+            ...(selUnit.bondedAbilities ?? []),
+          ].filter(Boolean);
+          if (allAbilityIds.length === 0) return null;
           return (
-            <div style={{ display:'flex', gap:6, alignItems:'center', marginBottom:5 }}>
-              <span style={{ fontSize:9, color:'#3a4a3a', flexShrink:0 }}>
-                {selUnit.name.split(' ')[0]}:
-              </span>
-              {isActive && (
-                abilityMode === selUnit.classAbility
-                  ? <button onClick={() => setAbilityMode(null)} style={btn(true,'#8a5a2a')}>
-                      ✕ Cancel {ab.name}
-                    </button>
-                  : <button
-                      disabled={usesLeft <= 0 || selUnit.ap <= 0}
-                      onClick={() => {
-                        if (usesLeft <= 0 || selUnit.ap <= 0) return;
-                        if (SELF_ABILITIES.has(selUnit.classAbility)) {
-                          doAbility(selUnit.id, selUnit.classAbility, null, null, null);
-                        } else {
-                          setAbilityMode(selUnit.classAbility);
-                        }
-                      }}
-                      style={btn(usesLeft > 0 && selUnit.ap > 0, '#6a3a9a')}>
-                      ✦ {ab.name} {usesLeft > 0 ? `(${usesLeft}×)` : '(spent)'}
-                    </button>
-              )}
-              {isReactive && (
-                <button
-                  disabled={usesLeft <= 0}
-                  onClick={() => usesLeft > 0 && toggleAbilityArmed(selUnit.id)}
-                  style={btn(usesLeft > 0, selUnit.abilityArmed ? '#2a6a5a' : '#5a3a2a')}>
-                  {selUnit.abilityArmed ? `🛡 Disarm ${ab.name}` : `⚡ Arm ${ab.name}`}
-                  {usesLeft > 0 ? ` (${usesLeft}×)` : ' (spent)'}
-                </button>
-              )}
+            <div style={{ display:'flex', flexDirection:'column', gap:4, marginBottom:5 }}>
+              {allAbilityIds.map((aid, idx) => {
+                const ab = ABILITIES[aid];
+                if (!ab) return null;
+                const usesLeft = selUnit.abilityUses?.[aid] ?? 0;
+                const isBonded = idx > 0;
+                const isArmed = isBonded ? !!(selUnit.bondedArmed?.[aid]) : selUnit.abilityArmed;
+                const accentColor = isBonded ? '#7a4a9a' : '#6a3a9a';
+                const armColor = isArmed ? '#2a6a5a' : '#5a3a2a';
+                return (
+                  <div key={aid} style={{ display:'flex', gap:6, alignItems:'center' }}>
+                    {idx === 0 && (
+                      <span style={{ fontSize:9, color:'#3a4a3a', flexShrink:0 }}>
+                        {selUnit.name.split(' ')[0]}:
+                      </span>
+                    )}
+                    {isBonded && (
+                      <span style={{ fontSize:9, color:'#4a2a5a', flexShrink:0 }}>bonded:</span>
+                    )}
+                    {ab.type === 'active' && (
+                      abilityMode === aid
+                        ? <button onClick={() => setAbilityMode(null)} style={btn(true,'#8a5a2a')}>
+                            ✕ Cancel {ab.name}
+                          </button>
+                        : <button
+                            disabled={usesLeft <= 0 || selUnit.ap <= 0}
+                            onClick={() => {
+                              if (usesLeft <= 0 || selUnit.ap <= 0) return;
+                              if (SELF_ABILITIES.has(aid)) {
+                                doAbility(selUnit.id, aid, null, null, null);
+                              } else {
+                                setAbilityMode(aid);
+                              }
+                            }}
+                            style={btn(usesLeft > 0 && selUnit.ap > 0, accentColor)}>
+                            ✦ {ab.name} {usesLeft > 0 ? `(${usesLeft}×)` : '(spent)'}
+                          </button>
+                    )}
+                    {ab.type === 'reactive' && (
+                      <button
+                        disabled={usesLeft <= 0}
+                        onClick={() => usesLeft > 0 && toggleAbilityArmed(selUnit.id, isBonded ? aid : undefined)}
+                        style={btn(usesLeft > 0, armColor)}>
+                        {isArmed ? `🛡 Disarm ${ab.name}` : `⚡ Arm ${ab.name}`}
+                        {usesLeft > 0 ? ` (${usesLeft}×)` : ' (spent)'}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           );
         })()}

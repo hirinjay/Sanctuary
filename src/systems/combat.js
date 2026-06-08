@@ -59,6 +59,18 @@ export function classStats(cls, fresh, ub) {
   };
 }
 
+// Returns stat/xp bonus from a sacrifice unit. Returns null for tier-3 (ability transfer instead).
+export function calcSacrificeBonus(sac) {
+  if (!sac || sac.tier === 3) return null;
+  const score = (sac.tier ?? 1) * (sac.level ?? 1);
+  const bonus = { hp: 0, dmg: 0, move: 0, startingXp: Math.min(11, score) };
+  const dc = sac.dc ?? 'Skeleton Warrior';
+  if (dc === 'Grave Warden')       bonus.hp   = Math.floor(score * 0.5);
+  else if (dc === 'Skeleton Warrior') bonus.dmg = score >= 8 ? 2 : score >= 5 ? 1 : 0;
+  else if (dc === 'Grave Stalker')    bonus.move = score >= 8 ? 2 : score >= 5 ? 1 : 0;
+  return bonus;
+}
+
 export function applyXpToUnits(units, uid, amt, luqRef) {
   return units.map(u => {
     if (u.id !== uid) return u;

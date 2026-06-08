@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useGameStore } from '../../store/gameStore';
 import { item } from '../../data/items';
-import { xpNext } from '../../systems/combat';
+import { xpNext, calcSacrificeBonus } from '../../systems/combat';
 import { getTier3Class } from '../../data/classes';
 import { ABILITIES } from '../../data/abilities';
 import { CLASS_STATS } from '../../data/archetypes';
@@ -26,7 +26,9 @@ export default function SanctuaryScreen() {
   const set = useGameStore.setState;
   const t = ti(null);
   const [ascendingId, setAscendingId] = useState(null);
+  const [ascendSacId, setAscendSacId] = useState(null);
   const [rebirthConfirmId, setRebirthConfirmId] = useState(null);
+  const [rebirthSacId, setRebirthSacId] = useState(null);
   const baseCount  = t.baseCount;
   const fieldCount = t.fieldCount;
   const established = !!sanctuaryPos;
@@ -198,6 +200,9 @@ export default function SanctuaryScreen() {
         {/* Ascension Forge */}
         {nodes.includes('ascension_forge') && (() => {
           const eligible = roster.filter(u => u.tier === 2 && u.level >= 5 && getTier3Class(u.classId));
+          const sacPool = roster.filter(u => u.tier !== 3 && u.id !== ascendingId);
+          const sac = ascendSacId ? roster.find(r => r.id === ascendSacId) : null;
+          const bonus = sac ? calcSacrificeBonus(sac) : null;
           return (
             <div style={card}>
               <div style={{ fontWeight:'bold', color:'#c4a882', marginBottom:7, fontSize:12 }}>⚗️ Ascension Forge</div>
@@ -211,25 +216,57 @@ export default function SanctuaryScreen() {
                   <div key={u.id} style={{ borderBottom:'1px solid #0f1220', paddingBottom:8, marginBottom:8 }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: expanded ? 8 : 0 }}>
                       <span style={{ fontSize:11 }}>{u.emoji} {u.name} <span style={{ color:'#5a4a7a' }}>→ {t3.emoji} {t3.name}</span></span>
-                      <button onClick={() => setAscendingId(expanded ? null : u.id)} style={btn(true, expanded ? '#4a4a6a' : '#6a4a9a')}>
+                      <button onClick={() => { setAscendingId(expanded ? null : u.id); setAscendSacId(null); }} style={btn(true, expanded ? '#4a4a6a' : '#6a4a9a')}>
                         {expanded ? 'Cancel' : 'Ascend'}
                       </button>
                     </div>
                     {expanded && (
                       <div>
-                        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:4, fontSize:10, color:'#4a6a5a', marginBottom:8 }}>
-                          <span>❤️ {t3.stats.hp}</span>
-                          <span>⚔️ {t3.stats.dmg}</span>
-                          <span>🛡 {t3.stats.def}</span>
-                          <span>👟 {t3.stats.move}</span>
+                        {/* Step 1: pick sacrifice */}
+                        <div style={{ fontSize:10, color:'#5a5a3a', marginBottom:5 }}>
+                          Step 1 — Sacrifice a unit <span style={{ color:'#3a3a2a' }}>(Tier 3 not allowed)</span>:
                         </div>
-                        <div style={{ fontSize:10, color:'#5a5a3a', marginBottom:6 }}>Choose ability:</div>
+                        <div style={{ display:'flex', gap:5, flexWrap:'wrap', marginBottom:10 }}>
+                          {sacPool.length === 0 && (
+                            <span style={{ fontSize:10, color:'#4a3a2a' }}>No eligible sacrifices.</span>
+                          )}
+                          {sacPool.map(s => {
+                            const score = (s.tier ?? 1) * (s.level ?? 1);
+                            const selected = ascendSacId === s.id;
+                            return (
+                              <button key={s.id} onClick={() => setAscendSacId(selected ? null : s.id)} style={{
+                                ...btn(true, selected ? '#9a6a2a' : '#3a3a4a'),
+                                fontSize:10, padding:'4px 8px',
+                              }}>
+                                {s.emoji} {s.pname} T{s.tier ?? 1}L{s.level} (score {score})
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {/* Step 2: pick ability with stat preview */}
+                        <div style={{ fontSize:10, color:'#5a5a3a', marginBottom:5 }}>
+                          Step 2 — Choose ability{sac ? ` (${sac.pname} consumed)` : ' (no sacrifice — no bonus)'}:
+                        </div>
+                        {bonus && (bonus.hp > 0 || bonus.dmg > 0 || bonus.move > 0) && (
+                          <div style={{ fontSize:10, color:'#7a6a3a', marginBottom:6 }}>
+                            Sacrifice bonus: {bonus.hp > 0 ? `+${bonus.hp} HP ` : ''}{bonus.dmg > 0 ? `+${bonus.dmg} DMG ` : ''}{bonus.move > 0 ? `+${bonus.move} MOV` : ''}
+                          </div>
+                        )}
+                        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:4, fontSize:10, color:'#4a6a5a', marginBottom:8 }}>
+                          <span>❤️ {t3.stats.hp + (bonus?.hp ?? 0)}</span>
+                          <span>⚔️ {t3.stats.dmg + (bonus?.dmg ?? 0)}</span>
+                          <span>🛡 {t3.stats.def}</span>
+                          <span>👟 {t3.stats.move + (bonus?.move ?? 0)}</span>
+                        </div>
                         <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
                           {(t3.abilityChoice ?? []).map(aid => {
                             const ab = ABILITIES[aid];
                             if (!ab) return null;
                             return (
-                              <button key={aid} onClick={() => { ascendUnit(u.id, t3.id, aid); setAscendingId(null); }} style={{
+                              <button key={aid} onClick={() => {
+                                ascendUnit(u.id, t3.id, aid, ascendSacId ?? undefined);
+                                setAscendingId(null); setAscendSacId(null);
+                              }} style={{
                                 background:'#0b0f1c', border:'1px solid #3a3a5a', borderRadius:5,
                                 padding:'6px 10px', color:'#c4a882', cursor:'pointer', fontSize:11, flex:1,
                               }}>
@@ -251,6 +288,9 @@ export default function SanctuaryScreen() {
         {/* Rebirth Table */}
         {nodes.includes('rebirth_table') && (() => {
           const promoted = roster.filter(u => u.classId);
+          const rebSacPool = roster.filter(u => u.id !== rebirthConfirmId);
+          const rebSac = rebirthSacId ? roster.find(r => r.id === rebirthSacId) : null;
+          const rebBonus = rebSac && rebSac.tier !== 3 ? calcSacrificeBonus(rebSac) : null;
           return (
             <div style={card}>
               <div style={{ fontWeight:'bold', color:'#c4a882', marginBottom:5, fontSize:12 }}>🔄 Rebirth Table</div>
@@ -261,22 +301,72 @@ export default function SanctuaryScreen() {
                 <div style={{ fontSize:11, color:'#3a3a2a' }}>No promoted units available for rebirth.</div>
               ) : promoted.map(u => {
                 const base = CLASS_STATS[u.dc] ?? { hp:6, dmg:3 };
-                const isConfirm = rebirthConfirmId === u.id;
+                const isExpanded = rebirthConfirmId === u.id;
                 return (
-                  <div key={u.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-                    padding:'5px 0', borderBottom:'1px solid #0f1220', fontSize:11 }}>
-                    <div>
-                      {u.emoji} {u.name}
-                      <span style={{ color:'#4a5a4a' }}> Lv{u.level} ❤️{u.hp}/{u.maxHp}</span>
-                      {isConfirm && <span style={{ color:'#7a3a3a', fontSize:10 }}> → Lv1 ❤️{base.hp}</span>}
-                    </div>
-                    {isConfirm ? (
-                      <div style={{ display:'flex', gap:5 }}>
-                        <button onClick={() => { rebirthUnit(u.id); setRebirthConfirmId(null); }} style={btn(true,'#8a3a3a')}>Confirm</button>
-                        <button onClick={() => setRebirthConfirmId(null)} style={btn(true,'#4a4a6a')}>Cancel</button>
+                  <div key={u.id} style={{ borderBottom:'1px solid #0f1220', paddingBottom:8, marginBottom:8 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: isExpanded ? 6 : 0 }}>
+                      <div style={{ fontSize:11 }}>
+                        {u.emoji} {u.name}
+                        <span style={{ color:'#4a5a4a' }}> Lv{u.level} ❤️{u.hp}/{u.maxHp}</span>
+                        {(u.bondedAbilities ?? []).length > 0 && (
+                          <span style={{ color:'#5a4a7a', fontSize:9 }}> +{u.bondedAbilities.length} bonded</span>
+                        )}
                       </div>
-                    ) : (
-                      <button onClick={() => setRebirthConfirmId(u.id)} style={btn(true,'#5a3a2a')}>Rebirth</button>
+                      <button onClick={() => { setRebirthConfirmId(isExpanded ? null : u.id); setRebirthSacId(null); }}
+                        style={btn(true, isExpanded ? '#4a4a6a' : '#5a3a2a')}>
+                        {isExpanded ? 'Cancel' : 'Rebirth'}
+                      </button>
+                    </div>
+                    {isExpanded && (
+                      <div>
+                        {/* Sacrifice picker */}
+                        <div style={{ fontSize:10, color:'#5a5a3a', marginBottom:5 }}>
+                          Sacrifice a unit <span style={{ color:'#3a3a2a' }}>(Tier 3 → inherits their ability)</span>:
+                        </div>
+                        <div style={{ display:'flex', gap:5, flexWrap:'wrap', marginBottom:8 }}>
+                          {rebSacPool.length === 0 && (
+                            <span style={{ fontSize:10, color:'#4a3a2a' }}>No other units available.</span>
+                          )}
+                          {rebSacPool.map(s => {
+                            const score = (s.tier ?? 1) * (s.level ?? 1);
+                            const selected = rebirthSacId === s.id;
+                            const isTier3 = s.tier === 3;
+                            return (
+                              <button key={s.id} onClick={() => setRebirthSacId(selected ? null : s.id)} style={{
+                                ...btn(true, selected ? (isTier3 ? '#7a3a9a' : '#9a6a2a') : '#3a3a4a'),
+                                fontSize:10, padding:'4px 8px',
+                              }}>
+                                {s.emoji} {s.pname} T{s.tier ?? 1}L{s.level}
+                                {isTier3 ? ' ✨' : ` (${score})`}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {/* Preview */}
+                        {rebSac?.tier === 3 ? (
+                          <div style={{ fontSize:10, color:'#9a6a2a', marginBottom:8 }}>
+                            ✨ Inherits <strong>{ABILITIES[rebSac.classAbility]?.name ?? rebSac.classAbility}</strong> as bonded ability
+                            {(u.bondedAbilities ?? []).includes(rebSac.classAbility) || rebSac.classAbility === u.classAbility
+                              ? <span style={{ color:'#5a3a2a' }}> (already known — no effect)</span> : ''}
+                          </div>
+                        ) : rebBonus ? (
+                          <div style={{ fontSize:10, color:'#7a6a3a', marginBottom:8 }}>
+                            Bonus: {rebBonus.hp > 0 ? `+${rebBonus.hp} HP ` : ''}{rebBonus.dmg > 0 ? `+${rebBonus.dmg} DMG ` : ''}
+                            {rebBonus.move > 0 ? `+${rebBonus.move} MOV ` : ''}+{rebBonus.startingXp} starting XP
+                          </div>
+                        ) : (
+                          <div style={{ fontSize:10, color:'#4a4a3a', marginBottom:8 }}>No sacrifice — no bonus.</div>
+                        )}
+                        <div style={{ fontSize:10, color:'#4a5a4a', marginBottom:8 }}>
+                          → Lv1 ❤️{base.hp + (rebBonus?.hp ?? 0)} ⚔️{base.dmg + (rebBonus?.dmg ?? 0)} 👟{base.moveRange + (rebBonus?.move ?? 0)}
+                        </div>
+                        <button onClick={() => {
+                          rebirthUnit(u.id, rebirthSacId ?? undefined);
+                          setRebirthConfirmId(null); setRebirthSacId(null);
+                        }} style={{ ...btn(true,'#8a3a3a'), padding:'5px 14px', fontSize:11 }}>
+                          Confirm Rebirth
+                        </button>
+                      </div>
                     )}
                   </div>
                 );

@@ -3,7 +3,7 @@ import { persist, subscribeWithSelector } from 'zustand/middleware';
 import { DEFAULT_VP, UT, TILE, UNAMES } from '../data/constants';
 import { item, LOOT, BODY_LOOT } from '../data/items';
 import { genMap, genDungeonMap, genCabinMap, genForest, genRuinedTown, genRaiderCamp, genSwamp, genBattlefield, genAbandonedVillage, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath } from '../systems/map';
-import { spawnEnemies, applyXpToUnits } from '../systems/combat';
+import { spawnEnemies, applyXpToUnits, calcSacrificeBonus } from '../systems/combat';
 import { ARCHETYPES, CLASS_STATS } from '../data/archetypes';
 import { generateWorld, revealAround } from '../world/worldGen';
 import { hexesInRange } from '../world/hexMath';
@@ -138,19 +138,28 @@ export const useGameStore = create(
         };
         const activeUndead = roster
           .filter(u => !u.atBase)
-          .map((u, i) => ({
-            ...u, x:spawnX+1+i, y:spawnY, ap:2, fallen:false, raiseTurn:null, atBase:false,
-            // Reset per-encounter state
-            statusEffects: [],
-            abilityUses: u.classAbility
+          .map((u, i) => {
+            const classUses = u.classAbility
               ? { [u.classAbility]: ABILITIES[u.classAbility]?.usesPerEncounter ?? 0 }
-              : {},
-            abilityArmed: ABILITIES[u.classAbility]?.type === 'reactive' ? true : false,
-            encounterKills: 0,
-            encounterBonusDmg: 0,
-            encounterBonusMove: 0,
-            surviveUsed: false,
-          }));
+              : {};
+            const bondedUses = Object.fromEntries(
+              (u.bondedAbilities ?? []).map(aid => [aid, ABILITIES[aid]?.usesPerEncounter ?? 0])
+            );
+            const bondedArmed = Object.fromEntries(
+              (u.bondedAbilities ?? []).map(aid => [aid, ABILITIES[aid]?.type === 'reactive'])
+            );
+            return {
+              ...u, x:spawnX+1+i, y:spawnY, ap:2, fallen:false, raiseTurn:null, atBase:false,
+              statusEffects: [],
+              abilityUses: { ...classUses, ...bondedUses },
+              abilityArmed: ABILITIES[u.classAbility]?.type === 'reactive' ? true : false,
+              bondedArmed,
+              encounterKills: 0,
+              encounterBonusDmg: 0,
+              encounterBonusMove: 0,
+              surviveUsed: false,
+            };
+          });
         // ── Visit tracking ─────────────────────────────────────────────
         const visitInfo    = locationVisits[locId] ?? { visits: 0, bossDefeated: false };
         const newVisitCount = visitInfo.visits + 1;
@@ -405,13 +414,18 @@ export const useGameStore = create(
       },
 
       // Ascend a tier-2 unit to tier-3 at the Ascension Forge
-      ascendUnit(unitId, classId, abilityId) {
+      ascendUnit(unitId, classId, abilityId, sacrificeId) {
         const cls = CLASSES[classId];
         if (!cls || cls.tier !== 3) return;
         const ab = ABILITIES[abilityId];
         set(s => {
           const u = s.roster.find(r => r.id === unitId);
           if (!u || u.level < 5 || u.tier !== 2) return s;
+          const sac = sacrificeId ? s.roster.find(r => r.id === sacrificeId) : null;
+          const bonus = sac ? calcSacrificeBonus(sac) : null; // null for tier-3 sac (tier-3 can't be used for Ascension)
+          const baseHp  = cls.stats.hp  + (bonus?.hp   ?? 0);
+          const baseDmg = cls.stats.dmg + (bonus?.dmg  ?? 0);
+          const baseMov = cls.stats.move + (bonus?.move ?? 0);
           const promotedName = `${u.pname} the ${cls.name}`;
           const promoted = {
             ...u,
@@ -421,11 +435,11 @@ export const useGameStore = create(
             baseClass:     cls.baseClass,
             emoji:         cls.emoji,
             name:          promotedName,
-            hp:            cls.stats.hp,
-            maxHp:         cls.stats.hp,
-            dmg:           cls.stats.dmg,
+            hp:            baseHp,
+            maxHp:         baseHp,
+            dmg:           baseDmg,
             def:           cls.stats.def ?? 0,
-            moveRange:     cls.stats.move,
+            moveRange:     baseMov,
             attackRange:   cls.stats.range ?? 1,
             trapReveal:    cls.stats.trapReveal ?? 1,
             silentAttacks:        cls.silentAttacks ?? false,
@@ -440,41 +454,79 @@ export const useGameStore = create(
             classAbility:  abilityId,
             abilityUses:   { [abilityId]: ab?.usesPerEncounter ?? 0 },
             abilityArmed:  ab?.type === 'reactive',
+            bondedAbilities: u.bondedAbilities ?? [],
+            bondedArmed: {},
             encounterKills: 0, encounterBonusDmg: 0, encounterBonusMove: 0,
             surviveUsed: false,
             lifetime_levels: u.lifetime_levels ?? u.level ?? 1,
           };
+          const sacLog = sac ? ` (${sac.pname} consumed)` : '';
           return {
-            roster: s.roster.map(r => r.id === unitId ? promoted : r),
-            log: [`⚗️ ${u.pname} ascends to ${cls.name}!`, ...s.log].slice(0, 14),
+            roster: s.roster.filter(r => r.id !== sacrificeId).map(r => r.id === unitId ? promoted : r),
+            log: [`⚗️ ${u.pname} ascends to ${cls.name}!${sacLog}`, ...s.log].slice(0, 14),
           };
         });
         debouncedSave(get);
       },
 
       // Reset a unit to level-1 baseline stats, retaining class and abilities
-      rebirthUnit(unitId) {
+      rebirthUnit(unitId, sacrificeId) {
         set(s => {
           const u = s.roster.find(r => r.id === unitId);
           if (!u || !u.classId) return s;
+          const sac = sacrificeId ? s.roster.find(r => r.id === sacrificeId) : null;
           const base = CLASS_STATS[u.dc] ?? { hp:6, dmg:3, def:0, moveRange:3, trapReveal:1, attackRange:1 };
-          const reborn = {
-            ...u,
-            level:       1,
-            xp:          0,
-            hp:          base.hp,
-            maxHp:       base.hp,
-            dmg:         base.dmg,
-            def:         base.def,
-            moveRange:   base.moveRange,
-            attackRange: base.attackRange,
-            trapReveal:  base.trapReveal,
-            dmgUpgrades: 0,
-            lifetime_levels: (u.lifetime_levels ?? 0) + (u.level ?? 1),
-          };
+          let reborn;
+          let sacLog = '';
+          if (sac?.tier === 3) {
+            // Tier-3 sacrifice: append classAbility as bonded ability (dedup)
+            const aidToAdd = sac.classAbility;
+            const existing = u.bondedAbilities ?? [];
+            const alreadyHas = aidToAdd && (existing.includes(aidToAdd) || aidToAdd === u.classAbility);
+            const newBonded = aidToAdd && !alreadyHas ? [...existing, aidToAdd] : existing;
+            sacLog = aidToAdd && !alreadyHas
+              ? ` Inherited ${ABILITIES[aidToAdd]?.name ?? aidToAdd}.`
+              : ` (ability already known)`;
+            reborn = {
+              ...u,
+              level:          1,
+              xp:             0,
+              hp:             base.hp,
+              maxHp:          base.hp,
+              dmg:            base.dmg,
+              def:            base.def,
+              moveRange:      base.moveRange,
+              attackRange:    base.attackRange,
+              trapReveal:     base.trapReveal,
+              dmgUpgrades:    0,
+              bondedAbilities: newBonded,
+              bondedArmed:    {},
+              lifetime_levels: (u.lifetime_levels ?? 0) + (u.level ?? 1),
+            };
+          } else {
+            // Tier-1/2 sacrifice: stat bonus + starting XP
+            const bonus = sac ? calcSacrificeBonus(sac) : null;
+            reborn = {
+              ...u,
+              level:       1,
+              xp:          bonus?.startingXp ?? 0,
+              hp:          base.hp  + (bonus?.hp   ?? 0),
+              maxHp:       base.hp  + (bonus?.hp   ?? 0),
+              dmg:         base.dmg + (bonus?.dmg  ?? 0),
+              def:         base.def,
+              moveRange:   base.moveRange + (bonus?.move ?? 0),
+              attackRange: base.attackRange,
+              trapReveal:  base.trapReveal,
+              dmgUpgrades: 0,
+              bondedAbilities: u.bondedAbilities ?? [],
+              bondedArmed: {},
+              lifetime_levels: (u.lifetime_levels ?? 0) + (u.level ?? 1),
+            };
+            if (sac) sacLog = ` (${sac.pname} consumed)`;
+          }
           return {
-            roster: s.roster.map(r => r.id === unitId ? reborn : r),
-            log: [`🔄 ${u.pname} reborn — stats reset, class retained.`, ...s.log].slice(0, 14),
+            roster: s.roster.filter(r => r.id !== sacrificeId).map(r => r.id === unitId ? reborn : r),
+            log: [`🔄 ${u.pname} reborn — stats reset, class retained.${sacLog}`, ...s.log].slice(0, 14),
           };
         });
         debouncedSave(get);
@@ -1047,8 +1099,10 @@ export const useGameStore = create(
           const wb = weaponItem ? (weaponItem.dmg||0) : (attUnit.type===UT.UNDEAD ? -1 : 0);
           const isMelee = dist(attUnit, defUnit) <= 1;
 
-          // Ghost Arrow / True Aim: ignore DEF
-          const ignoreDef = attUnit.classAbility === 'ghost_arrow' || attUnit.classAbility === 'true_aim';
+          // Ghost Arrow / True Aim: ignore DEF (class or bonded)
+          const ignoreDef = attUnit.classAbility === 'ghost_arrow' || attUnit.classAbility === 'true_aim'
+            || (attUnit.bondedAbilities ?? []).includes('ghost_arrow')
+            || (attUnit.bondedAbilities ?? []).includes('true_aim');
           const defVal    = ignoreDef ? 0 : (defUnit.def||0);
 
           // Bonus DMG from bloodlust/carnage accumulation
@@ -1066,8 +1120,10 @@ export const useGameStore = create(
 
           let dmg = Math.max(1, (attUnit.dmg||2) + wb + bonusDmg + ambushBonus - defVal + markBonus - armoredReduction);
 
-          // Incorporeal: 30% dodge
-          if (defUnit.classAbility === 'incorporeal' && Math.random() < 0.3) {
+          // Incorporeal: 30% dodge (class or bonded)
+          const hasIncorporeal = defUnit.classAbility === 'incorporeal'
+            || (defUnit.bondedAbilities ?? []).includes('incorporeal');
+          if (hasIncorporeal && Math.random() < 0.3) {
             logs.push(`👻 ${defUnit.name} phases through the attack!`);
             units = units.map(u => u.id === sel ? { ...u, ap:u.ap-1 } : u);
             return { ms:{ ...prev.ms, units, loot:bonusLoot, keys:newKeys, objective }, luq,
@@ -1092,48 +1148,50 @@ export const useGameStore = create(
           }
 
           // Reactive: bone_shield / shield_wall / fortress_shell / immovable / construct_armor
+          // Checks both classAbility (abilityArmed) and bondedAbilities (bondedArmed)
           const reactiveShields = ['bone_shield','shield_wall','construct_armor'];
           const reactiveReflect = ['fortress_shell','immovable'];
-          const defAbility = defUnit.classAbility;
-          if (defUnit.abilityArmed && defAbility) {
-            if (reactiveShields.includes(defAbility) || reactiveReflect.includes(defAbility)) {
-              const usesLeft = defUnit.abilityUses?.[defAbility] ?? 0;
-              if (usesLeft > 0) {
-                if (defAbility === 'construct_armor') {
-                  dmg = 1; // reduced to 1, not fully negated
-                  logs.push(`🤖 ${defUnit.name}'s Construct Armor reduces hit to 1!`);
-                } else {
-                  logs.push(`🛡 ${defUnit.name}'s ${ABILITIES[defAbility]?.name} triggers — hit negated!`);
-                  // Reflect damage for fortress_shell / immovable
-                  if (reactiveReflect.includes(defAbility)) {
-                    const rfl = defAbility === 'fortress_shell' ? 2 : 2;
-                    logs.push(`↩️ ${defUnit.name} reflects ${rfl} dmg!`);
-                    units = units.map(u => {
-                      if (u.id !== sel) return u;
-                      const nh = u.hp - rfl;
-                      if (nh <= 0) {
-                        if (sel==='varek') { setTimeout(()=>get().setScreen('gameover'),300); return {...u,hp:0}; }
-                        return {...u,hp:0,fallen:true,raiseTurn:prev.ms.turn};
-                      }
-                      return {...u,hp:nh};
-                    });
+          const armedReactives = [];
+          if (defUnit.abilityArmed && defUnit.classAbility) armedReactives.push({ aid: defUnit.classAbility, bonded: false });
+          for (const bAid of (defUnit.bondedAbilities ?? [])) {
+            if (defUnit.bondedArmed?.[bAid]) armedReactives.push({ aid: bAid, bonded: true });
+          }
+          let reactiveHit = false;
+          for (const { aid: rAid, bonded: rBonded } of armedReactives) {
+            if (!reactiveShields.includes(rAid) && !reactiveReflect.includes(rAid)) continue;
+            const usesLeft = defUnit.abilityUses?.[rAid] ?? 0;
+            if (usesLeft <= 0) continue;
+            const disarmPatch = rBonded
+              ? { bondedArmed: { ...(defUnit.bondedArmed ?? {}), [rAid]: false }, abilityUses: { ...defUnit.abilityUses, [rAid]: usesLeft - 1 } }
+              : { abilityArmed: false, abilityUses: { ...defUnit.abilityUses, [rAid]: usesLeft - 1 } };
+            if (rAid === 'construct_armor') {
+              dmg = 1;
+              logs.push(`🤖 ${defUnit.name}'s Construct Armor reduces hit to 1!`);
+              units = units.map(u => u.id===enemy.id ? { ...u, ...disarmPatch } : u);
+              reactiveHit = true;
+              break;
+            } else {
+              logs.push(`🛡 ${defUnit.name}'s ${ABILITIES[rAid]?.name} triggers — hit negated!`);
+              if (reactiveReflect.includes(rAid)) {
+                const rfl = 2;
+                logs.push(`↩️ ${defUnit.name} reflects ${rfl} dmg!`);
+                units = units.map(u => {
+                  if (u.id !== sel) return u;
+                  const nh = u.hp - rfl;
+                  if (nh <= 0) {
+                    if (sel==='varek') { setTimeout(()=>get().setScreen('gameover'),300); return {...u,hp:0}; }
+                    return {...u,hp:0,fallen:true,raiseTurn:prev.ms.turn};
                   }
-                  units = units.map(u => u.id===sel ? {...u,ap:u.ap-1} : u);
-                  units = units.map(u => u.id===enemy.id ? {
-                    ...u,
-                    abilityArmed:false,
-                    abilityUses:{...u.abilityUses,[defAbility]:usesLeft-1},
-                  } : u);
-                  return { ms:{...prev.ms,units,loot:bonusLoot,keys:newKeys,objective}, luq,
-                    log:[...logs,...prev.log].slice(0,14) };
-                }
-                units = units.map(u => u.id===enemy.id ? {
-                  ...u, abilityArmed:false,
-                  abilityUses:{...u.abilityUses,[defAbility]:usesLeft-1},
-                } : u);
+                  return {...u,hp:nh};
+                });
               }
+              units = units.map(u => u.id===sel ? {...u,ap:u.ap-1} : u);
+              units = units.map(u => u.id===enemy.id ? { ...u, ...disarmPatch } : u);
+              return { ms:{...prev.ms,units,loot:bonusLoot,keys:newKeys,objective}, luq,
+                log:[...logs,...prev.log].slice(0,14) };
             }
           }
+          void reactiveHit;
 
           // Apply hit
           logs.push(`${attUnit.emoji} ${attUnit.name} → ${defUnit.name} for ${dmg}!`);
@@ -1174,8 +1232,13 @@ export const useGameStore = create(
           }
 
           // Thornwall reactive (attacker's tile becomes impassable)
-          if (defUnit.abilityArmed && (defUnit.classAbility === 'thornwall' || defUnit.classAbility === 'briarvine' || defUnit.classAbility === 'briarvine_warden') && isMelee) {
-            const tw = defUnit.classAbility;
+          const thornAbilities = ['thornwall','briarvine','briarvine_warden'];
+          const activeThorn = thornAbilities.find(ta =>
+            (ta === defUnit.classAbility && defUnit.abilityArmed) ||
+            ((defUnit.bondedAbilities ?? []).includes(ta) && defUnit.bondedArmed?.[ta])
+          );
+          if (activeThorn && isMelee) {
+            const tw = activeThorn;
             const twUses = defUnit.abilityUses?.[tw] ?? 0;
             if (twUses > 0) {
               if (tw === 'briarvine' || tw === 'briarvine_warden') {
@@ -1190,27 +1253,32 @@ export const useGameStore = create(
               } else {
                 logs.push(`🌿 ${defUnit.name}'s Thornwall triggers!`);
               }
+              const twBonded = (defUnit.bondedAbilities ?? []).includes(tw) && tw !== defUnit.classAbility;
               units = units.map(u => u.id===enemy.id ? {
-                ...u, abilityArmed:false, abilityUses:{...u.abilityUses,[tw]:twUses-1}
+                ...u,
+                ...(twBonded
+                  ? { bondedArmed: { ...(u.bondedArmed ?? {}), [tw]: false }, abilityUses: { ...u.abilityUses, [tw]: twUses - 1 } }
+                  : { abilityArmed: false, abilityUses: { ...u.abilityUses, [tw]: twUses - 1 } }),
               } : u);
             }
           }
 
-          // Thornmail / Briarwall passive: reflect on melee hit
+          // Thornmail / Briarwall passive: reflect on melee hit (class or bonded)
           if (isMelee && !units.find(u=>u.id===enemy.id)?.fallen) {
-            const reflectAb = defUnit.classAbility;
-            if (reflectAb === 'thornmail') {
+            const allAbilities = [defUnit.classAbility, ...(defUnit.bondedAbilities ?? [])].filter(Boolean);
+            if (allAbilities.includes('thornmail')) {
               logs.push(`🌿 ${defUnit.name}'s Thornmail: 1 dmg reflected!`);
               units = units.map(u => { if(u.id!==sel) return u; const nh=u.hp-1; return nh<=0?{...u,hp:0,fallen:true,raiseTurn:prev.ms.turn}:{...u,hp:nh}; });
             }
-            if (reflectAb === 'briarwall') {
+            if (allAbilities.includes('briarwall')) {
               logs.push(`🌿 ${defUnit.name}'s Briarwall: 2 dmg + Slow!`);
               units = units.map(u => { if(u.id!==sel) return u; const nh=u.hp-2; return nh<=0?{...u,hp:0,fallen:true,raiseTurn:prev.ms.turn}:{...u,hp:nh,statusEffects:[...(u.statusEffects||[]),{id:'slow',duration:1,magnitude:1,sourceId:enemy.id}]}; });
             }
           }
 
-          // drain_touch passive: heal attacker 1hp on melee hit
-          if (attUnit.classAbility === 'drain_touch' && isMelee) {
+          // drain_touch passive: heal attacker 1hp on melee hit (class or bonded)
+          const attAllAbilities = [attUnit.classAbility, ...(attUnit.bondedAbilities ?? [])].filter(Boolean);
+          if (attAllAbilities.includes('drain_touch') && isMelee) {
             units = units.map(u => u.id===sel ? {...u,hp:Math.min(u.maxHp,u.hp+1)} : u);
           }
 
@@ -1225,13 +1293,13 @@ export const useGameStore = create(
               objective = {...objective,complete:true}; bonusLoot=[...bonusLoot,...(objective.bonus||[])];
               logs.push(`⭐ Target eliminated — objective complete!`);
             }
-            // bloodlust / carnage: +DMG per kill
-            if (attUnit.classAbility==='bloodlust' || attUnit.classAbility==='carnage') {
+            // bloodlust / carnage: +DMG per kill (class or bonded)
+            if (attAllAbilities.includes('bloodlust') || attAllAbilities.includes('carnage')) {
               units = units.map(u => u.id===sel ? {
                 ...u,
                 encounterKills:(u.encounterKills||0)+1,
                 encounterBonusDmg:(u.encounterBonusDmg||0)+1,
-                ...(attUnit.classAbility==='carnage'?{encounterBonusMove:(u.encounterBonusMove||0)+1}:{}),
+                ...(attAllAbilities.includes('carnage')?{encounterBonusMove:(u.encounterBonusMove||0)+1}:{}),
               } : u);
             }
           }
@@ -1340,13 +1408,18 @@ export const useGameStore = create(
       },
 
       // ── Toggle reactive ability armed ────────────────────────────────
-      toggleAbilityArmed(unitId) {
+      // abilityId omitted → toggle classAbility arm; provided → toggle bonded ability
+      toggleAbilityArmed(unitId, abilityId) {
         set(prev => ({
           ms: {
             ...prev.ms,
-            units: prev.ms.units.map(u =>
-              u.id === unitId ? { ...u, abilityArmed: !u.abilityArmed } : u
-            ),
+            units: prev.ms.units.map(u => {
+              if (u.id !== unitId) return u;
+              if (!abilityId || abilityId === u.classAbility) {
+                return { ...u, abilityArmed: !u.abilityArmed };
+              }
+              return { ...u, bondedArmed: { ...(u.bondedArmed ?? {}), [abilityId]: !u.bondedArmed?.[abilityId] } };
+            }),
           },
         }));
       },
