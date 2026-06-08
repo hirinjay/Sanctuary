@@ -5,35 +5,41 @@ import { hexToPixel, hexPoints, tileKey, hexNeighbors, hexDist } from '../../wor
 import { TERRAIN, LOC_TYPE } from '../../world/tileTypes'
 
 export default function WorldMapView() {
-  const canvasRef   = useRef(null)
-  const appRef      = useRef(null)
-  const layersRef   = useRef(null)  // { world, terrain, fog, locs, units, hl }
-  const initZoom    = window.innerWidth >= 1200 ? 1.1 : window.innerWidth >= 768 ? 0.85 : 0.6
-  const cameraRef   = useRef({ x: 0, y: 0, zoom: initZoom, drag: false, lx: 0, ly: 0 })
-  const sizeRef     = useRef({ w: 800, h: 600 })
+  const containerRef = useRef(null)
+  const appRef       = useRef(null)
+  const layersRef    = useRef(null)
+  const initZoom     = window.innerWidth >= 1200 ? 1.1 : window.innerWidth >= 768 ? 0.85 : 0.6
+  const cameraRef    = useRef({ x: 0, y: 0, zoom: initZoom, drag: false, lx: 0, ly: 0 })
+  const sizeRef      = useRef({ w: window.innerWidth || 800, h: window.innerHeight || 600 })
 
-  // ── Init Pixi once ───────────────────────────────────────────────────
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
+    const container = containerRef.current
+    if (!container) return
     let destroyed = false
 
-    const app = new Application()
-    const initW = canvas.parentElement?.clientWidth || 800
-    const initH = canvas.parentElement?.clientHeight || 600
-    sizeRef.current = { w: initW, h: initH }
+    const w = container.clientWidth  || window.innerWidth  || 800
+    const h = container.clientHeight || window.innerHeight || 600
+    sizeRef.current = { w, h }
 
+    const app = new Application()
     app.init({
-      canvas,
       backgroundColor: 0x020408,
       antialias: false,
       resolution: Math.min(window.devicePixelRatio || 1, 2),
       autoDensity: true,
-      width: initW,
-      height: initH,
+      width: w,
+      height: h,
     }).then(() => {
       if (destroyed) { app.destroy(true); return }
       appRef.current = app
+
+      // Let Pixi own its canvas; position it to fill the container
+      const cv = app.canvas
+      cv.style.position   = 'absolute'
+      cv.style.top        = '0'
+      cv.style.left       = '0'
+      cv.style.touchAction = 'none'
+      container.appendChild(cv)
 
       const worldCont = new Container()
       const terrain   = new Graphics()
@@ -45,12 +51,11 @@ export default function WorldMapView() {
       worldCont.addChild(terrain)
       worldCont.addChild(locs)
       worldCont.addChild(fog)
-      worldCont.addChild(units)   // units above fog so Varek is always visible
+      worldCont.addChild(units)
       worldCont.addChild(hl)
       app.stage.addChild(worldCont)
       layersRef.current = { worldCont, terrain, fog, locs, units, hl }
 
-      // Draw current world if already generated
       const { world, worldPos, selectedHex, worldPath } = useGameStore.getState()
       if (world) {
         drawTerrain(world, terrain)
@@ -61,7 +66,6 @@ export default function WorldMapView() {
         redrawHighlight(selectedHex, worldPath, worldPos, world, hl)
       }
 
-      // Subscribe to store changes
       const unsubWorld = useGameStore.subscribe(
         s => s.world,
         (world) => {
@@ -86,7 +90,6 @@ export default function WorldMapView() {
         (pos) => {
           const { world } = useGameStore.getState()
           if (!pos || !world || !layersRef.current) return
-          console.log('[Pixi] unsubPos fired → redrawing at', pos.col, pos.row);
           drawUnits(world, layersRef.current.units)
           centerOn(pos.col, pos.row)
         }
@@ -100,20 +103,17 @@ export default function WorldMapView() {
         { equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2] }
       )
 
-      setupInteraction(canvas)
-
-      // Cleanup subscriptions on destroy
+      setupInteraction(cv)
       app._worldUnsubs = [unsubWorld, unsubFog, unsubPos, unsubSel]
     })
 
-    // Resize observer — always update sizeRef; only resize renderer once app is ready
     const ro = new ResizeObserver(() => {
-      const w = canvas.parentElement?.clientWidth || 800
-      const h = canvas.parentElement?.clientHeight || 600
-      sizeRef.current = { w, h }
-      if (appRef.current) appRef.current.renderer.resize(w, h)
+      const nw = container.clientWidth  || window.innerWidth  || 800
+      const nh = container.clientHeight || window.innerHeight || 600
+      sizeRef.current = { w: nw, h: nh }
+      if (appRef.current) appRef.current.renderer.resize(nw, nh)
     })
-    ro.observe(canvas.parentElement)
+    ro.observe(container)
 
     return () => {
       destroyed = true
@@ -126,8 +126,7 @@ export default function WorldMapView() {
     }
   }, [])
 
-
-  // ── Draw terrain (static, only on world change) ──────────────────────
+  // ── Draw terrain ──────────────────────────────────────────────────────
   function drawTerrain(world, g) {
     g.clear()
     for (const tile of world.tiles) {
@@ -149,7 +148,6 @@ export default function WorldMapView() {
 
       let child
       if (tile.hasSanctuary) {
-        // Draw house shape with Graphics — reliable on all platforms unlike emoji canvas
         const g = new Graphics()
         g.poly([x, y - 11, x - 8, y - 3, x + 8, y - 3]).fill({ color: 0xdd8833, alpha: 1 })
         g.rect(x - 6, y - 3, 12, 10).fill({ color: 0xaa5511, alpha: 1 })
@@ -162,17 +160,16 @@ export default function WorldMapView() {
         child = t
       }
 
-      child.alpha = 0  // start hidden; fog layer reveals
+      child.alpha = 0
       child._tileKey = tileKey(tile.col, tile.row)
       cont.addChild(child)
     }
   }
 
-  // ── Fog of war overlay ────────────────────────────────────────────────
+  // ── Fog of war ────────────────────────────────────────────────────────
   function redrawFog(world, g) {
     g.clear()
     const locs = layersRef.current?.locs
-    // Reset all loc icon visibility
     if (locs) locs.children.forEach(c => { c.alpha = 0 })
 
     for (const tile of world.tiles) {
@@ -181,16 +178,13 @@ export default function WorldMapView() {
       if (tile.fog === 'hidden') {
         g.poly(pts).fill({ color: 0x000000, alpha: 1 })
       } else if (tile.fog === 'explored') {
-        // Dim terrain: draw the dim color at partial alpha
         const dimColor = TERRAIN[tile.terrain]?.dimColor ?? 0x080808
         g.poly(pts).fill({ color: dimColor, alpha: 0.65 })
-        // Show loc icons dimly
         if (locs) {
           const icon = locs.children.find(c => c._tileKey === tileKey(tile.col, tile.row))
           if (icon) icon.alpha = 0.35
         }
       } else {
-        // visible — show loc icons fully
         if (locs) {
           const icon = locs.children.find(c => c._tileKey === tileKey(tile.col, tile.row))
           if (icon) icon.alpha = 1
@@ -199,13 +193,13 @@ export default function WorldMapView() {
     }
   }
 
-  // ── Unit positions ────────────────────────────────────────────────────
-  function drawUnits(_world, cont) {
+  // ── Varek unit ────────────────────────────────────────────────────────
+  function drawUnits(world, cont) {
     cont.removeChildren()
     const { worldPos } = useGameStore.getState()
     if (!worldPos) return
+    if (!world.tiles.some(t => t.col === worldPos.col && t.row === worldPos.row)) return
     const { x, y } = hexToPixel(worldPos.col, worldPos.row)
-    // Solid shape — reliable on all platforms unlike emoji canvas rendering
     const g = new Graphics()
     g.circle(x, y - 3, 7).fill({ color: 0xffffff, alpha: 0.95 })
     g.circle(x, y - 3, 7).stroke({ color: 0xff8800, width: 2.5, alpha: 1 })
@@ -213,17 +207,14 @@ export default function WorldMapView() {
     cont.addChild(g)
   }
 
-  // ── Highlight: Varek position, reachable neighbors, selected hex ─────
+  // ── Highlight ─────────────────────────────────────────────────────────
   function redrawHighlight(sel, _path, varekPos, world, g) {
     g.clear()
-
     if (varekPos && world) {
-      // Orange: Varek's current tile
       const { x: vx, y: vy } = hexToPixel(varekPos.col, varekPos.row)
       g.poly(hexPoints(vx, vy)).fill({ color: 0xff8800, alpha: 0.28 })
       g.poly(hexPoints(vx, vy)).stroke({ color: 0xff8800, width: 2.5, alpha: 0.95 })
 
-      // Green: adjacent passable visible tiles Varek can step to
       for (const n of hexNeighbors(varekPos.col, varekPos.row, world.width, world.height)) {
         const nt = world.tiles[n.row * world.width + n.col]
         if (!nt || nt.fog === 'hidden' || !TERRAIN[nt.terrain]?.passable) continue
@@ -232,8 +223,6 @@ export default function WorldMapView() {
         g.poly(hexPoints(nx, ny)).stroke({ color: 0x4a9a4a, width: 2, alpha: 0.8 })
       }
     }
-
-    // Gold: hovered/selected hex
     if (!sel) return
     const { x, y } = hexToPixel(sel.col, sel.row)
     const pts = hexPoints(x, y)
@@ -241,9 +230,9 @@ export default function WorldMapView() {
     g.poly(pts).fill({ color: 0xc4a882, alpha: 0.15 })
   }
 
-  // ── Center camera on (col,row) ────────────────────────────────────────
+  // ── Camera ────────────────────────────────────────────────────────────
   function centerOn(col, row) {
-    const cam = cameraRef.current
+    const cam  = cameraRef.current
     const size = sizeRef.current
     const { x, y } = hexToPixel(col, row)
     cam.x = size.w / 2 - x * cam.zoom
@@ -259,42 +248,70 @@ export default function WorldMapView() {
     l.worldCont.scale.set(zoom)
   }
 
-  // ── Camera interaction ────────────────────────────────────────────────
-  function setupInteraction(canvas) {
+  // ── Input ─────────────────────────────────────────────────────────────
+  function setupInteraction(cv) {
     const cam = cameraRef.current
     let startX = 0, startY = 0
 
-    canvas.addEventListener('pointerdown', e => {
+    cv.addEventListener('pointerdown', e => {
       cam.drag = true
       startX = e.clientX; startY = e.clientY
       cam.lx = e.clientX; cam.ly = e.clientY
     })
-    canvas.addEventListener('pointermove', e => {
+    cv.addEventListener('pointermove', e => {
       if (!cam.drag) return
       cam.x += e.clientX - cam.lx
       cam.y += e.clientY - cam.ly
       cam.lx = e.clientX; cam.ly = e.clientY
       applyCamera()
     })
-    canvas.addEventListener('pointerup', e => {
+    cv.addEventListener('pointerup', e => {
       if (!cam.drag) return
       cam.drag = false
-      // Measure against the original pointerdown position, not last pointermove delta
       const dx = Math.abs(e.clientX - startX), dy = Math.abs(e.clientY - startY)
       if (dx < 8 && dy < 8) handleClick(e.offsetX, e.offsetY)
     })
-    canvas.addEventListener('pointerleave', () => { cam.drag = false })
-    canvas.addEventListener('wheel', e => {
+    cv.addEventListener('pointerleave', () => { cam.drag = false })
+    cv.addEventListener('wheel', e => {
       e.preventDefault()
-      const factor = e.deltaY < 0 ? 1.1 : 0.9
-      const newZoom = Math.max(0.3, Math.min(2.5, cam.zoom * factor))
-      // Zoom toward mouse position
+      const factor   = e.deltaY < 0 ? 1.12 : 0.9
+      const newZoom  = Math.max(0.25, Math.min(3.0, cam.zoom * factor))
       const mx = e.offsetX, my = e.offsetY
       cam.x = mx - (mx - cam.x) * (newZoom / cam.zoom)
       cam.y = my - (my - cam.y) * (newZoom / cam.zoom)
       cam.zoom = newZoom
       applyCamera()
     }, { passive: false })
+
+    // Pinch-to-zoom for touch
+    let lastPinchDist = 0
+    cv.addEventListener('touchstart', e => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX
+        const dy = e.touches[0].clientY - e.touches[1].clientY
+        lastPinchDist = Math.hypot(dx, dy)
+      }
+    }, { passive: true })
+    cv.addEventListener('touchmove', e => {
+      if (e.touches.length !== 2) return
+      e.preventDefault()
+      const dx   = e.touches[0].clientX - e.touches[1].clientX
+      const dy   = e.touches[0].clientY - e.touches[1].clientY
+      const dist = Math.hypot(dx, dy)
+      if (lastPinchDist === 0) { lastPinchDist = dist; return }
+      const factor  = dist / lastPinchDist
+      const newZoom = Math.max(0.25, Math.min(3.0, cam.zoom * factor))
+      const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2
+      const my = (e.touches[0].clientY + e.touches[1].clientY) / 2
+      const rect = cv.getBoundingClientRect()
+      const ox = mx - rect.left, oy = my - rect.top
+      cam.x = ox - (ox - cam.x) * (newZoom / cam.zoom)
+      cam.y = oy - (oy - cam.y) * (newZoom / cam.zoom)
+      cam.zoom = newZoom
+      lastPinchDist = dist
+      applyCamera()
+    }, { passive: false })
+    cv.addEventListener('touchend', () => { lastPinchDist = 0 }, { passive: true })
   }
 
   function handleClick(ox, oy) {
@@ -312,27 +329,22 @@ export default function WorldMapView() {
     const tile = world.tiles[hit.row * world.width + hit.col]
     if (!tile || tile.fog === 'hidden') return
 
-    // Phase 1: place sanctuary
     if (!sanctuaryPos) {
       if (TERRAIN[tile.terrain]?.passable)
         store.requestSanctuaryPlacement(hit.col, hit.row)
       return
     }
 
-    // Always show tile info for any visible tile
     store.selectHex(hit.col, hit.row)
 
-    // Only move if the tile is exactly one step from Varek's current position
     if (worldPos && hexDist(worldPos, hit) === 1 && TERRAIN[tile.terrain]?.passable) {
-      console.log('[WorldMap] click → travelTo', hit.col, hit.row, 'from', worldPos);
       store.travelTo(hit.col, hit.row)
     }
   }
 
-  // Nearest hex to pixel coords (brute-force, fast enough for click events)
   function nearestHex(px, py, world) {
     let best = null, bestD = Infinity
-    const maxDist = 40 * 40  // within ~40px radius
+    const maxDist = 40 * 40
     for (const tile of world.tiles) {
       const { x, y } = hexToPixel(tile.col, tile.row)
       const d = (px - x) ** 2 + (py - y) ** 2
@@ -342,9 +354,9 @@ export default function WorldMapView() {
   }
 
   return (
-    <canvas
-      ref={canvasRef}
-      style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none' }}
+    <div
+      ref={containerRef}
+      style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}
     />
   )
 }
