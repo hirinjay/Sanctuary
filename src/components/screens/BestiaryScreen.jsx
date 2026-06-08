@@ -2,24 +2,23 @@ import { useState } from 'react';
 import { useGameStore } from '../../store/gameStore';
 import { ARCHETYPES } from '../../data/archetypes';
 import { CLASSES } from '../../data/classes';
+import { BOOKS } from '../../data/books';
 import { ABILITIES } from '../../data/abilities';
 import { BOSS_PASSIVES, BOSS_ACTIVES, BOSS_CONDITIONALS } from '../../data/bosses';
 
 const pg   = { background:'#040810', minHeight:'100vh', fontFamily:'Georgia,serif', color:'#c4a882', padding:14 };
 const card = { background:'#090e1a', border:'1px solid #1a1a2a', borderRadius:8, padding:'10px 12px', marginBottom:8 };
 
-const TAB_ENEMIES  = 'enemies';
-const TAB_BOSSES   = 'bosses';
-const TAB_UNDEAD   = 'undead';
+const TAB_ENEMIES = 'enemies';
+const TAB_BOSSES  = 'bosses';
+const TAB_UNDEAD  = 'undead';
 
-// Flat enemy entries: one per dc, listing all archetypes that share it
 const DC_ENTRIES = [
   { dc:'Skeleton Warrior', emoji:'💀', archetypes: ARCHETYPES.filter(a => a.dc === 'Skeleton Warrior') },
   { dc:'Grave Stalker',    emoji:'🏹', archetypes: ARCHETYPES.filter(a => a.dc === 'Grave Stalker') },
-  { dc:'Grave Warden',     emoji:'🛡', archetypes: ARCHETYPES.filter(a => a.dc === 'Grave Warden') },
+  { dc:'Grave Warden',     emoji:'🛡',  archetypes: ARCHETYPES.filter(a => a.dc === 'Grave Warden') },
 ];
 
-// Boss types collected from bosses.js templates
 const BOSS_TYPES = [
   { key:'dungeon_lord',      name:'Dungeon Lord',      emoji:'👑', locType:'dungeon' },
   { key:'skeletal_champion', name:'Skeletal Champion', emoji:'💀', locType:'dungeon' },
@@ -27,6 +26,8 @@ const BOSS_TYPES = [
   { key:'raid_captain',      name:'Raid Captain',      emoji:'⚔️',  locType:'camp' },
   { key:'warlord',           name:'Warlord',           emoji:'🪓',  locType:'camp' },
 ];
+
+const BOOK_ORDER = ['pale', 'flesh', 'verdant', 'tinker'];
 
 function tag(color, label) {
   return (
@@ -50,20 +51,22 @@ function AbilityLine({ abilityId }) {
 }
 
 function EnemyCard({ entry, info }) {
-  const encountered = info?.encounters > 0;
-  const showAbilities = info?.encounters >= 2;
+  const encountered = (info?.encounters ?? 0) > 0;
+  const showAbilities = (info?.encounters ?? 0) >= 2;
   const first = entry.archetypes[0];
   return (
-    <div style={{ ...card, opacity: encountered ? 1 : 0.4 }}>
+    <div style={{ ...card, opacity: encountered ? 1 : 0.5 }}>
       <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-        <span style={{ fontSize:20 }}>{entry.emoji}</span>
+        <span style={{ fontSize:20 }}>{encountered ? entry.emoji : '❓'}</span>
         <div>
-          <div style={{ color:'#e8d5b0', fontWeight:'bold', fontSize:13 }}>{entry.dc}</div>
+          <div style={{ color:'#e8d5b0', fontWeight:'bold', fontSize:13 }}>
+            {encountered ? entry.dc : '???'}
+          </div>
           {encountered
             ? <div style={{ fontSize:9, color:'#3a5a3a' }}>Encountered {info.encounters}×</div>
             : <div style={{ fontSize:9, color:'#3a3a3a' }}>Not yet encountered</div>}
         </div>
-        {info?.encounters >= 1 && (
+        {encountered && (
           <div style={{ marginLeft:'auto', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'2px 10px', fontSize:9, color:'#4a6a5a' }}>
             <span>❤️ {first?.hp}</span>
             <span>⚔️ {first?.dmg}</span>
@@ -72,12 +75,11 @@ function EnemyCard({ entry, info }) {
           </div>
         )}
       </div>
-      {showAbilities && entry.archetypes.map(a => (
+      {encountered && showAbilities && entry.archetypes.map(a => (
         <div key={a.name} style={{ fontSize:10, color:'#4a5a4a', marginBottom:2 }}>
           <span style={{ color:'#7a6a3a' }}>{a.name}</span> — can be raised as {entry.dc}
         </div>
       ))}
-      {!encountered && <div style={{ fontSize:10, color:'#2a3a2a', fontStyle:'italic' }}>???</div>}
       {encountered && !showAbilities && (
         <div style={{ fontSize:10, color:'#3a4a3a', fontStyle:'italic' }}>Encounter again to learn more.</div>
       )}
@@ -86,21 +88,23 @@ function EnemyCard({ entry, info }) {
 }
 
 function BossCard({ boss, info }) {
-  const encountered = info?.encounters > 0;
+  const encountered = (info?.encounters ?? 0) > 0;
   const showAbilities = info?.abilitiesSeen;
   return (
     <div style={{ ...card, opacity: encountered ? 1 : 0.35, borderColor: encountered ? '#3a2a1a' : '#1a1a2a' }}>
       <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-        <span style={{ fontSize:22 }}>{boss.emoji}</span>
+        <span style={{ fontSize:22 }}>{encountered ? boss.emoji : '❓'}</span>
         <div>
-          <div style={{ color:'#e8d5b0', fontWeight:'bold', fontSize:13 }}>{boss.name}</div>
+          <div style={{ color:'#e8d5b0', fontWeight:'bold', fontSize:13 }}>
+            {encountered ? boss.name : '???'}
+          </div>
           <div style={{ fontSize:9, color:'#5a4a3a' }}>
-            {boss.locType === 'dungeon' ? 'Dungeon boss' : 'Camp boss'}
-            {encountered ? ` — Encountered ${info.encounters}×` : ' — Not yet encountered'}
+            {encountered
+              ? `${boss.locType === 'dungeon' ? 'Dungeon boss' : 'Camp boss'} — Encountered ${info.encounters}×`
+              : `Lurks in ${boss.locType}s after multiple raids.`}
           </div>
         </div>
       </div>
-      {!encountered && <div style={{ fontSize:10, color:'#2a3a2a', fontStyle:'italic' }}>Appears in {boss.locType}s after multiple raids.</div>}
       {encountered && !showAbilities && (
         <div style={{ fontSize:10, color:'#3a4a3a', fontStyle:'italic' }}>Defeat to learn abilities.</div>
       )}
@@ -133,8 +137,7 @@ function BossCard({ boss, info }) {
   );
 }
 
-function ClassCard({ cls, info }) {
-  const unlocked = !info || !info.locked;
+function ClassCard({ cls, unlocked }) {
   return (
     <div style={{ ...card, opacity: unlocked ? 1 : 0.4 }}>
       <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
@@ -171,11 +174,24 @@ function ClassCard({ cls, info }) {
   );
 }
 
+function ClassGroup({ label, classes, promotedClasses }) {
+  if (!classes.length) return null;
+  return (
+    <div style={{ marginBottom:16 }}>
+      <div style={{ fontSize:10, color:'#5a6a5a', marginBottom:6, letterSpacing:1, textTransform:'uppercase' }}>
+        {label}
+      </div>
+      {classes.map(cls => (
+        <ClassCard key={cls.id} cls={cls} unlocked={promotedClasses.has(cls.id)} />
+      ))}
+    </div>
+  );
+}
+
 export default function BestiaryScreen() {
   const { bestiary, roster, setScreen } = useGameStore();
   const [tab, setTab] = useState(TAB_ENEMIES);
 
-  // Which classes have been promoted to (unlocked in bestiary)
   const promotedClasses = new Set(roster.map(u => u.classId).filter(Boolean));
 
   const tabBtn = (id, label) => (
@@ -188,10 +204,19 @@ export default function BestiaryScreen() {
     }}>{label}</button>
   );
 
-  // Tier-2 and tier-3 classes sorted
+  // Split classes into general (multi-book) and specialized (single-book)
   const allClasses = Object.values(CLASSES).filter(c => !c.noMissions && !c.sanctuaryOnly);
-  const t2Classes  = allClasses.filter(c => c.tier === 2);
-  const t3Classes  = allClasses.filter(c => c.tier === 3);
+  const generalClasses = allClasses
+    .filter(c => c.grimoires && c.grimoires.length > 1)
+    .sort((a, b) => a.tier - b.tier);
+  const specializedByBook = {};
+  for (const cls of allClasses.filter(c => c.grimoires && c.grimoires.length === 1)) {
+    const bookId = cls.grimoires[0];
+    if (!specializedByBook[bookId]) specializedByBook[bookId] = [];
+    specializedByBook[bookId].push(cls);
+  }
+  // Sort each group tier 2 → tier 3
+  for (const arr of Object.values(specializedByBook)) arr.sort((a, b) => a.tier - b.tier);
 
   return (
     <div style={pg}>
@@ -220,21 +245,29 @@ export default function BestiaryScreen() {
 
         {tab === TAB_UNDEAD && (
           <>
-            <div style={{ fontSize:10, color:'#3a4a3a', marginBottom:10 }}>
-              Promote units to unlock class details. All classes are visible — abilities unlock on first promotion.
+            <div style={{ fontSize:10, color:'#3a4a3a', marginBottom:12 }}>
+              Promote units to unlock class details. Abilities unlock on first promotion.
             </div>
-            <div style={{ marginBottom:8 }}>
-              <div style={{ fontSize:10, color:'#5a6a5a', marginBottom:6, letterSpacing:1 }}>TIER 2</div>
-              {t2Classes.map(cls => (
-                <ClassCard key={cls.id} cls={cls} info={promotedClasses.has(cls.id) ? {} : { locked:true }} />
-              ))}
-            </div>
-            <div>
-              <div style={{ fontSize:10, color:'#5a6a5a', marginBottom:6, letterSpacing:1 }}>TIER 3</div>
-              {t3Classes.map(cls => (
-                <ClassCard key={cls.id} cls={cls} info={promotedClasses.has(cls.id) ? {} : { locked:true }} />
-              ))}
-            </div>
+
+            <ClassGroup
+              label="General — available to multiple grimoires"
+              classes={generalClasses}
+              promotedClasses={promotedClasses}
+            />
+
+            {BOOK_ORDER.map(bookId => {
+              const classes = specializedByBook[bookId];
+              if (!classes?.length) return null;
+              const book = BOOKS.find(b => b.id === bookId);
+              return (
+                <ClassGroup
+                  key={bookId}
+                  label={`${book?.emoji ?? ''} ${book?.name ?? bookId} exclusive`}
+                  classes={classes}
+                  promotedClasses={promotedClasses}
+                />
+              );
+            })}
           </>
         )}
       </div>
