@@ -1,11 +1,10 @@
 import { create } from 'zustand';
 import { persist, subscribeWithSelector } from 'zustand/middleware';
-import { DEFAULT_VP, UT, TILE, UNAMES, VAREK_LU, UNDEAD_LU } from '../data/constants';
+import { DEFAULT_VP, UT, TILE, UNAMES } from '../data/constants';
 import { item, LOOT, BODY_LOOT } from '../data/items';
 import { genMap, genDungeonMap, genCabinMap, genForest, genRuinedTown, genRaiderCamp, genSwamp, genBattlefield, genAbandonedVillage, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath } from '../systems/map';
 import { spawnEnemies, applyXpToUnits } from '../systems/combat';
 import { ARCHETYPES } from '../data/archetypes';
-import { LOCS } from '../data/locations';
 import { generateWorld, revealAround } from '../world/worldGen';
 import { hexesInRange } from '../world/hexMath';
 import { TERRAIN, rollWildEncounter, rollForageLoot } from '../world/tileTypes';
@@ -13,6 +12,8 @@ import { bfsPath } from '../world/hexMath';
 import { BUILDINGS } from '../data/buildings';
 import { generateObjective } from '../systems/objectives';
 import { saveRun } from '../lib/persistence';
+import { CLASSES, isPromotionEligible } from '../data/classes';
+import { ABILITIES } from '../data/abilities';
 
 // Debounced save — calls get() at fire time to capture most recent state
 let _saveTimer = null
@@ -60,6 +61,8 @@ export const useGameStore = create(
       currentUser:  null,   // { id, email } from Supabase
       saveSlots:    [],     // summary rows for the home screen
       activeSlot:   null,   // 1 | 2 | 3
+      // ── Promotion queue ───────────────────────────────────────────────
+      promotionQueue: [],   // [{ unit, level }] — resolved on WorldScreen after mission
 
       // ── Simple setters ────────────────────────────────────────────────
       setScreen:   (screen)   => set({ screen }),
@@ -117,10 +120,23 @@ export const useGameStore = create(
           moveRange: vp.moveRange || 3,
           trapReveal: vp.trapReveal || 1,
           ap:2, fallen:false, raiseTurn:null,
+          statusEffects: [],
         };
         const activeUndead = roster
           .filter(u => !u.atBase)
-          .map((u, i) => ({ ...u, x:spawnX+1+i, y:spawnY, ap:2, fallen:false, raiseTurn:null, atBase:false }));
+          .map((u, i) => ({
+            ...u, x:spawnX+1+i, y:spawnY, ap:2, fallen:false, raiseTurn:null, atBase:false,
+            // Reset per-encounter state
+            statusEffects: [],
+            abilityUses: u.classAbility
+              ? { [u.classAbility]: ABILITIES[u.classAbility]?.usesPerEncounter ?? 0 }
+              : {},
+            abilityArmed: ABILITIES[u.classAbility]?.type === 'reactive' ? true : false,
+            encounterKills: 0,
+            encounterBonusDmg: 0,
+            encounterBonusMove: 0,
+            surviveUsed: false,
+          }));
         const enemies = locType === 'battlefield' ? [] : spawnEnemies(danger, md, tiles, spawnX, spawnY, location.threats ?? null, locType);
         const objective = generateObjective(locType || 'default', tiles, enemies, danger);
         // Mark the target loot tile on the map for loot_named objectives
@@ -194,6 +210,15 @@ export const useGameStore = create(
           : vp;
         const newRoster = [...roster.filter(u => u.atBase), ...surv.map(u => ({ ...u, atBase:false }))];
 
+        // Scan for promotion-eligible survivors
+        const bookId = get().book?.id ?? 'pale';
+        const newPromotions = newRoster
+          .filter(u => isPromotionEligible(u, bookId))
+          .map(u => ({
+            unit: u,
+            level: (u.level >= 5 && u.classId) ? 5 : 2,
+          }));
+
         // Loot goes into travelBag — Varek carries it; must return to Sanctuary to deposit
         const newBag = { ...travelBag };
         finalLoot.forEach(id => { newBag[id] = (newBag[id]||0) + 1; });
@@ -211,9 +236,70 @@ export const useGameStore = create(
         set(s => ({
           vp:newVp, roster:newRoster, inv:newInv, travelBag:newBag,
           luq: [...s.luq, ...luqExtra],
+          promotionQueue: [...s.promotionQueue, ...newPromotions],
           ms:null, worldPath:[], screen:'world',
           log: [...logs, ...s.log].slice(0, 14),
         }));
+        debouncedSave(get);
+      },
+
+      // Apply a class promotion to a roster unit (called from PromotionModal)
+      applyPromotion(unitId, classId, abilityId) {
+        const cls = CLASSES[classId];
+        if (!cls) return;
+        const ab = ABILITIES[abilityId];
+        set(s => {
+          const newRoster = s.roster.map(u => {
+            if (u.id !== unitId) return u;
+            const promotedName = `${u.pname} the ${cls.name}`;
+            return {
+              ...u,
+              cls:           cls.name,
+              classId:       cls.id,
+              emoji:         cls.emoji,
+              name:          promotedName,
+              // Full stat replacement
+              hp:            cls.stats.hp,
+              maxHp:         cls.stats.hp,
+              dmg:           cls.stats.dmg,
+              def:           cls.stats.def ?? 0,
+              moveRange:     cls.stats.move,
+              attackRange:   cls.stats.range ?? 1,
+              trapReveal:    cls.stats.trapReveal ?? 1,
+              // Class flags
+              silentAttacks:       cls.silentAttacks ?? false,
+              untargetableInShadow:cls.untargetableInShadow ?? false,
+              cannotInteract:      cls.cannotInteract ?? false,
+              forestCostZero:      cls.forestCostZero ?? false,
+              fullMapRevealOnEntry:cls.fullMapRevealOnEntry ?? false,
+              boneExplosion:       cls.boneExplosion ?? false,
+              surviveOnce:         cls.surviveOnce ?? false,
+              regenPerTurn:        cls.regenPerTurn ?? 0,
+              immunities:          cls.immunities ?? [],
+              // Ability
+              classAbility:  abilityId,
+              abilityUses:   { [abilityId]: ab?.usesPerEncounter ?? 0 },
+              abilityArmed:  ab?.type === 'reactive',
+              // Per-encounter counters reset
+              encounterKills: 0, encounterBonusDmg: 0, encounterBonusMove: 0,
+              surviveUsed: false,
+              // Bone Explosion tracking
+              lifetime_levels: u.lifetime_levels ?? u.level ?? 1,
+            };
+          });
+          // Remove only the first matching entry from the queue
+          const idx = s.promotionQueue.findIndex(p => p.unit.id === unitId);
+          const trimmedQueue = idx >= 0
+            ? [...s.promotionQueue.slice(0, idx), ...s.promotionQueue.slice(idx + 1)]
+            : s.promotionQueue;
+
+          const pname = newRoster.find(u => u.id === unitId)?.pname ?? '?';
+          return {
+            roster: newRoster,
+            promotionQueue: trimmedQueue,
+            log: [`${cls.emoji} ${pname} promoted to ${cls.name}!`, ...s.log].slice(0, 14),
+          };
+        });
         debouncedSave(get);
       },
 
@@ -223,7 +309,7 @@ export const useGameStore = create(
           equipTgt:null, loc:null, mode:'scavenge', unlockedLocs:['town'],
           world:null, worldPos:null, sanctuaryPos:null, selectedHex:null,
           pendingSanctuaryTile:null, worldPath:[], travelBag:{},
-          sanctuaryGrid:null, activeSlot:null });
+          sanctuaryGrid:null, activeSlot:null, promotionQueue:[] });
       },
 
       // ── World map ─────────────────────────────────────────────────────
@@ -604,6 +690,17 @@ export const useGameStore = create(
 
         const ms   = s.ms;
         const unit = ms.units.find(u => u.id === sel);
+
+        // Status effect movement blocks
+        if (unit?.statusEffects?.length) {
+          const hasBind = unit.statusEffects.some(fx => fx.id === 'bind');
+          const hasRoot = unit.statusEffects.some(fx => fx.id === 'root');
+          const hasStun = unit.statusEffects.some(fx => fx.id === 'stun');
+          if (hasBind || hasRoot || hasStun) {
+            get().addLog(`${unit.name} cannot move!`);
+            return;
+          }
+        }
         let nn     = s.noise;
         const logs = [];
         let loot   = [...ms.loot];
@@ -724,68 +821,217 @@ export const useGameStore = create(
         const range = att.type === UT.VAREK ? att.drainRange : (att.attackRange||1);
         if (dist(att, enemy) > range) { get().addLog('Too far!'); return; }
 
-        const weaponItem = att.weapon ? item(att.weapon) : null;
-        const wb  = weaponItem ? (weaponItem.dmg||0) : (att.type===UT.UNDEAD ? -1 : 0);
-        const dmg = Math.max(1, (att.dmg||2) + wb - (enemy.def||0));
-
         set(prev => {
-          let units = prev.ms.units.map(u => ({ ...u }));
-          let luq   = [...prev.luq];
+          let units     = prev.ms.units.map(u => ({ ...u }));
+          let luq       = [...prev.luq];
           let objective = prev.ms.objective ? { ...prev.ms.objective } : null;
           let bonusLoot = [...prev.ms.loot];
-          const logs = [`${att.emoji} ${att.name} → ${enemy.name} for ${dmg}!`];
+          let newKeys   = prev.ms.keys ? [...prev.ms.keys] : [];
+          const logs    = [];
 
+          const attUnit = units.find(u => u.id === sel);
+          const defUnit = units.find(u => u.id === enemy.id);
+          if (!attUnit || !defUnit || defUnit.fallen) return prev;
+
+          const weaponItem = attUnit.weapon ? item(attUnit.weapon) : null;
+          const wb = weaponItem ? (weaponItem.dmg||0) : (attUnit.type===UT.UNDEAD ? -1 : 0);
+          const isMelee = dist(attUnit, defUnit) <= 1;
+
+          // Ghost Arrow / True Aim: ignore DEF
+          const ignoreDef = attUnit.classAbility === 'ghost_arrow' || attUnit.classAbility === 'true_aim';
+          const defVal    = ignoreDef ? 0 : (defUnit.def||0);
+
+          // Bonus DMG from bloodlust/carnage accumulation
+          const bonusDmg = attUnit.encounterBonusDmg ?? 0;
+
+          // Marked status: +magnitude damage
+          const markedFx = defUnit.statusEffects?.find(fx => fx.id === 'marked');
+          const markBonus = markedFx ? (markedFx.magnitude ?? 1) : 0;
+
+          // Ambush / Superior Ambush primed bonus (set by doAbility)
+          const ambushBonus = attUnit.ambushBonus ?? 0;
+
+          let dmg = Math.max(1, (attUnit.dmg||2) + wb + bonusDmg + ambushBonus - defVal + markBonus);
+
+          // Incorporeal: 30% dodge
+          if (defUnit.classAbility === 'incorporeal' && Math.random() < 0.3) {
+            logs.push(`👻 ${defUnit.name} phases through the attack!`);
+            units = units.map(u => u.id === sel ? { ...u, ap:u.ap-1 } : u);
+            return { ms:{ ...prev.ms, units, loot:bonusLoot, keys:newKeys, objective }, luq,
+              log:[...logs, ...prev.log].slice(0,14) };
+          }
+
+          // Shielded status: negate damage
+          const shieldedFx = defUnit.statusEffects?.find(fx => fx.id === 'shielded');
+          if (shieldedFx) {
+            const newShield = shieldedFx.magnitude - dmg;
+            logs.push(`🛡 ${defUnit.name}'s shield absorbs the hit!`);
+            units = units.map(u => {
+              if (u.id !== enemy.id) return u;
+              const newFx = newShield <= 0
+                ? u.statusEffects.filter(fx => fx.id !== 'shielded')
+                : u.statusEffects.map(fx => fx.id === 'shielded' ? { ...fx, magnitude: newShield } : fx);
+              return { ...u, statusEffects: newFx };
+            });
+            units = units.map(u => u.id === sel ? { ...u, ap:u.ap-1 } : u);
+            return { ms:{ ...prev.ms, units, loot:bonusLoot, keys:newKeys, objective }, luq,
+              log:[...logs, ...prev.log].slice(0,14) };
+          }
+
+          // Reactive: bone_shield / shield_wall / fortress_shell / immovable / construct_armor
+          const reactiveShields = ['bone_shield','shield_wall','construct_armor'];
+          const reactiveReflect = ['fortress_shell','immovable'];
+          const defAbility = defUnit.classAbility;
+          if (defUnit.abilityArmed && defAbility) {
+            if (reactiveShields.includes(defAbility) || reactiveReflect.includes(defAbility)) {
+              const usesLeft = defUnit.abilityUses?.[defAbility] ?? 0;
+              if (usesLeft > 0) {
+                if (defAbility === 'construct_armor') {
+                  dmg = 1; // reduced to 1, not fully negated
+                  logs.push(`🤖 ${defUnit.name}'s Construct Armor reduces hit to 1!`);
+                } else {
+                  logs.push(`🛡 ${defUnit.name}'s ${ABILITIES[defAbility]?.name} triggers — hit negated!`);
+                  // Reflect damage for fortress_shell / immovable
+                  if (reactiveReflect.includes(defAbility)) {
+                    const rfl = defAbility === 'fortress_shell' ? 2 : 2;
+                    logs.push(`↩️ ${defUnit.name} reflects ${rfl} dmg!`);
+                    units = units.map(u => {
+                      if (u.id !== sel) return u;
+                      const nh = u.hp - rfl;
+                      if (nh <= 0) {
+                        if (sel==='varek') { setTimeout(()=>get().setScreen('gameover'),300); return {...u,hp:0}; }
+                        return {...u,hp:0,fallen:true,raiseTurn:prev.ms.turn};
+                      }
+                      return {...u,hp:nh};
+                    });
+                  }
+                  units = units.map(u => u.id===sel ? {...u,ap:u.ap-1} : u);
+                  units = units.map(u => u.id===enemy.id ? {
+                    ...u,
+                    abilityArmed:false,
+                    abilityUses:{...u.abilityUses,[defAbility]:usesLeft-1},
+                  } : u);
+                  return { ms:{...prev.ms,units,loot:bonusLoot,keys:newKeys,objective}, luq,
+                    log:[...logs,...prev.log].slice(0,14) };
+                }
+                units = units.map(u => u.id===enemy.id ? {
+                  ...u, abilityArmed:false,
+                  abilityUses:{...u.abilityUses,[defAbility]:usesLeft-1},
+                } : u);
+              }
+            }
+          }
+
+          // Apply hit
+          logs.push(`${attUnit.emoji} ${attUnit.name} → ${defUnit.name} for ${dmg}!`);
           units = units.map(u => {
             if (u.id === enemy.id) {
               const nh = u.hp - dmg;
-              if (nh <= 0) { logs.push(`${enemy.name} falls! Raise within 3 turns.`); return { ...u, hp:0, fallen:true, raiseTurn:prev.ms.turn }; }
+              if (nh <= 0) { logs.push(`${defUnit.name} falls! Raise within 3 turns.`); return { ...u, hp:0, fallen:true, raiseTurn:prev.ms.turn }; }
               return { ...u, hp:nh, alerted:true };
             }
             if (u.id === sel) return { ...u, ap:u.ap-1 };
             return u;
           });
 
-          // 1 XP for landing the hit
-          units = applyXpToUnits(units, sel, 1, luq);
-          // Kill bonus: 1 + 1 per 5 max HP
-          const killed = units.find(u => u.id===enemy.id && u.fallen && u.raiseTurn===prev.ms.turn);
-          let newKeys = prev.ms.keys ? [...prev.ms.keys] : [];
-          if (killed) {
-            const killXp = 1 + Math.floor((enemy.maxHp || 5) / 5);
-            units = applyXpToUnits(units, sel, killXp, luq);
-            if (killed.holdsKey && killed.keyId) {
-              newKeys = [...newKeys, killed.keyId];
-              logs.push(`🔑 ${att.name} finds a key!`);
-            }
-            if (objective?.type === 'eliminate' && objective.targetId === enemy.id && !objective.complete) {
-              objective = { ...objective, complete: true };
-              bonusLoot = [...bonusLoot, ...(objective.bonus || [])];
-              logs.push(`⭐ Target eliminated — objective complete!`);
+          // Thornwall reactive (attacker's tile becomes impassable)
+          if (defUnit.abilityArmed && (defUnit.classAbility === 'thornwall' || defUnit.classAbility === 'briarvine' || defUnit.classAbility === 'briarvine_warden') && isMelee) {
+            const tw = defUnit.classAbility;
+            const twUses = defUnit.abilityUses?.[tw] ?? 0;
+            if (twUses > 0) {
+              if (tw === 'briarvine' || tw === 'briarvine_warden') {
+                logs.push(`🌿 ${defUnit.name}'s Briarvine snares attacker!`);
+                units = units.map(u => u.id===sel ? {
+                  ...u, statusEffects:[...(u.statusEffects||[]),{id:'bind',duration:1,magnitude:1,sourceId:enemy.id}]
+                } : u);
+                const defNow = units.find(u=>u.id===enemy.id);
+                if (defNow && !defNow.fallen) {
+                  units = units.map(u=>u.id===sel ? {...u,hp:Math.max(0,u.hp-1)} : u);
+                }
+              } else {
+                logs.push(`🌿 ${defUnit.name}'s Thornwall triggers!`);
+              }
+              units = units.map(u => u.id===enemy.id ? {
+                ...u, abilityArmed:false, abilityUses:{...u.abilityUses,[tw]:twUses-1}
+              } : u);
             }
           }
 
-          if (att.type === UT.VAREK) {
+          // Thornmail / Briarwall passive: reflect on melee hit
+          if (isMelee && !units.find(u=>u.id===enemy.id)?.fallen) {
+            const reflectAb = defUnit.classAbility;
+            if (reflectAb === 'thornmail') {
+              logs.push(`🌿 ${defUnit.name}'s Thornmail: 1 dmg reflected!`);
+              units = units.map(u => { if(u.id!==sel) return u; const nh=u.hp-1; return nh<=0?{...u,hp:0,fallen:true,raiseTurn:prev.ms.turn}:{...u,hp:nh}; });
+            }
+            if (reflectAb === 'briarwall') {
+              logs.push(`🌿 ${defUnit.name}'s Briarwall: 2 dmg + Slow!`);
+              units = units.map(u => { if(u.id!==sel) return u; const nh=u.hp-2; return nh<=0?{...u,hp:0,fallen:true,raiseTurn:prev.ms.turn}:{...u,hp:nh,statusEffects:[...(u.statusEffects||[]),{id:'slow',duration:1,magnitude:1,sourceId:enemy.id}]}; });
+            }
+          }
+
+          // drain_touch passive: heal attacker 1hp on melee hit
+          if (attUnit.classAbility === 'drain_touch' && isMelee) {
+            units = units.map(u => u.id===sel ? {...u,hp:Math.min(u.maxHp,u.hp+1)} : u);
+          }
+
+          // XP
+          units = applyXpToUnits(units, sel, 1, luq);
+          const killed = units.find(u => u.id===enemy.id && u.fallen && u.raiseTurn===prev.ms.turn);
+          if (killed) {
+            const killXp = 1 + Math.floor((enemy.maxHp||5)/5);
+            units = applyXpToUnits(units, sel, killXp, luq);
+            if (killed.holdsKey && killed.keyId) { newKeys = [...newKeys, killed.keyId]; logs.push(`🔑 ${attUnit.name} finds a key!`); }
+            if (objective?.type==='eliminate' && objective.targetId===enemy.id && !objective.complete) {
+              objective = {...objective,complete:true}; bonusLoot=[...bonusLoot,...(objective.bonus||[])];
+              logs.push(`⭐ Target eliminated — objective complete!`);
+            }
+            // bloodlust / carnage: +DMG per kill
+            if (attUnit.classAbility==='bloodlust' || attUnit.classAbility==='carnage') {
+              units = units.map(u => u.id===sel ? {
+                ...u,
+                encounterKills:(u.encounterKills||0)+1,
+                encounterBonusDmg:(u.encounterBonusDmg||0)+1,
+                ...(attUnit.classAbility==='carnage'?{encounterBonusMove:(u.encounterBonusMove||0)+1}:{}),
+              } : u);
+            }
+          }
+
+          if (attUnit.type === UT.VAREK) {
             units = units.map(u => u.id==='varek' ? { ...u, hp:Math.min(u.maxHp, u.hp+1) } : u);
             logs.push('Varek drains +1hp');
           }
 
-          // Retaliate
+          // Clear ambush prime after it fires
+          if (ambushBonus > 0) {
+            units = units.map(u => u.id === sel ? { ...u, ambushBonus: 0 } : u);
+          }
+
+          // Retaliate (skip if ambush / superior_ambush active)
           const surv   = units.find(u => u.id===enemy.id && !u.fallen);
           const attNow = units.find(u => u.id===sel);
-          if (surv && attNow && dist(surv,attNow)<=(surv.attackRange||1) && Math.random()<0.6) {
+          const noRetaliation = attUnit.abilityUses?.ambush === 0 || attUnit.abilityUses?.superior_ambush === 0;
+          if (surv && attNow && !noRetaliation && dist(surv,attNow)<=(surv.attackRange||1) && Math.random()<0.6) {
             const ad   = attNow.armor ? (item(attNow.armor)?.def||0) : 0;
-            const rdmg = Math.max(1, (surv.dmg||2) - ad);
-            logs.push(`↩️ ${surv.name} retaliates on ${attNow.name} for ${rdmg}!`);
-            units = units.map(u => {
-              if (u.id !== sel) return u;
-              const nh = u.hp - rdmg;
-              if (nh <= 0) {
-                if (sel === 'varek') { setTimeout(() => get().setScreen('gameover'), 300); return { ...u, hp:0 }; }
-                logs.push(`${u.name} falls!`);
-                return { ...u, hp:0, fallen:true, raiseTurn:prev.ms.turn };
-              }
-              return { ...u, hp:nh };
-            });
+            let rdmg   = Math.max(1, (surv.dmg||2) - ad);
+            // hold_the_line / bastion: reduce retaliation damage
+            const protectors = units.filter(p => !p.fallen && p.type!==UT.ENEMY &&
+              (p.classAbility==='hold_the_line'||p.classAbility==='bastion') && dist(p,attNow)<=1);
+            if (protectors.some(p=>p.classAbility==='bastion')) rdmg = Math.max(0, rdmg-2);
+            else if (protectors.length) rdmg = Math.max(0, rdmg-1);
+            if (rdmg > 0) {
+              logs.push(`↩️ ${surv.name} retaliates on ${attNow.name} for ${rdmg}!`);
+              units = units.map(u => {
+                if (u.id !== sel) return u;
+                const nh = u.hp - rdmg;
+                if (nh <= 0) {
+                  if (sel==='varek') { setTimeout(()=>get().setScreen('gameover'),300); return {...u,hp:0}; }
+                  logs.push(`${u.name} falls!`);
+                  return {...u,hp:0,fallen:true,raiseTurn:prev.ms.turn};
+                }
+                return {...u,hp:nh};
+              });
+            }
           }
 
           return {
@@ -831,6 +1077,241 @@ export const useGameStore = create(
           ms: { ...prev.ms, tiles: newTiles, units: newUnits, keys: newKeys },
           log: [`🔑 ${label}`, ...prev.log].slice(0, 14),
         }));
+      },
+
+      // ── Toggle reactive ability armed ────────────────────────────────
+      toggleAbilityArmed(unitId) {
+        set(prev => ({
+          ms: {
+            ...prev.ms,
+            units: prev.ms.units.map(u =>
+              u.id === unitId ? { ...u, abilityArmed: !u.abilityArmed } : u
+            ),
+          },
+        }));
+      },
+
+      // ── Active ability activation ─────────────────────────────────────
+      doAbility(unitId, abilityId, tx, ty, targetUnitId) {
+        if (get().phase !== 'player') return;
+        const ms = get().ms;
+        if (!ms) return;
+
+        set(prev => {
+          let units = prev.ms.units.map(u => ({ ...u }));
+          let luq   = [...prev.luq];
+          const logs = [];
+
+          const actor = units.find(u => u.id === unitId);
+          if (!actor || actor.fallen) return prev;
+          if (actor.ap <= 0) return prev;
+
+          const usesLeft = actor.abilityUses?.[abilityId] ?? 0;
+          if (usesLeft <= 0) return prev;
+
+          // Ambush/superior_ambush are free primes — don't cost AP
+          const freeAction = abilityId === 'ambush' || abilityId === 'superior_ambush';
+          if (!freeAction) actor.ap = Math.max(0, actor.ap - 1);
+          actor.abilityUses = { ...actor.abilityUses, [abilityId]: usesLeft - 1 };
+
+          switch (abilityId) {
+            case 'intimidate': {
+              const adj = units.filter(u => u.type === UT.ENEMY && !u.fallen && dist(actor, u) <= 1);
+              adj.forEach(u => { u.ap = Math.max(0, u.ap - 1); });
+              logs.push(`💀 ${actor.name} Intimidates — ${adj.length} enemies lose 1 AP`);
+              break;
+            }
+            case 'shove': {
+              const t2 = units.find(u => u.id === targetUnitId);
+              if (!t2 || dist(actor, t2) > 1) break;
+              const sdx = Math.sign(t2.x - actor.x), sdy = Math.sign(t2.y - actor.y);
+              let nx = t2.x, ny = t2.y, hitDmg = 0;
+              for (let step = 0; step < 2; step++) {
+                const cx = nx + sdx, cy = ny + sdy;
+                const tile = prev.ms.tiles[cy]?.[cx];
+                if (!tile || tile.type === TILE.WALL || (tile.type === TILE.DOOR && !tile.open)) { hitDmg = 1; break; }
+                const blk = units.find(u => u.x === cx && u.y === cy && !u.fallen && u.id !== t2.id);
+                if (blk) { hitDmg = 1; blk.hp = Math.max(0, blk.hp - 1); if (blk.hp <= 0) blk.fallen = true; break; }
+                nx = cx; ny = cy;
+              }
+              t2.x = nx; t2.y = ny;
+              if (hitDmg) { t2.hp = Math.max(0, t2.hp - hitDmg); if (t2.hp <= 0) t2.fallen = true; }
+              logs.push(`💀 ${actor.name} shoves ${t2.name}!`);
+              break;
+            }
+            case 'rend': {
+              const t2 = units.find(u => u.id === targetUnitId);
+              if (!t2 || dist(actor, t2) > (actor.attackRange||1)) break;
+              const d = Math.max(1, actor.dmg - (t2.def||0));
+              t2.hp = Math.max(0, t2.hp - d);
+              t2.def = Math.max(0, (t2.def||0) - 1);
+              if (t2.hp <= 0) { t2.fallen = true; logs.push(`${t2.name} falls!`); }
+              logs.push(`💀 Rend — ${t2.name} takes ${d} dmg, DEF → ${t2.def}`);
+              break;
+            }
+            case 'consume': case 'consume_gw': {
+              const t2 = units.find(u => u.id === targetUnitId);
+              if (!t2 || dist(actor, t2) > 1) break;
+              const d = Math.max(1, actor.dmg - (t2.def||0));
+              t2.hp = Math.max(0, t2.hp - d);
+              actor.hp = Math.min(actor.maxHp, actor.hp + d);
+              if (t2.hp <= 0) { t2.fallen = true; logs.push(`${t2.name} falls!`); }
+              logs.push(`🩸 Consume — ${actor.name} deals ${d} and heals ${d}`);
+              break;
+            }
+            case 'devour': {
+              const t2 = units.find(u => u.id === targetUnitId);
+              if (!t2 || dist(actor, t2) > 1) break;
+              const d = Math.max(1, actor.dmg - (t2.def||0));
+              t2.hp = Math.max(0, t2.hp - d);
+              t2.def = Math.max(0, (t2.def||0) - 2);
+              actor.hp = Math.min(actor.maxHp, actor.hp + 2);
+              if (t2.hp <= 0) { t2.fallen = true; logs.push(`${t2.name} falls!`); }
+              logs.push(`🩸 Devour — ${t2.name} takes ${d} dmg, DEF -2`);
+              break;
+            }
+            case 'devour_titan': {
+              const t2 = units.find(u => u.id === targetUnitId);
+              if (!t2 || dist(actor, t2) > 1) break;
+              const d = Math.max(1, actor.dmg + 2 - (t2.def||0));
+              t2.hp = Math.max(0, t2.hp - d);
+              t2.def = Math.max(0, (t2.def||0) - 1);
+              actor.hp = Math.min(actor.maxHp, actor.hp + d);
+              if (t2.hp <= 0) { t2.fallen = true; logs.push(`${t2.name} falls!`); }
+              logs.push(`🩸 Devour — ${t2.name} takes ${d}, heals all`);
+              break;
+            }
+            case 'frenzy': {
+              const t2 = units.find(u => u.id === targetUnitId);
+              if (!t2 || dist(actor, t2) > (actor.attackRange||1)) break;
+              const d = Math.max(1, actor.dmg - 1 - (t2.def||0));
+              t2.hp = Math.max(0, t2.hp - d * 2);
+              if (t2.hp <= 0) { t2.fallen = true; logs.push(`${t2.name} falls!`); }
+              logs.push(`⚡ Frenzy — ${t2.name} hit twice for ${d} each`);
+              break;
+            }
+            case 'entangling_shot': {
+              const t2 = units.find(u => u.id === targetUnitId);
+              if (!t2 || dist(actor, t2) > (actor.attackRange||3)) break;
+              const d = Math.max(1, actor.dmg - (t2.def||0));
+              t2.hp = Math.max(0, t2.hp - d);
+              t2.statusEffects = [...(t2.statusEffects||[]), { id:'root', duration:1, magnitude:0, sourceId:unitId }];
+              if (t2.hp <= 0) { t2.fallen = true; logs.push(`${t2.name} falls!`); }
+              logs.push(`🌿 Entangling Shot — ${t2.name} Rooted!`);
+              break;
+            }
+            case 'overgrowth_strike': {
+              const t2 = units.find(u => u.id === targetUnitId);
+              if (!t2 || dist(actor, t2) > (actor.attackRange||1)) break;
+              const d = Math.max(1, actor.dmg - (t2.def||0));
+              t2.hp = Math.max(0, t2.hp - d);
+              t2.statusEffects = [...(t2.statusEffects||[]), { id:'slow', duration:1, magnitude:0, sourceId:unitId }];
+              if (t2.hp <= 0) { t2.fallen = true; logs.push(`${t2.name} falls!`); }
+              logs.push(`🐢 Overgrowth Strike — ${t2.name} Slowed!`);
+              break;
+            }
+            case 'stranglehold': {
+              const t2 = units.find(u => u.id === targetUnitId);
+              if (!t2 || dist(actor, t2) > 1) break;
+              const d = Math.max(1, actor.dmg + 1 - (t2.def||0));
+              t2.hp = Math.max(0, t2.hp - d);
+              t2.statusEffects = [...(t2.statusEffects||[]), { id:'bind', duration:1, magnitude:0, sourceId:unitId }];
+              if (t2.hp <= 0) { t2.fallen = true; logs.push(`${t2.name} falls!`); }
+              logs.push(`⛓ Stranglehold — ${t2.name} Bound!`);
+              break;
+            }
+            case 'entangle': case 'mass_entangle': case 'mass_entangle_warden': {
+              const radius = abilityId === 'entangle' ? 2 : 3;
+              const duration = abilityId === 'entangle' ? 1 : 2;
+              const enemies = units.filter(u => u.type === UT.ENEMY && !u.fallen && dist(actor, u) <= radius);
+              enemies.forEach(u => {
+                u.statusEffects = [...(u.statusEffects||[]), { id:'root', duration, magnitude:0, sourceId:unitId }];
+              });
+              logs.push(`🌿 Entangle — ${enemies.length} enemies Rooted`);
+              break;
+            }
+            case 'death_mark': {
+              const t2 = units.find(u => u.id === targetUnitId);
+              if (!t2) break;
+              t2.statusEffects = [...(t2.statusEffects||[]), { id:'marked', duration:2, magnitude:3, sourceId:unitId }];
+              logs.push(`🎯 Death Mark — ${t2.name} marked (+3 dmg from all sources)`);
+              break;
+            }
+            case 'shockwave': {
+              const adj = units.filter(u => u.type === UT.ENEMY && !u.fallen && dist(actor, u) <= 1);
+              adj.forEach(u => {
+                u.hp = Math.max(0, u.hp - 2);
+                const nx = u.x + Math.sign(u.x - actor.x), ny = u.y + Math.sign(u.y - actor.y);
+                const tile = prev.ms.tiles[ny]?.[nx];
+                const blk = units.find(b => b.x===nx && b.y===ny && !b.fallen && b.id!==u.id);
+                if (!tile || tile.type===TILE.WALL || blk) {
+                  u.statusEffects = [...(u.statusEffects||[]), { id:'stun', duration:1, magnitude:0, sourceId:unitId }];
+                } else { u.x = nx; u.y = ny; }
+                if (u.hp <= 0) u.fallen = true;
+              });
+              logs.push(`💥 Shockwave — ${adj.length} enemies hit`);
+              break;
+            }
+            case 'overclock': {
+              actor.hp = Math.max(1, actor.hp - 2);
+              const adj = units.filter(u => u.type === UT.ENEMY && !u.fallen && dist(actor, u) <= 1);
+              adj.forEach(u => { u.hp = Math.max(0, u.hp - actor.dmg); if (u.hp <= 0) u.fallen = true; });
+              logs.push(`⚡ Overclock — self -2 HP, hit ${adj.length} adj enemies`);
+              break;
+            }
+            case 'vanish': {
+              actor.vanishActive = true;
+              logs.push(`👻 ${actor.name} vanishes!`);
+              break;
+            }
+            case 'phase': {
+              if (tx !== undefined && ty !== undefined) { actor.x = tx; actor.y = ty; }
+              logs.push(`👻 ${actor.name} phases through!`);
+              break;
+            }
+            case 'ambush': case 'superior_ambush': {
+              actor.ambushBonus = abilityId === 'superior_ambush' ? 2 : 1;
+              logs.push(`🗡 ${actor.name} primes ${abilityId === 'superior_ambush' ? 'Superior Ambush' : 'Ambush'}`);
+              break;
+            }
+            case 'rain_of_arrows': {
+              const inRange = units.filter(u => !u.fallen && u.id !== unitId && dist(actor, u) <= 3);
+              inRange.forEach(u => {
+                const d = Math.max(1, actor.dmg - (u.def||0));
+                u.hp = Math.max(0, u.hp - d);
+                if (u.hp <= 0) u.fallen = true;
+              });
+              logs.push(`🏹 Rain of Arrows — ${inRange.length} units hit`);
+              break;
+            }
+            case 'barrage': {
+              const inRange = units.filter(u => u.type === UT.ENEMY && !u.fallen && dist(actor, u) <= (actor.attackRange||3));
+              inRange.forEach(u => {
+                const d = Math.max(1, actor.dmg - 1 - (u.def||0));
+                u.hp = Math.max(0, u.hp - d);
+                if (u.hp <= 0) u.fallen = true;
+              });
+              logs.push(`🏹 Barrage — ${inRange.length} enemies hit`);
+              break;
+            }
+            default:
+              logs.push(`${actor.name} uses ${ABILITIES[abilityId]?.name ?? abilityId}`);
+          }
+
+          // Grant XP for kills caused by this ability
+          const freshKills = units.filter(u => u.type === UT.ENEMY && u.fallen && u.raiseTurn === undefined);
+          freshKills.forEach(k => {
+            k.raiseTurn = prev.ms.turn;
+            const kxp = 1 + Math.floor((k.maxHp||5)/5);
+            units = applyXpToUnits(units, unitId, kxp, luq);
+          });
+
+          return {
+            ms:  { ...prev.ms, units },
+            luq,
+            log: [...logs, ...prev.log].slice(0, 14),
+          };
+        });
       },
 
       // ── End turn (enemy AI) ──────────────────────────────────────────
@@ -1025,6 +1506,73 @@ export const useGameStore = create(
             }
             return u;
           });
+
+          // ── Status effect ticks ──────────────────────────────────────────
+          units = units.map(u => {
+            if (u.fallen || !(u.statusEffects?.length)) return u;
+            let { hp } = u;
+            const nextEffects = [];
+            for (const fx of u.statusEffects) {
+              // Apply per-turn damage effects
+              if (fx.id === 'burning') {
+                hp -= 1;
+                logs.push(`🔥 ${u.name} burns (-1hp).`);
+              }
+              if (fx.id === 'poison' && !(u.type === UT.UNDEAD && !fx.arcane)) {
+                hp -= (fx.magnitude ?? 1);
+                logs.push(`☠ ${u.name} is poisoned (-${fx.magnitude ?? 1}hp).`);
+              }
+              // Decrement duration; keep if still active
+              const remaining = fx.duration - 1;
+              if (remaining > 0) nextEffects.push({ ...fx, duration: remaining });
+            }
+            const fallen2 = hp <= 0 && !u.fallen;
+            if (fallen2 && u.type === UT.VAREK) { setTimeout(() => get().setScreen('gameover'), 300); }
+            return {
+              ...u, hp: Math.max(0, hp),
+              statusEffects: nextEffects,
+              ...(fallen2 ? { fallen: true, raiseTurn: ms.turn } : {}),
+            };
+          });
+
+          // ── Passive regen (class ability or regenPerTurn flag) ────────────
+          units = units.map(u => {
+            if (u.fallen) return u;
+            let heal = u.regenPerTurn ?? 0;
+            if (u.classAbility === 'regenerate') heal = Math.max(heal, 1);
+            if (u.classAbility === 'undying')    heal = Math.max(heal, 2);
+            if (!heal) return u;
+            const newHp = Math.min(u.maxHp, u.hp + heal);
+            return { ...u, hp: newHp };
+          });
+
+          // ── fear_aura: Dread Knight alive → adjacent enemies lose 1 AP ────
+          const fearSources = units.filter(u =>
+            !u.fallen && u.classAbility === 'fear_aura'
+          );
+          if (fearSources.length) {
+            units = units.map(u => {
+              if (u.type !== UT.ENEMY || u.fallen) return u;
+              const inRange = fearSources.some(src => dist(src, u) <= 1);
+              return inRange ? { ...u, ap: Math.max(0, u.ap - 1) } : u;
+            });
+          }
+
+          // ── strangling_vines / living_fortress: adjacent enemies take dmg + lose move ──
+          const vinesSources = units.filter(u =>
+            !u.fallen && (u.classAbility === 'strangling_vines' || u.classAbility === 'living_fortress')
+          );
+          if (vinesSources.length) {
+            units = units.map(u => {
+              if (u.type !== UT.ENEMY || u.fallen) return u;
+              const inRange = vinesSources.some(src => dist(src, u) <= 1);
+              if (!inRange) return u;
+              const nh = u.hp - 1;
+              if (nh <= 0) { logs.push(`🌿 ${u.name} is strangled!`); return { ...u, hp:0, fallen:true, raiseTurn:ms.turn }; }
+              logs.push(`🌿 ${u.name} takes 1 dmg from vines.`);
+              return { ...u, hp:nh, moveRange: Math.max(1, (u.moveRange||3) - 1) };
+            });
+          }
 
           // Fire spread — each FIRE tile has 40% chance to ignite one adjacent FLOOR tile
           const finalTiles = newTiles.map(r => r.map(c => ({...c})));

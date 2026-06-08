@@ -121,6 +121,12 @@ export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, on
           : u.ap === 1 ? '0 0 4px 1px #7a6a10'
           : '0 0 4px 1px #7a1a1a'
           : undefined;
+        // Status effect icon overlay — show most severe active effect
+        const STATUS_ICONS = { root:'🌿', slow:'🐢', bind:'⛓', stun:'💫', poison:'☠', burning:'🔥', marked:'🎯', shielded:'🛡' };
+        const statusIcon = visibleUnit && u?.statusEffects?.length
+          ? STATUS_ICONS[u.statusEffects[0]?.id] ?? null
+          : null;
+
         return (
           <div key={k}
             onClick={() => onCellClick(x, y, visibleUnit ? u : null, vis, hi)}
@@ -131,10 +137,16 @@ export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, on
               boxShadow: marked ? '0 0 5px 1px #c4a88288' : apGlow,
               display:'flex', alignItems:'center', justifyContent:'center',
               fontSize:9, cursor:vis ? 'pointer' : 'default', borderRadius:1,
+              position:'relative',
             }}>
             {vis && (
               visibleUnit
-                ? <span style={{ opacity:u.fallen?0.3:1, fontSize:u.id==='varek'?12:9 }}>{u.sleeping ? '💤' : u.emoji}</span>
+                ? <>
+                    <span style={{ opacity:u.fallen?0.3:1, fontSize:u.id==='varek'?12:9 }}>{u.sleeping ? '💤' : u.emoji}</span>
+                    {statusIcon && !u.fallen && (
+                      <span style={{ position:'absolute', top:0, right:0, fontSize:5, lineHeight:1 }}>{statusIcon}</span>
+                    )}
+                  </>
                 : content
                   ? <span style={{ fontSize: tile.type===TILE.WALL ? 10 : 7, opacity: tile.type===TILE.WALL ? 0.7 : 0.6 }}>{content}</span>
                   : null

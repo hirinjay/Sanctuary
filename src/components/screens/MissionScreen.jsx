@@ -7,6 +7,21 @@ import MissionMap from '../mission/MissionMap';
 import UnitBar from '../mission/UnitBar';
 import RaisePanel from '../mission/RaisePanel';
 import LevelUpModal from '../mission/LevelUpModal';
+import { ABILITIES } from '../../data/abilities';
+
+// Abilities that need a target enemy click before firing
+const UNIT_TARGET_ABILITIES = new Set([
+  'rend','consume','consume_gw','devour','devour_titan','frenzy',
+  'overgrowth_strike','entangling_shot','stranglehold','death_mark','shove',
+]);
+// Abilities that need a target cell click (e.g. phase destination)
+const CELL_TARGET_ABILITIES = new Set(['phase']);
+// Abilities that fire immediately with no targeting
+const SELF_ABILITIES = new Set([
+  'intimidate','entangle','mass_entangle','mass_entangle_warden',
+  'shockwave','overclock','rain_of_arrows','barrage','vanish',
+  'ambush','superior_ambush',
+]);
 
 const pg = { background:'#040810', minHeight:'100vh', fontFamily:'Georgia,serif', color:'#c4a882', padding:9, userSelect:'none' };
 
@@ -22,18 +37,21 @@ function btn(on, c) {
 
 export default function MissionScreen() {
   const { ms, noise, phase, luq, log, vp, loc, mode, book, ti, travelBag, sanctuaryPos,
-          doMove, doAttack, doRaise, doUseKey, endTurn, endMission, setScreen, addLog } = useGameStore();
+          doMove, doAttack, doRaise, doUseKey, doAbility, toggleAbilityArmed,
+          endTurn, endMission, setScreen, addLog } = useGameStore();
 
   // sel & hilight are local — they don't need persistence and use the hilightRef pattern
   // to avoid stale closures on grid click
-  const [sel, setSel]         = useState(null);
-  const [hilight, setHilight] = useState(new Set());
-  const hilightRef            = useRef(new Set());
+  const [sel, setSel]               = useState(null);
+  const [hilight, setHilight]       = useState(new Set());
+  const hilightRef                  = useRef(new Set());
+  const [abilityMode, setAbilityMode] = useState(null); // abilityId string | null
 
   const clearSel = useCallback(() => {
     setSel(null);
     setHilight(new Set());
     hilightRef.current = new Set();
+    setAbilityMode(null);
   }, []);
 
   function setHL(s) { setHilight(s); hilightRef.current = s; }
@@ -73,13 +91,42 @@ export default function MissionScreen() {
     if (u.ap <= 0) { addLog(`${u.name} has no AP.`); return; }
     if (sel === u.id) { clearSel(); return; }
     setSel(u.id);
-    setHL(moveRange(u, tiles, units));
+    // Apply slow: halve move range (rounded down)
+    const hasSlow = u.statusEffects?.some(fx => fx.id === 'slow');
+    const hasStun = u.statusEffects?.some(fx => fx.id === 'stun');
+    const hasBind = u.statusEffects?.some(fx => fx.id === 'bind');
+    const hasRoot = u.statusEffects?.some(fx => fx.id === 'root');
+    const effectiveMoveRange = (hasSlow && !(hasBind||hasRoot||hasStun))
+      ? Math.max(1, Math.floor((u.moveRange||3) / 2))
+      : (u.moveRange||3);
+    const uEff = (hasBind||hasRoot||hasStun) ? { ...u, moveRange:0 } : { ...u, moveRange:effectiveMoveRange };
+    setHL(moveRange(uEff, tiles, units));
   }
 
   function handleCellClick(x, y, u, vis, hi) {
     if (!vis) return;
-    // Only treat living (non-fallen) units as blockers; fallen units are treated as empty
     const live = u && !u.fallen ? u : null;
+
+    // Ability targeting mode
+    if (abilityMode && sel) {
+      if (UNIT_TARGET_ABILITIES.has(abilityMode)) {
+        if (live?.type === UT.ENEMY) {
+          doAbility(sel, abilityMode, null, null, live.id);
+          setAbilityMode(null);
+        } else if (live && live.id !== sel) {
+          setAbilityMode(null); // clicked wrong unit — cancel
+        }
+        return;
+      }
+      if (CELL_TARGET_ABILITIES.has(abilityMode)) {
+        doAbility(sel, abilityMode, x, y, null);
+        setAbilityMode(null);
+        return;
+      }
+      setAbilityMode(null);
+      return;
+    }
+
     if (live) {
       if (live.type === UT.ENEMY && sel) {
         doAttack(live, sel);
@@ -243,7 +290,9 @@ export default function MissionScreen() {
 
       {/* Hint */}
       <div style={{ maxWidth:510, margin:'0 auto 5px', fontSize:10, color:'#2a3a2a' }}>
-        {selUnit ? `${selUnit.name} — tap green to move, tap enemy to attack` : 'Tap a unit to select'}
+        {abilityMode
+          ? `${ABILITIES[abilityMode]?.name}: ${UNIT_TARGET_ABILITIES.has(abilityMode) ? 'tap an enemy' : CELL_TARGET_ABILITIES.has(abilityMode) ? 'tap destination cell' : '...'}`
+          : selUnit ? `${selUnit.name} — tap green to move, tap enemy to attack` : 'Tap a unit to select'}
       </div>
 
       {/* Combat log */}
@@ -254,6 +303,54 @@ export default function MissionScreen() {
           <div key={i} style={{ fontSize:10, color:i===0?'#c4a882':'#333345', lineHeight:1.6 }}>{l}</div>
         ))}
       </div>
+
+      {/* Ability buttons — shown when a unit with classAbility is selected */}
+      {selUnit && phase === 'player' && selUnit.type !== UT.ENEMY && (() => {
+        const ab = selUnit.classAbility ? ABILITIES[selUnit.classAbility] : null;
+        if (!ab) return null;
+        const usesLeft = selUnit.abilityUses?.[selUnit.classAbility] ?? 0;
+        const isActive   = ab.type === 'active';
+        const isReactive = ab.type === 'reactive';
+        return (
+          <div style={{ maxWidth:510, margin:'0 auto 5px', display:'flex', gap:6, alignItems:'center' }}>
+            <span style={{ fontSize:9, color:'#3a4a3a', flexShrink:0 }}>
+              {selUnit.name.split(' ')[0]}:
+            </span>
+
+            {/* Active ability */}
+            {isActive && (
+              abilityMode === selUnit.classAbility
+                ? <button onClick={() => setAbilityMode(null)} style={btn(true,'#8a5a2a')}>
+                    ✕ Cancel {ab.name}
+                  </button>
+                : <button
+                    disabled={usesLeft <= 0 || selUnit.ap <= 0}
+                    onClick={() => {
+                      if (usesLeft <= 0 || selUnit.ap <= 0) return;
+                      if (SELF_ABILITIES.has(selUnit.classAbility)) {
+                        doAbility(selUnit.id, selUnit.classAbility, null, null, null);
+                      } else {
+                        setAbilityMode(selUnit.classAbility);
+                      }
+                    }}
+                    style={btn(usesLeft > 0 && selUnit.ap > 0, '#6a3a9a')}>
+                    ✦ {ab.name} {usesLeft > 0 ? `(${usesLeft}×)` : '(spent)'}
+                  </button>
+            )}
+
+            {/* Reactive arm/disarm */}
+            {isReactive && (
+              <button
+                disabled={usesLeft <= 0}
+                onClick={() => usesLeft > 0 && toggleAbilityArmed(selUnit.id)}
+                style={btn(usesLeft > 0, selUnit.abilityArmed ? '#2a6a5a' : '#5a3a2a')}>
+                {selUnit.abilityArmed ? `🛡 Disarm ${ab.name}` : `⚡ Arm ${ab.name}`}
+                {usesLeft > 0 ? ` (${usesLeft}×)` : ' (spent)'}
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Action buttons */}
       <div style={{ maxWidth:510, margin:'0 auto', display:'flex', gap:7, justifyContent:'flex-end' }}>
