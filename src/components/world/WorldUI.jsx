@@ -93,6 +93,10 @@ export default function WorldUI() {
             background: '#0b0f1c', border: '1px solid #2a2a3a', borderRadius: 8,
             padding: 8, display: 'flex', flexDirection: 'column', gap: 6, minWidth: 150,
           }}>
+            <button onClick={() => { setMenuOpen(false); setScreen('bestiary'); }} style={{
+              background: '#0a0a14', border: '1px solid #3a2a5a', borderRadius: 5,
+              padding: '7px 12px', color: '#8a6aba', cursor: 'pointer', fontSize: 11, textAlign: 'left',
+            }}>📖 Bestiary</button>
             <button onClick={() => { setMenuOpen(false); setScreen('home'); }} style={{
               background: '#0a0a14', border: '1px solid #3a3a5a', borderRadius: 5,
               padding: '7px 12px', color: '#8a8aba', cursor: 'pointer', fontSize: 11, textAlign: 'left',
