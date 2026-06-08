@@ -6,6 +6,7 @@ import SanctuaryScreen   from './components/screens/SanctuaryScreen';
 import SanctuaryMapScreen from './components/screens/SanctuaryMapScreen';
 import MissionScreen     from './components/screens/MissionScreen';
 import GameOverScreen    from './components/screens/GameOverScreen';
+import BestiaryScreen   from './components/screens/BestiaryScreen';
 
 export default function App() {
   const screen = useGameStore(s => s.screen);
@@ -17,6 +18,7 @@ export default function App() {
     case 'sanctuarymap': return <SanctuaryMapScreen />;
     case 'mission':      return <MissionScreen />;
     case 'gameover':     return <GameOverScreen />;
+    case 'bestiary':     return <BestiaryScreen />;
     default:             return <HomeScreen />;
   }
 }

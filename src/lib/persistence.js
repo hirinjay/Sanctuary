@@ -1,6 +1,34 @@
 import { supabase, hasSupabase } from './supabase'
 
-const lsKey = (slot) => `sanctuary-save-slot${slot}`
+const lsKey      = (slot) => `sanctuary-save-slot${slot}`
+const bestiaryKey = (userId) => `sanctuary-bestiary-${userId ?? 'anon'}`
+
+// ── Bestiary (account-scoped, no slot) ───────────────────────────────
+export async function saveBestiary(bestiary, userId) {
+  if (hasSupabase && userId) {
+    const { error } = await supabase
+      .from('bestiary')
+      .upsert({ user_id: userId, data: bestiary }, { onConflict: 'user_id' })
+    if (error) console.warn('[bestiary] Supabase error:', error.message)
+  }
+  try { localStorage.setItem(bestiaryKey(userId), JSON.stringify(bestiary)) } catch (e) { console.warn('[bestiary] localStorage error:', e) }
+}
+
+export async function loadBestiary(userId) {
+  if (hasSupabase && userId) {
+    const { data, error } = await supabase
+      .from('bestiary')
+      .select('data')
+      .eq('user_id', userId)
+      .maybeSingle()
+    if (!error && data?.data) return data.data
+    if (error) console.warn('[bestiary] Supabase error:', error.message)
+  }
+  try {
+    const raw = localStorage.getItem(bestiaryKey(userId))
+    return raw ? JSON.parse(raw) : {}
+  } catch { return {} }
+}
 
 // ── Save ──────────────────────────────────────────────────────────────
 export async function saveRun(state, userId, slot) {
@@ -16,6 +44,7 @@ export async function saveRun(state, userId, slot) {
     sanctuary_pos:    state.sanctuaryPos,
     sanctuary_grid:   state.sanctuaryGrid,
     unlocked_locs:    state.unlockedLocs,
+    location_visits:  state.locationVisits ?? {},
     log:              state.log,
     varek_level:      state.vp?.level ?? 1,
     book_id:          state.book?.id ?? null,

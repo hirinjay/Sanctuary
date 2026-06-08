@@ -200,6 +200,11 @@ export default function SanctuaryScreen() {
           }}>
             🗺 View Map
           </button>
+          <button onClick={() => setScreen('bestiary')} style={{
+            ...btn(true,'#5a4a7a'), padding:'12px 18px', fontSize:12,
+          }}>
+            📖 Bestiary
+          </button>
           <button onClick={() => setScreen('home')} style={{
             ...btn(true,'#4a4a6a'), padding:'12px 18px', fontSize:12,
           }}>

@@ -11,9 +11,10 @@ import { TERRAIN, rollWildEncounter, rollForageLoot } from '../world/tileTypes';
 import { bfsPath } from '../world/hexMath';
 import { BUILDINGS } from '../data/buildings';
 import { generateObjective } from '../systems/objectives';
-import { saveRun } from '../lib/persistence';
+import { saveRun, saveBestiary, loadBestiary } from '../lib/persistence';
 import { CLASSES, isPromotionEligible } from '../data/classes';
 import { ABILITIES } from '../data/abilities';
+import { spawnBoss } from '../data/bosses';
 
 // Debounced save — calls get() at fire time to capture most recent state
 let _saveTimer = null
@@ -63,6 +64,10 @@ export const useGameStore = create(
       activeSlot:   null,   // 1 | 2 | 3
       // ── Promotion queue ───────────────────────────────────────────────
       promotionQueue: [],   // [{ unit, level }] — resolved on WorldScreen after mission
+      // ── Location visit tracking ───────────────────────────────────────
+      locationVisits: {},   // { [locId]: { visits: N, bossDefeated: bool } }
+      // ── Bestiary (account-scoped — never wiped on resetGame) ──────────
+      bestiary: {},         // { [entityId]: { encounters: N, abilitiesSeen: bool } }
 
       // ── Simple setters ────────────────────────────────────────────────
       setScreen:   (screen)   => set({ screen }),
@@ -97,7 +102,7 @@ export const useGameStore = create(
 
       // ── Mission lifecycle ─────────────────────────────────────────────
       startMission(location, md) {
-        const { vp, roster } = get();
+        const { vp, roster, locationVisits, bestiary } = get();
         const danger  = location.danger ?? 1;
         const locId   = location.id ?? '';
         const locType = location.type ?? '';
@@ -137,7 +142,23 @@ export const useGameStore = create(
             encounterBonusMove: 0,
             surviveUsed: false,
           }));
+        // ── Visit tracking ─────────────────────────────────────────────
+        const visitInfo    = locationVisits[locId] ?? { visits: 0, bossDefeated: false };
+        const newVisitCount = visitInfo.visits + 1;
+        const newLocationVisits = {
+          ...locationVisits,
+          [locId]: { ...visitInfo, visits: newVisitCount },
+        };
+
+        // ── Enemy spawn ────────────────────────────────────────────────
         const enemies = locType === 'battlefield' ? [] : spawnEnemies(danger, md, tiles, spawnX, spawnY, location.threats ?? null, locType);
+
+        // ── Boss spawn: dungeon/camp on 3rd+ visit, once per location ──
+        const bossLocTypes = ['dungeon', 'camp'];
+        const isBossLocation = bossLocTypes.some(t => locType === t || locId.startsWith(t));
+        const shouldSpawnBoss = isBossLocation && newVisitCount >= 3 && !visitInfo.bossDefeated;
+        const boss = shouldSpawnBoss ? spawnBoss(danger, tiles, spawnX, spawnY, locType || 'dungeon') : null;
+
         const objective = generateObjective(locType || 'default', tiles, enemies, danger);
         // Mark the target loot tile on the map for loot_named objectives
         const missionTiles = (objective.type === 'loot_named' && objective.targetX !== undefined)
@@ -149,27 +170,43 @@ export const useGameStore = create(
         missionTiles.forEach(row => row.forEach(t => {
           if (t.type === TILE.DOOR && t.locked && t.keyId) lockedKeyIds.push(t.keyId);
         }));
-        let missionEnemies = [...enemies];
+        let missionEnemies = [...enemies, ...(boss ? [boss] : [])];
         lockedKeyIds.forEach(keyId => {
-          const eligible = missionEnemies.filter(e => !e.holdsKey && !e.sleeping);
+          const eligible = missionEnemies.filter(e => !e.holdsKey && !e.sleeping && !e.isBoss);
           if (!eligible.length) return;
           const tgt = eligible[Math.floor(Math.random() * eligible.length)];
           missionEnemies = missionEnemies.map(e => e.id === tgt.id ? { ...e, holdsKey: true, keyId } : e);
         });
+
+        // ── Bestiary: unlock enemy entries on first/second encounter ──
+        const seenDcs = [...new Set(enemies.map(e => e.dc).filter(Boolean))];
+        const newBestiary = { ...bestiary };
+        seenDcs.forEach(dc => {
+          const prev2 = newBestiary[dc] ?? { encounters: 0, abilitiesSeen: false };
+          newBestiary[dc] = { encounters: prev2.encounters + 1, abilitiesSeen: prev2.encounters >= 1 };
+        });
+        if (boss) {
+          const pb = newBestiary[boss.bossType] ?? { encounters: 0, abilitiesSeen: false };
+          newBestiary[boss.bossType] = { encounters: pb.encounters + 1, abilitiesSeen: pb.encounters >= 1 };
+        }
+
+        const bossLog = boss ? [`⚠️ A powerful presence stirs — ${boss.name} lurks within!`] : [];
         set({
-          ms:    { tiles:missionTiles, units:[varek,...activeUndead,...missionEnemies], turn:1, loot:[], keys:[], width:mapW, height:mapH, objective },
+          ms:    { tiles:missionTiles, units:[varek,...activeUndead,...missionEnemies], turn:1, loot:[], keys:[], width:mapW, height:mapH, objective, locationId:locId },
           noise: md === 'raid' ? 30 : 0,
           loc:   location,
           mode:  md,
           luq:   [],
-          log:   [`${location.name} — ${md==='raid'?'Raid: enemies alerted.':'Scavenge: stay quiet.'}`, `◼ ${objective.label}`],
+          log:   [...bossLog, `${location.name} — ${md==='raid'?'Raid: enemies alerted.':'Scavenge: stay quiet.'}`, `◼ ${objective.label}`],
           phase: 'player',
           screen:'mission',
+          locationVisits: newLocationVisits,
+          bestiary: newBestiary,
         });
       },
 
       endMission(units, loot, success = false) {
-        const { roster, vp, inv, travelBag, sanctuaryGrid, ms: currentMs } = get();
+        const { roster, vp, inv, travelBag, sanctuaryGrid, ms: currentMs, locationVisits, bestiary } = get();
         const objective = currentMs?.objective ?? null;
 
         // ── Objective outcome ─────────────────────────────────────────────
@@ -233,14 +270,31 @@ export const useGameStore = create(
 
         if (success) logs.push(`✓ Secured ${finalLoot.length} item${finalLoot.length!==1?'s':''} — return to Sanctuary to deposit.`);
 
+        // ── Boss kill: mark location cleared, unlock bestiary abilities ──
+        const killedBoss = units.find(u => u.isBoss && u.fallen);
+        const locId2 = currentMs?.locationId;
+        const newLocationVisits = killedBoss && locId2
+          ? { ...locationVisits, [locId2]: { ...(locationVisits[locId2] ?? {}), bossDefeated: true } }
+          : locationVisits;
+        const newBestiary = { ...bestiary };
+        if (killedBoss) {
+          const pb = newBestiary[killedBoss.bossType] ?? { encounters: 1, abilitiesSeen: false };
+          newBestiary[killedBoss.bossType] = { ...pb, abilitiesSeen: true };
+          logs.push(`💀 ${killedBoss.name} defeated — bestiary updated.`);
+        }
+
         set(s => ({
           vp:newVp, roster:newRoster, inv:newInv, travelBag:newBag,
           luq: [...s.luq, ...luqExtra],
           promotionQueue: [...s.promotionQueue, ...newPromotions],
+          locationVisits: newLocationVisits,
+          bestiary: newBestiary,
           ms:null, worldPath:[], screen:'world',
           log: [...logs, ...s.log].slice(0, 14),
         }));
         debouncedSave(get);
+        const { currentUser: cu } = get();
+        if (Object.keys(newBestiary).length) saveBestiary(newBestiary, cu?.id ?? null);
       },
 
       // Apply a class promotion to a roster unit (called from PromotionModal)
@@ -309,7 +363,9 @@ export const useGameStore = create(
           equipTgt:null, loc:null, mode:'scavenge', unlockedLocs:['town'],
           world:null, worldPos:null, sanctuaryPos:null, selectedHex:null,
           pendingSanctuaryTile:null, worldPath:[], travelBag:{},
-          sanctuaryGrid:null, activeSlot:null, promotionQueue:[] });
+          sanctuaryGrid:null, activeSlot:null, promotionQueue:[],
+          locationVisits:{} });
+        // bestiary intentionally NOT cleared — it is account-scoped
       },
 
       // ── World map ─────────────────────────────────────────────────────
@@ -558,30 +614,39 @@ export const useGameStore = create(
       },
 
       // ── Auth ──────────────────────────────────────────────────────────
-      setCurrentUser(user) { set({ currentUser: user }); },
+      setCurrentUser(user) {
+        set({ currentUser: user });
+        if (user?.id) {
+          loadBestiary(user.id).then(data => {
+            if (data && Object.keys(data).length) set({ bestiary: data });
+          });
+        }
+      },
       setSaveSlots(slots)  { set({ saveSlots: slots }); },
 
       // ── Load a full save into the store ───────────────────────────────
       loadSaveIntoStore(data, slot) {
         set({
-          vp:            data.vp            ?? { ...DEFAULT_VP },
-          roster:        data.roster        ?? [],
-          inv:           data.inv           ?? {},
-          travelBag:     data.travel_bag    ?? {},
-          nodes:         data.nodes         ?? [],
-          book:          data.book          ?? null,
-          world:         data.world         ?? null,
-          worldPos:      data.world_pos     ?? null,
-          sanctuaryPos:  data.sanctuary_pos ?? null,
-          unlockedLocs:  data.unlocked_locs ?? ['town'],
-          log:           data.log           ?? [],
-          sanctuaryGrid: data.sanctuary_grid ?? null,
-          activeSlot:    slot,
+          vp:             data.vp              ?? { ...DEFAULT_VP },
+          roster:         data.roster          ?? [],
+          inv:            data.inv             ?? {},
+          travelBag:      data.travel_bag      ?? {},
+          nodes:          data.nodes           ?? [],
+          book:           data.book            ?? null,
+          world:          data.world           ?? null,
+          worldPos:       data.world_pos       ?? null,
+          sanctuaryPos:   data.sanctuary_pos   ?? null,
+          unlockedLocs:   data.unlocked_locs   ?? ['town'],
+          log:            data.log             ?? [],
+          sanctuaryGrid:  data.sanctuary_grid  ?? null,
+          locationVisits: data.location_visits ?? {},
+          activeSlot:     slot,
           // Reset transient state
           ms: null, phase:'player', luq:[], noise:0, selectedHex:null,
           equipTgt:null, loc:null, worldPath:[], pendingSanctuaryTile:null,
           screen: data.world ? 'world' : 'title',
         });
+        // Bestiary is account-scoped — load separately via loadBestiary()
       },
 
       // Start a brand-new game in the given slot (goes to book selection)
@@ -851,7 +916,10 @@ export const useGameStore = create(
           // Ambush / Superior Ambush primed bonus (set by doAbility)
           const ambushBonus = attUnit.ambushBonus ?? 0;
 
-          let dmg = Math.max(1, (attUnit.dmg||2) + wb + bonusDmg + ambushBonus - defVal + markBonus);
+          // Boss passive: armored reduces all incoming damage by 2
+          const armoredReduction = defUnit.isBoss && defUnit.bossPassive === 'armored' ? 2 : 0;
+
+          let dmg = Math.max(1, (attUnit.dmg||2) + wb + bonusDmg + ambushBonus - defVal + markBonus - armoredReduction);
 
           // Incorporeal: 30% dodge
           if (defUnit.classAbility === 'incorporeal' && Math.random() < 0.3) {
@@ -933,6 +1001,32 @@ export const useGameStore = create(
             if (u.id === sel) return { ...u, ap:u.ap-1 };
             return u;
           });
+
+          // ── Boss conditionals triggered on taking damage ──────────────
+          const bossNow = units.find(u => u.id === enemy.id && u.isBoss && !u.fallen);
+          if (bossNow) {
+            // enrage: first hit → attacks twice per turn for 2 turns
+            if (bossNow.bossConditional === 'enrage' && !bossNow.bossCondTriggered) {
+              units = units.map(u => u.id===enemy.id ? {...u, bossCondTriggered:true, enrageTurns:2} : u);
+              logs.push(`💢 ${bossNow.name} Enrages!`);
+            }
+            // death_burst: handled in endTurn attack resolution on fall
+            // sacrifice: below 25% hp → kill nearest non-boss enemy to restore half HP
+            if (bossNow.bossConditional === 'sacrifice' && bossNow.hp <= Math.ceil(bossNow.maxHp * 0.25)) {
+              const nearMob = units
+                .filter(u => u.type===UT.ENEMY && !u.isBoss && !u.fallen)
+                .sort((a,b) => dist(bossNow,a) - dist(bossNow,b))[0];
+              if (nearMob) {
+                const heal = Math.ceil(bossNow.maxHp / 2);
+                units = units.map(u => {
+                  if (u.id===enemy.id) return {...u, hp:Math.min(u.maxHp, u.hp+heal)};
+                  if (u.id===nearMob.id) return {...u, hp:0, fallen:true, raiseTurn:prev.ms.turn};
+                  return u;
+                });
+                logs.push(`🩸 ${bossNow.name} Sacrifices ${nearMob.name} to heal ${heal} HP!`);
+              }
+            }
+          }
 
           // Thornwall reactive (attacker's tile becomes impassable)
           if (defUnit.abilityArmed && (defUnit.classAbility === 'thornwall' || defUnit.classAbility === 'briarvine' || defUnit.classAbility === 'briarvine_warden') && isMelee) {
@@ -1113,6 +1207,15 @@ export const useGameStore = create(
           const freeAction = abilityId === 'ambush' || abilityId === 'superior_ambush';
           if (!freeAction) actor.ap = Math.max(0, actor.ap - 1);
           actor.abilityUses = { ...actor.abilityUses, [abilityId]: usesLeft - 1 };
+
+          // spellshield: boss immune to ability effects — log and bail
+          if (targetUnitId) {
+            const aTarget = units.find(u => u.id === targetUnitId);
+            if (aTarget?.isBoss && aTarget.bossPassive === 'spellshield') {
+              logs.push(`🛡 ${aTarget.name}'s Spellshield blocks the ability!`);
+              return { ms: { ...prev.ms, units }, log: [...logs, ...prev.log].slice(0, 14) };
+            }
+          }
 
           switch (abilityId) {
             case 'intimidate': {
@@ -1329,6 +1432,62 @@ export const useGameStore = create(
 
           const friendlies = () => units.filter(f => f.type!==UT.ENEMY && !f.fallen);
 
+          // ── Boss start-of-turn passives ────────────────────────────────
+          units = units.map(u => {
+            if (!u.isBoss || u.fallen) return u;
+            let b = { ...u };
+            // swift: already handled by base AP=3 on spawn; nothing extra needed
+            // regeneration: handled by passive regen section below (regenPerTurn check)
+            if (b.bossPassive === 'regeneration') b = { ...b, regenPerTurn: 2 };
+            // swift: extra AP
+            if (b.bossPassive === 'swift') b = { ...b, ap: Math.min(b.ap + 1, 3) };
+            // commanding: one nearby regular enemy gets free move toward nearest friendly
+            if (b.bossPassive === 'commanding') {
+              const fr = friendlies();
+              if (fr.length) {
+                const tgt = fr.reduce((a, c) => dist(b, a) <= dist(b, c) ? a : c);
+                const nearbyMobs = units.filter(m => m.type === UT.ENEMY && !m.isBoss && !m.fallen && dist(b, m) <= 3);
+                if (nearbyMobs.length) {
+                  const mob = nearbyMobs[0];
+                  const path = bfsGridPath(ms.tiles, mob.x, mob.y, tgt.x, tgt.y, units);
+                  if (path.length) {
+                    const step = path[0];
+                    if (walkable(ms.tiles, step.x, step.y, units)) {
+                      units = units.map(m => m.id === mob.id ? { ...m, x: step.x, y: step.y, alerted: true } : m);
+                    }
+                  }
+                }
+              }
+            }
+            // last_stand conditional: below 25% hp → permanent buff (once)
+            if (b.bossConditional === 'last_stand' && !b.bossCondTriggered && b.hp <= Math.ceil(b.maxHp * 0.25)) {
+              b = { ...b, dmg: b.dmg + 2, moveRange: b.moveRange + 1, bossCondTriggered: true };
+              logs.push(`💢 ${b.name} enters Last Stand! +2 DMG +1 Move.`);
+            }
+            // unstoppable: strip bind/root/slow at turn start
+            if (b.bossPassive === 'unstoppable' && b.statusEffects?.length) {
+              b = { ...b, statusEffects: b.statusEffects.filter(fx => !['bind','root','slow'].includes(fx.id)) };
+            }
+            return b;
+          });
+
+          // ── Boss passive: pack_leader — nearby enemies +1 dmg while boss lives ─
+          const bossAlive = units.find(u => u.isBoss && !u.fallen);
+          if (bossAlive?.bossPassive === 'pack_leader') {
+            units = units.map(u => {
+              if (u.type !== UT.ENEMY || u.isBoss || u.fallen) return u;
+              return dist(bossAlive, u) <= 3 ? { ...u, dmg: u.dmg + 1 } : u;
+            });
+          }
+
+          // ── Boss passive: terrifying — adjacent friendlies lose 1 AP ──
+          if (bossAlive?.bossPassive === 'terrifying') {
+            units = units.map(u => {
+              if (u.type === UT.ENEMY || u.fallen) return u;
+              return dist(bossAlive, u) <= 1 ? { ...u, ap: Math.max(0, u.ap - 1) } : u;
+            });
+          }
+
           // Sight check (ambush hidden; sleeping halves spot; shadow tiles reduce enemy sight range)
           const preAlertCount = units.filter(u => u.type===UT.ENEMY && u.alerted).length;
           units = units.map(u => {
@@ -1465,12 +1624,116 @@ export const useGameStore = create(
 
           const newTiles = revealTraps(ms.tiles, units);
 
-          // Resolve attacks
+          // ── Boss active ability ────────────────────────────────────────
+          const bossUnit = units.find(u => u.isBoss && !u.fallen);
+          if (bossUnit?.bossActiveUses > 0) {
+            const fr2 = friendlies();
+            const inRange2 = fr2.filter(f => dist(bossUnit, f) <= (bossUnit.attackRange||1) + 1);
+            const nearFr = fr2.filter(f => dist(bossUnit, f) <= 3);
+            const ablId  = bossUnit.bossActive;
+            let useAbility = false;
+
+            if (ablId === 'cleave' && inRange2.length >= 2)   useAbility = true;
+            if (ablId === 'whirlwind' && nearFr.length >= 2)  useAbility = true;
+            if (ablId === 'war_cry'   && units.filter(u=>u.type===UT.ENEMY&&!u.isBoss&&!u.fallen&&dist(bossUnit,u)<=3).length >= 2) useAbility = true;
+            if (ablId === 'rally'     && units.some(u=>u.type===UT.ENEMY&&!u.isBoss&&!u.fallen&&u.hp<u.maxHp&&dist(bossUnit,u)<=3)) useAbility = true;
+            if (ablId === 'summon'    && units.filter(u=>u.type===UT.ENEMY&&!u.fallen).length <= 2) useAbility = true;
+            if (!useAbility && ['pinning_strike','terrify','charge','barrier','execute_order'].includes(ablId) && nearFr.length > 0) useAbility = true;
+
+            if (useAbility) {
+              units = units.map(u => u.id === bossUnit.id ? { ...u, bossActiveUses: 0 } : u);
+              const boss2 = units.find(u => u.id === bossUnit.id);
+              if (!boss2) { /* skip */ }
+              else if (ablId === 'cleave') {
+                const adj = fr2.filter(f => dist(boss2, f) <= 1);
+                adj.forEach(tgt => {
+                  const d = Math.max(1, boss2.dmg - (tgt.def||0));
+                  units = units.map(v => v.id !== tgt.id ? v : v.hp - d <= 0
+                    ? { ...v, hp:0, fallen:true, raiseTurn:ms.turn }
+                    : { ...v, hp: v.hp - d });
+                });
+                logs.push(`⚔️ ${boss2.name} Cleaves ${adj.length} units!`);
+              } else if (ablId === 'whirlwind') {
+                const near = fr2.filter(f => dist(boss2, f) <= 2);
+                near.forEach(tgt => {
+                  const d = Math.max(1, Math.floor(boss2.dmg / 2) - (tgt.def||0));
+                  units = units.map(v => v.id !== tgt.id ? v : v.hp - d <= 0
+                    ? { ...v, hp:0, fallen:true, raiseTurn:ms.turn }
+                    : { ...v, hp: v.hp - d });
+                });
+                logs.push(`🌀 ${boss2.name} Whirlwinds — ${near.length} units hit!`);
+              } else if (ablId === 'war_cry') {
+                const mobs = units.filter(u=>u.type===UT.ENEMY&&!u.isBoss&&!u.fallen&&dist(boss2,u)<=3);
+                units = units.map(u => mobs.some(m=>m.id===u.id) ? {...u, moveRange:(u.moveRange||3)+1} : u);
+                logs.push(`📣 ${boss2.name}'s War Cry — ${mobs.length} allies +1 move!`);
+              } else if (ablId === 'rally') {
+                const mobs = units.filter(u=>u.type===UT.ENEMY&&!u.isBoss&&!u.fallen&&dist(boss2,u)<=3);
+                units = units.map(u => mobs.some(m=>m.id===u.id) ? {...u, hp:Math.min(u.maxHp, u.hp+2)} : u);
+                logs.push(`💚 ${boss2.name} Rallies nearby allies (+2 HP)!`);
+              } else if (ablId === 'summon') {
+                const a = ARCHETYPES[Math.floor(Math.random()*ARCHETYPES.length)];
+                const ex = 1 + Math.floor(Math.random() * (ms.width - 2));
+                const newE = {
+                  id:`bs${Date.now()}`, type:UT.ENEMY, name:a.name, emoji:a.emoji,
+                  x:ex, y:1, hp:a.hp, maxHp:a.hp, dmg:a.dmg, def:0, ap:2,
+                  moveRange:a.move, attackRange:a.attackRange||1,
+                  fallen:false, raiseTurn:null, alerted:true, placement:'roam',
+                  patrol:[{dx:1,dy:0},{dx:-1,dy:0}], pi:0,
+                  xp:a.xp, dc:a.dc, sight:a.sight, spot:a.spot,
+                  weapon:null, armor:null, level:1, xpVal:0, chaseTurns:0, lastKnown:null, statusEffects:[],
+                };
+                units = [...units, newE];
+                logs.push(`⚠️ ${boss2.name} Summons reinforcements!`);
+              } else if (ablId === 'pinning_strike' && nearFr.length) {
+                const tgt = nearFr[0];
+                const d = Math.max(1, boss2.dmg - (tgt.def||0));
+                units = units.map(v => v.id !== tgt.id ? v : {
+                  ...v, hp: Math.max(0, v.hp - d),
+                  statusEffects: [...(v.statusEffects||[]), {id:'slow',duration:1,magnitude:0,sourceId:boss2.id}],
+                  ...(v.hp - d <= 0 ? {fallen:true,raiseTurn:ms.turn} : {}),
+                });
+                logs.push(`📌 ${boss2.name}'s Pinning Strike — ${tgt.name} Slowed!`);
+              } else if (ablId === 'terrify' && nearFr.length) {
+                const tgt = nearFr[0];
+                units = units.map(v => v.id !== tgt.id ? v : {
+                  ...v, statusEffects:[...(v.statusEffects||[]),{id:'stun',duration:1,magnitude:0,sourceId:boss2.id}],
+                });
+                logs.push(`😱 ${boss2.name} Terrifies ${tgt.name}!`);
+              } else if (ablId === 'charge' && nearFr.length) {
+                const tgt = nearFr.reduce((a,b3)=>dist(boss2,a)<=dist(boss2,b3)?a:b3);
+                const path = bfsGridPath(ms.tiles, boss2.x, boss2.y, tgt.x, tgt.y, units);
+                if (path.length) {
+                  let nx2=boss2.x,ny2=boss2.y,steps2=0;
+                  for (const step of path) {
+                    if (steps2>=(boss2.moveRange||2)||step.x===tgt.x&&step.y===tgt.y) break;
+                    if (!walkable(ms.tiles,step.x,step.y,units)) break;
+                    nx2=step.x;ny2=step.y;steps2++;
+                  }
+                  units=units.map(v=>v.id===boss2.id?{...v,x:nx2,y:ny2}:v);
+                  const boss3=units.find(v=>v.id===boss2.id);
+                  if (boss3&&dist(boss3,tgt)<=1) {
+                    const d=Math.max(1,boss3.dmg-(tgt.def||0));
+                    units=units.map(v=>v.id!==tgt.id?v:v.hp-d<=0?{...v,hp:0,fallen:true,raiseTurn:ms.turn}:{...v,hp:v.hp-d});
+                    logs.push(`⚡ ${boss3.name} Charges ${tgt.name} for ${d}!`);
+                  }
+                }
+              }
+            }
+          }
+
+          // ── Boss passive: death_burst conditional ─────────────────────
+          // Handled below in attack resolution when boss hp hits 0
+
+          // Resolve attacks (with boss passive hooks)
           for (const { attacker, target } of pendingAttacks) {
             const tgt = units.find(u => u.id===target.id);
             if (!tgt || tgt.fallen) continue;
-            const ad  = tgt.armor ? (item(tgt.armor)?.def||0) : 0;
-            const dmg = Math.max(1, (attacker.dmg||2) - ad);
+            const ad    = tgt.armor ? (item(tgt.armor)?.def||0) : 0;
+            const ignoreDef = attacker.bossPassive === 'brutal';
+            let dmg = Math.max(1, (attacker.dmg||2) - (ignoreDef ? 0 : ad));
+            // armored passive: attacker is the target's passive doesn't apply here (it's the enemy attacking player)
+            // but when a boss IS the target (player attacks boss in doAttack) it's handled there
+            // For enemy attacking player: check if attacker is boss with brutal
             logs.push(`⚔️ ${attacker.name} hits ${tgt.name} for ${dmg}!`);
             units = units.map(v => {
               if (v.id !== tgt.id) return v;
@@ -1478,7 +1741,33 @@ export const useGameStore = create(
               if (nh <= 0) {
                 if (v.id==='varek') { setTimeout(() => get().setScreen('gameover'), 300); return { ...v, hp:0 }; }
                 logs.push(`${v.name} falls!`);
+                // death_burst conditional: boss deals 2 dmg to all adjacent on death
+                if (v.isBoss && v.bossConditional === 'death_burst') {
+                  const adjFr = units.filter(f => f.type !== UT.ENEMY && !f.fallen && dist(v, f) <= 1);
+                  adjFr.forEach(f => {
+                    units = units.map(u => u.id !== f.id ? u : {
+                      ...u, hp: Math.max(0, u.hp - 2),
+                      ...(u.hp - 2 <= 0 && u.id !== 'varek' ? {fallen:true,raiseTurn:ms.turn} : {}),
+                    });
+                  });
+                  if (adjFr.length) logs.push(`💥 ${v.name}'s Death Burst — ${adjFr.length} units hit!`);
+                }
                 return { ...v, hp:0, fallen:true, raiseTurn:ms.turn };
+              }
+              // undying passive: survive once at 1hp
+              if (v.isBoss && v.bossPassive === 'undying' && !v.bossCondTriggered && nh <= 0) {
+                logs.push(`☠ ${v.name}'s Undying — survives at 1 HP!`);
+                return { ...v, hp:1, bossCondTriggered:true };
+              }
+              // phase_shift conditional: teleport to random tile at 1hp instead of dying (once)
+              if (v.isBoss && v.bossConditional === 'phase_shift' && !v.bossCondTriggered && nh <= 0) {
+                let px=v.x,py=v.y;
+                for (let a=0;a<40;a++) {
+                  const tx=1+Math.floor(Math.random()*(ms.width-2)),ty=1+Math.floor(Math.random()*(ms.tiles.length-2));
+                  if (ms.tiles[ty]?.[tx]?.type!=='wall'&&!units.some(u2=>u2.x===tx&&u2.y===ty&&!u2.fallen)){px=tx;py=ty;break;}
+                }
+                logs.push(`👻 ${v.name} Phase Shifts away!`);
+                return { ...v, hp:1, x:px, y:py, bossCondTriggered:true };
               }
               return { ...v, hp:nh };
             });
