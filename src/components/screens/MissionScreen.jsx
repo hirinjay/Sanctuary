@@ -3,6 +3,7 @@ import { useGameStore } from '../../store/gameStore';
 import { UT, TILE } from '../../data/constants';
 import { item } from '../../data/items';
 import { moveRange, fog, dist } from '../../systems/map';
+import { xpNext } from '../../systems/combat';
 import MissionMap from '../mission/MissionMap';
 import UnitBar from '../mission/UnitBar';
 import RaisePanel from '../mission/RaisePanel';
@@ -290,25 +291,135 @@ export default function MissionScreen() {
           />
         </div>
 
-        {/* Legend sidebar — fixed width, never scrolls with the map */}
-        <div style={{ flexShrink:0, width:88, overflowY:'auto',
-          background:'#04040a', border:'1px solid #0e0e1a', borderRadius:4, padding:'6px 6px 4px',
+        {/* Right panel — unit details when friendly selected, legend key otherwise */}
+        <div style={{ flexShrink:0, width:168, overflowY:'auto',
+          background:'#04040a', border:'1px solid #0e0e1a', borderRadius:4, padding:'7px 7px 6px',
           alignSelf:'flex-start', maxHeight:'100%' }}>
-          <div style={{ fontSize:8, color:'#2a3a2a', letterSpacing:1, marginBottom:5, textTransform:'uppercase' }}>Key</div>
-          {legendEntries.map((e, i) =>
-            e.divider
-              ? <div key={i} style={{ height:1, background:'#0e0e1a', margin:'4px 0' }} />
-              : (
-                <div key={i} style={{ display:'flex', alignItems:'center', gap:5, marginBottom:4 }}>
-                  <span style={{
-                    display:'inline-flex', alignItems:'center', justifyContent:'center',
-                    width:18, height:18, fontSize:10, flexShrink:0,
-                    background: e.bg, border:`1px solid ${e.border}`, borderRadius:2,
-                    opacity: e.dim ? 0.45 : 1,
-                  }}>{e.icon}</span>
-                  <span style={{ fontSize:9, color:'#5a6a5a', lineHeight:1.2 }}>{e.label}</span>
+          {selUnit && selUnit.type !== UT.ENEMY ? (() => {
+            const allAbilityIds = [selUnit.classAbility, ...(selUnit.bondedAbilities ?? [])].filter(Boolean);
+            const xpCur    = selUnit.xp ?? 0;
+            const xpNeeded = xpNext(selUnit.level ?? 1);
+            const xpPct    = Math.min(100, Math.round(xpCur / xpNeeded * 100));
+            const capLabel = selUnit.tier === 3 ? 'T3 cap Lv10' : selUnit.tier === 2 ? 'T2 cap Lv5' : '';
+            return (
+              <div>
+                {/* Name + class */}
+                <div style={{ marginBottom:7 }}>
+                  <div style={{ fontSize:18, lineHeight:1 }}>{selUnit.emoji}</div>
+                  <div style={{ fontSize:11, color:'#e8d5b0', fontWeight:'bold', margin:'3px 0 1px', lineHeight:1.2 }}>{selUnit.name}</div>
+                  {selUnit.cls
+                    ? <div style={{ fontSize:9, color:'#5a4a7a' }}>{selUnit.cls}{capLabel ? ` · ${capLabel}` : ''}</div>
+                    : selUnit.type === UT.VAREK
+                    ? <div style={{ fontSize:9, color:'#7a6a3a' }}>Necromancer</div>
+                    : <div style={{ fontSize:9, color:'#3a4a3a' }}>Unclassed · cap Lv2</div>}
                 </div>
-              )
+                {/* XP bar */}
+                <div style={{ marginBottom:7 }}>
+                  <div style={{ fontSize:8, color:'#3a4a3a', marginBottom:2 }}>
+                    Lv{selUnit.level} · XP {xpCur}/{xpNeeded}
+                  </div>
+                  <div style={{ background:'#0e1220', borderRadius:2, height:4, overflow:'hidden' }}>
+                    <div style={{ background:'#3a5a8a', height:'100%', width:`${xpPct}%` }} />
+                  </div>
+                </div>
+                {/* Stats */}
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'3px 6px', fontSize:10, color:'#8a9a8a', marginBottom:6 }}>
+                  <span>❤️ {selUnit.hp}/{selUnit.maxHp}</span>
+                  <span>⚔️ {selUnit.dmg}</span>
+                  <span>🛡 {selUnit.def ?? 0}</span>
+                  <span>👟 {selUnit.moveRange}</span>
+                  <span style={{ color: selUnit.ap > 0 ? '#5a9a5a' : '#5a3a3a' }}>
+                    AP {'●'.repeat(Math.max(0,selUnit.ap))}{'○'.repeat(Math.max(0,2-selUnit.ap))}
+                  </span>
+                  {selUnit.type === UT.VAREK && <span style={{ color:'#4a7a7a' }}>⛓ {t.fieldCount}/{t.fieldCap}</span>}
+                </div>
+                {/* Equipment */}
+                <div style={{ fontSize:9, color:'#4a5a4a', marginBottom:6,
+                  borderTop:'1px solid #0e1220', paddingTop:5 }}>
+                  <div style={{ color: selUnit.weapon ? '#6a7a6a' : '#2a3a2a' }}>
+                    ⚔️ {selUnit.weapon ? item(selUnit.weapon)?.name : 'Unarmed'}
+                  </div>
+                  <div style={{ color: selUnit.armor ? '#6a7a6a' : '#2a3a2a', marginTop:2 }}>
+                    🛡 {selUnit.armor ? item(selUnit.armor)?.name : 'No armor'}
+                  </div>
+                </div>
+                {/* Abilities */}
+                {allAbilityIds.length > 0 && phase === 'player' && (
+                  <div style={{ borderTop:'1px solid #0e1220', paddingTop:5 }}>
+                    <div style={{ fontSize:8, color:'#3a4a3a', marginBottom:4, textTransform:'uppercase', letterSpacing:0.5 }}>Abilities</div>
+                    <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                      {allAbilityIds.map((aid, idx) => {
+                        const ab = ABILITIES[aid];
+                        if (!ab) return null;
+                        const usesLeft = selUnit.abilityUses?.[aid] ?? 0;
+                        const isBonded = idx > 0;
+                        const isArmed  = isBonded ? !!(selUnit.bondedArmed?.[aid]) : selUnit.abilityArmed;
+                        return (
+                          <div key={aid}>
+                            {isBonded && <div style={{ fontSize:8, color:'#4a2a5a', marginBottom:1 }}>bonded</div>}
+                            {ab.type === 'active' && (
+                              abilityMode === aid
+                                ? <button onClick={() => setAbilityMode(null)} style={{
+                                    ...btn(true,'#8a5a2a'), width:'100%', textAlign:'left', fontSize:10, padding:'4px 7px',
+                                  }}>✕ Cancel</button>
+                                : <button
+                                    disabled={usesLeft <= 0 || selUnit.ap <= 0}
+                                    onClick={() => {
+                                      if (usesLeft <= 0 || selUnit.ap <= 0) return;
+                                      if (SELF_ABILITIES.has(aid)) {
+                                        doAbility(selUnit.id, aid, null, null, null);
+                                      } else {
+                                        setAbilityMode(aid);
+                                      }
+                                    }}
+                                    title={ab.desc}
+                                    style={{ ...btn(usesLeft > 0 && selUnit.ap > 0, '#6a3a9a'), width:'100%', textAlign:'left', fontSize:10, padding:'4px 7px' }}>
+                                    ✦ {ab.name} {usesLeft > 0 ? `(${usesLeft}×)` : '(spent)'}
+                                  </button>
+                            )}
+                            {ab.type === 'reactive' && (
+                              <button
+                                disabled={usesLeft <= 0}
+                                onClick={() => usesLeft > 0 && toggleAbilityArmed(selUnit.id, isBonded ? aid : undefined)}
+                                title={ab.desc}
+                                style={{ ...btn(usesLeft > 0, isArmed ? '#2a6a5a' : '#5a3a2a'), width:'100%', textAlign:'left', fontSize:10, padding:'4px 7px' }}>
+                                {isArmed ? `🛡 ${ab.name}` : `⚡ Arm ${ab.name}`}
+                                {usesLeft > 0 ? ` (${usesLeft}×)` : ' (spent)'}
+                              </button>
+                            )}
+                            {ab.type === 'passive' && (
+                              <div style={{ fontSize:9, color:'#3a5a3a', padding:'3px 6px',
+                                borderRadius:3, background:'#0a140a', border:'1px solid #1a2a1a' }}>
+                                ◆ {ab.name}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })() : (
+            <>
+              <div style={{ fontSize:8, color:'#2a3a2a', letterSpacing:1, marginBottom:5, textTransform:'uppercase' }}>Key</div>
+              {legendEntries.map((e, i) =>
+                e.divider
+                  ? <div key={i} style={{ height:1, background:'#0e0e1a', margin:'4px 0' }} />
+                  : (
+                    <div key={i} style={{ display:'flex', alignItems:'center', gap:5, marginBottom:4 }}>
+                      <span style={{
+                        display:'inline-flex', alignItems:'center', justifyContent:'center',
+                        width:18, height:18, fontSize:10, flexShrink:0,
+                        background: e.bg, border:`1px solid ${e.border}`, borderRadius:2,
+                        opacity: e.dim ? 0.45 : 1,
+                      }}>{e.icon}</span>
+                      <span style={{ fontSize:9, color:'#5a6a5a', lineHeight:1.2 }}>{e.label}</span>
+                    </div>
+                  )
+              )}
+            </>
           )}
         </div>
       </div>
@@ -337,67 +448,6 @@ export default function MissionScreen() {
           ))}
         </div>
 
-        {/* Ability buttons */}
-        {selUnit && phase === 'player' && selUnit.type !== UT.ENEMY && (() => {
-          const allAbilityIds = [
-            selUnit.classAbility,
-            ...(selUnit.bondedAbilities ?? []),
-          ].filter(Boolean);
-          if (allAbilityIds.length === 0) return null;
-          return (
-            <div style={{ display:'flex', flexDirection:'column', gap:4, marginBottom:5 }}>
-              {allAbilityIds.map((aid, idx) => {
-                const ab = ABILITIES[aid];
-                if (!ab) return null;
-                const usesLeft = selUnit.abilityUses?.[aid] ?? 0;
-                const isBonded = idx > 0;
-                const isArmed = isBonded ? !!(selUnit.bondedArmed?.[aid]) : selUnit.abilityArmed;
-                const accentColor = isBonded ? '#7a4a9a' : '#6a3a9a';
-                const armColor = isArmed ? '#2a6a5a' : '#5a3a2a';
-                return (
-                  <div key={aid} style={{ display:'flex', gap:6, alignItems:'center' }}>
-                    {idx === 0 && (
-                      <span style={{ fontSize:9, color:'#3a4a3a', flexShrink:0 }}>
-                        {selUnit.name.split(' ')[0]}:
-                      </span>
-                    )}
-                    {isBonded && (
-                      <span style={{ fontSize:9, color:'#4a2a5a', flexShrink:0 }}>bonded:</span>
-                    )}
-                    {ab.type === 'active' && (
-                      abilityMode === aid
-                        ? <button onClick={() => setAbilityMode(null)} style={btn(true,'#8a5a2a')}>
-                            ✕ Cancel {ab.name}
-                          </button>
-                        : <button
-                            disabled={usesLeft <= 0 || selUnit.ap <= 0}
-                            onClick={() => {
-                              if (usesLeft <= 0 || selUnit.ap <= 0) return;
-                              if (SELF_ABILITIES.has(aid)) {
-                                doAbility(selUnit.id, aid, null, null, null);
-                              } else {
-                                setAbilityMode(aid);
-                              }
-                            }}
-                            style={btn(usesLeft > 0 && selUnit.ap > 0, accentColor)}>
-                            ✦ {ab.name} {usesLeft > 0 ? `(${usesLeft}×)` : '(spent)'}
-                          </button>
-                    )}
-                    {ab.type === 'reactive' && (
-                      <button
-                        disabled={usesLeft <= 0}
-                        onClick={() => usesLeft > 0 && toggleAbilityArmed(selUnit.id, isBonded ? aid : undefined)}
-                        style={btn(usesLeft > 0, armColor)}>
-                        {isArmed ? `🛡 Disarm ${ab.name}` : `⚡ Arm ${ab.name}`}
-                        {usesLeft > 0 ? ` (${usesLeft}×)` : ' (spent)'}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })()}
 
         {/* Action buttons */}
         <div style={{ display:'flex', gap:7, justifyContent:'flex-end' }}>

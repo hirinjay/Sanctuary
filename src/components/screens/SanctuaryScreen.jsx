@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useGameStore } from '../../store/gameStore';
-import { item } from '../../data/items';
+import { item, RECIPES } from '../../data/items';
 import { xpNext, calcSacrificeBonus } from '../../systems/combat';
 import { getTier3Class } from '../../data/classes';
 import { ABILITIES } from '../../data/abilities';
@@ -196,6 +196,72 @@ export default function SanctuaryScreen() {
           </div>
           </>)}
         </div>
+
+        {/* Forge — craft weapons & armor */}
+        {nodes.includes('forge') && (() => {
+          const forgeIds = new Set(['rusty_blade','bone_club','iron_sword','cloth_wrap','bone_plate','leather_vest']);
+          const recipes  = RECIPES.filter(r => forgeIds.has(r.id));
+          return (
+            <div style={card}>
+              <div style={{ fontWeight:'bold', color:'#c4a882', marginBottom:5, fontSize:12 }}>🔥 Forge</div>
+              <div style={{ fontSize:10, color:'#3a4a3a', marginBottom:8 }}>Craft weapons and armor.</div>
+              <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                {recipes.map(r => {
+                  const canCraft = Object.entries(r.cost).every(([id, amt]) => (inv[id]||0) >= amt);
+                  const costStr  = Object.entries(r.cost).map(([id, amt]) => `${item(id)?.emoji}×${amt}`).join(' ');
+                  return (
+                    <button key={r.id} disabled={!canCraft} onClick={() => {
+                      set(s => {
+                        if (!Object.entries(r.cost).every(([id, amt]) => (s.inv[id]||0) >= amt)) return s;
+                        const ni = { ...s.inv };
+                        Object.entries(r.cost).forEach(([id, amt]) => { ni[id] = (ni[id]||0) - amt; });
+                        ni[r.id] = (ni[r.id]||0) + 1;
+                        return { inv: ni, log: [`🔥 Crafted ${r.name}!`, ...s.log].slice(0,14) };
+                      });
+                    }} style={{ ...btn(canCraft,'#7a4a1a'), width:90, textAlign:'center', padding:'7px 5px' }}>
+                      <div style={{ fontSize:13 }}>{r.emoji}</div>
+                      <div style={{ fontSize:10, fontWeight:'bold', color:'#c4a882', margin:'2px 0 3px' }}>{r.name}</div>
+                      <div style={{ fontSize:9, color: canCraft ? '#6a6a4a' : '#3a3a3a' }}>{costStr}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Workshop — craft tools */}
+        {nodes.includes('workshop') && (() => {
+          const workshopIds = new Set(['pickaxe']);
+          const recipes     = RECIPES.filter(r => workshopIds.has(r.id));
+          return (
+            <div style={card}>
+              <div style={{ fontWeight:'bold', color:'#c4a882', marginBottom:5, fontSize:12 }}>🔧 Workshop</div>
+              <div style={{ fontSize:10, color:'#3a4a3a', marginBottom:8 }}>Craft tools.</div>
+              <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                {recipes.map(r => {
+                  const canCraft = Object.entries(r.cost).every(([id, amt]) => (inv[id]||0) >= amt);
+                  const costStr  = Object.entries(r.cost).map(([id, amt]) => `${item(id)?.emoji}×${amt}`).join(' ');
+                  return (
+                    <button key={r.id} disabled={!canCraft} onClick={() => {
+                      set(s => {
+                        if (!Object.entries(r.cost).every(([id, amt]) => (s.inv[id]||0) >= amt)) return s;
+                        const ni = { ...s.inv };
+                        Object.entries(r.cost).forEach(([id, amt]) => { ni[id] = (ni[id]||0) - amt; });
+                        ni[r.id] = (ni[r.id]||0) + 1;
+                        return { inv: ni, log: [`🔧 Crafted ${r.name}!`, ...s.log].slice(0,14) };
+                      });
+                    }} style={{ ...btn(canCraft,'#2a5a5a'), width:90, textAlign:'center', padding:'7px 5px' }}>
+                      <div style={{ fontSize:13 }}>{r.emoji}</div>
+                      <div style={{ fontSize:10, fontWeight:'bold', color:'#c4a882', margin:'2px 0 3px' }}>{r.name}</div>
+                      <div style={{ fontSize:9, color: canCraft ? '#4a6a6a' : '#3a3a3a' }}>{costStr}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Ascension Forge */}
         {nodes.includes('ascension_forge') && (() => {
