@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { persist, subscribeWithSelector } from 'zustand/middleware';
 import { DEFAULT_VP, UT, TILE, UNAMES } from '../data/constants';
-import { item, LOOT, BODY_LOOT } from '../data/items';
+import { item, LOOT, FLOOR_LOOT, BODY_LOOT } from '../data/items';
+import { killXpByTier, xpTierMultiplier } from '../data/enemyDefs';
 import { genMap, genDungeonMap, genCabinMap, genForest, genRuinedTown, genRaiderCamp, genSwamp, genBattlefield, genAbandonedVillage, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath, cullUnreachable, findSpawnSlots } from '../systems/map';
 import { spawnEnemies, applyXpToUnits, calcSacrificeBonus, VERDANT_VAREK_LU } from '../systems/combat';
 import { ARCHETYPES, CLASS_STATS } from '../data/archetypes';
@@ -28,6 +29,33 @@ function debouncedSave(get) {
     const { currentUser, activeSlot } = state
     if (activeSlot) saveRun(state, currentUser?.id ?? null, activeSlot)
   }, 400)
+}
+
+// Computes promoted stats as a delta from the archetype baseline rather than
+// a hard replacement, so units with above/below-average starting stats carry
+// that difference forward through every promotion.
+function computePromotedStats(unit, cls) {
+  let base;
+  if (cls.tier === 2) {
+    const cs = CLASS_STATS[unit.dc];
+    base = cs
+      ? { hp: cs.hp, dmg: cs.dmg, def: cs.def ?? 0, move: cs.moveRange, range: cs.attackRange ?? 1, trapReveal: cs.trapReveal ?? 1 }
+      : { hp: 6, dmg: 3, def: 0, move: 3, range: 1, trapReveal: 1 };
+  } else {
+    // tier-3: baseline is the tier-2 class this unit promoted from
+    const t2 = cls.fromClass ? CLASSES[cls.fromClass] : null;
+    base = t2
+      ? { hp: t2.stats.hp, dmg: t2.stats.dmg, def: t2.stats.def ?? 0, move: t2.stats.move, range: t2.stats.range ?? 1, trapReveal: t2.stats.trapReveal ?? 1 }
+      : { hp: unit.maxHp, dmg: unit.dmg, def: unit.def ?? 0, move: unit.moveRange, range: unit.attackRange ?? 1, trapReveal: unit.trapReveal ?? 1 };
+  }
+  return {
+    hp:          Math.max(1, unit.maxHp       + (cls.stats.hp                - base.hp)),
+    dmg:         Math.max(1, unit.dmg         + (cls.stats.dmg               - base.dmg)),
+    def:         Math.max(0, (unit.def ?? 0)  + ((cls.stats.def  ?? 0)       - base.def)),
+    move:        Math.max(1, unit.moveRange   + (cls.stats.move              - base.move)),
+    range:       Math.max(1, unit.attackRange + ((cls.stats.range ?? 1)      - base.range)),
+    trapReveal:  Math.max(1, (unit.trapReveal ?? 1) + ((cls.stats.trapReveal ?? 1) - base.trapReveal)),
+  };
 }
 
 export const useGameStore = create(
@@ -69,7 +97,9 @@ export const useGameStore = create(
       promotionQueue: [],   // [{ unit, level }] — resolved on WorldScreen after mission
       missionResult: null,   // summary shown between encounter and world map
       // ── Location visit tracking ───────────────────────────────────────
-      locationVisits: {},   // { [locId]: { visits: N, bossDefeated: bool } }
+      locationVisits:    {},  // { [locId]: { visits: N, bossDefeated: bool } }
+      locationScavenges: {},  // { [locId]: N } — scavenge count per location
+      locationBosses:    {},  // { [locId]: bool } — active boss flag
       // ── Bestiary (account-scoped — never wiped on resetGame) ──────────
       bestiary: {},         // { [entityId]: { encounters: N, abilitiesSeen: bool } }
       // ── Achievement system (run-scoped) ───────────────────────────────
@@ -109,6 +139,17 @@ export const useGameStore = create(
         debouncedSave(get);
       },
 
+      goDeeper() {
+        const result = get().missionResult;
+        if (!result?.canGoDeeper || !result.pendingLoc) return;
+        const { luq, noise } = get();
+        if ((luq ?? []).length > 0) return;
+        // Noise propagates to deeper floors at 40% — loud previous floor pre-alerts enemies
+        const propagatedNoise = Math.floor((noise ?? 0) * 0.4);
+        set({ missionResult: null });
+        get().startMission(result.pendingLoc, 'raid', result.floor + 1, propagatedNoise);
+      },
+
       // ── Tether info (helper) ─────────────────────────────────────────
       // fieldCap = baseCap = tetherCap. Total roster cap = tetherCap * 2.
       ti(mUnits) {
@@ -134,14 +175,18 @@ export const useGameStore = create(
       },
 
       // ── Mission lifecycle ─────────────────────────────────────────────
-      startMission(location, md) {
-        const { vp, roster, locationVisits, bestiary, varekAchievements } = get();
+      startMission(location, md, floor = 1, prevNoise = 0) {
+        const { vp, roster, locationVisits, locationScavenges, locationBosses, bestiary, varekAchievements } = get();
         const danger  = location.danger ?? 1;
         const locId   = location.id ?? '';
         const locType = location.type ?? '';
+        const FLOOR_MAX_MAP = { dungeon:5, camp:3, wizard_tower:4, cabin:2 };
+        const maxFloor = FLOOR_MAX_MAP[locType] ?? 1;
+        const effectiveDanger = Math.min(3, danger + Math.floor((floor - 1) / 2));
         // Pick generator + map size by location type / id prefix
         let mapFn, mapW, mapH;
         if      (locType==='dungeon'||locId.startsWith('dungeon_'))  { mapFn=genDungeonMap;       mapW=18+Math.floor(Math.random()*9);  mapH=12+Math.floor(Math.random()*7); }
+        else if (locType==='wizard_tower')                            { mapFn=genDungeonMap;       mapW=16+Math.floor(Math.random()*6);  mapH=14+Math.floor(Math.random()*5); }
         else if (locType==='cabin')                                   { mapFn=genCabinMap;         mapW=16; mapH=12; }
         else if (locId.startsWith('wild_forest'))                     { mapFn=genForest;           mapW=22; mapH=18; }
         else if (locId.startsWith('wild_ruins')||locId.startsWith('ruined_')) { mapFn=genRuinedTown; mapW=20; mapH=16; }
@@ -206,14 +251,51 @@ export const useGameStore = create(
           [locId]: { ...visitInfo, visits: newVisitCount },
         };
 
-        // ── Enemy spawn ────────────────────────────────────────────────
-        const enemies = locType === 'battlefield' ? [] : spawnEnemies(danger, md, tiles, spawnX, spawnY, location.threats ?? null, locType);
+        // ── Scavenge tracking + scavenge-triggered boss ────────────────
+        const existingScavenges = locationScavenges ?? {};
+        const newScavengeCount  = md === 'scavenge' ? (existingScavenges[locId] ?? 0) + 1 : (existingScavenges[locId] ?? 0);
+        const newLocationScavenges = { ...existingScavenges, [locId]: newScavengeCount };
+        const newLocationBosses = { ...(locationBosses ?? {}) };
+        if (md === 'scavenge' && newScavengeCount >= 5 && locType !== 'merchant' && locType !== 'cabin') {
+          newLocationBosses[locId] = true;
+        }
 
-        // ── Boss spawn: dungeon/camp on 3rd+ visit, once per location ──
-        const bossLocTypes = ['dungeon', 'camp'];
-        const isBossLocation = bossLocTypes.some(t => locType === t || locId.startsWith(t));
-        const shouldSpawnBoss = isBossLocation && newVisitCount >= 3 && !visitInfo.bossDefeated;
-        const boss = shouldSpawnBoss ? spawnBoss(danger, tiles, spawnX, spawnY, locType || 'dungeon') : null;
+        // ── Enemy spawn ────────────────────────────────────────────────
+        const enemies = locType === 'battlefield' ? [] : spawnEnemies(effectiveDanger, md, tiles, spawnX, spawnY, location.threats ?? null, locType, floor, isBossFloor);
+
+        // ── Boss floor spawn (boss present + deepest floor) ────────────
+        const hasBoss    = newLocationBosses[locId] === true;
+        const isBossFloor = hasBoss && floor === maxFloor;
+        const boss = isBossFloor ? spawnBoss(effectiveDanger, tiles, spawnX, spawnY, locType || 'dungeon') : null;
+        // Three support units clustered near the boss
+        const bossSupport = [];
+        if (boss) {
+          for (let i = 0; i < 3; i++) {
+            const a = ARCHETYPES[Math.floor(Math.random() * ARCHETYPES.length)];
+            const bsHp  = Math.round(a.hp  * (1 + (effectiveDanger-1) * 0.35));
+            const bsDmg = Math.max(1, Math.round(a.dmg * (1 + (effectiveDanger-1) * 0.25)));
+            let sx = boss.x, sy = boss.y;
+            for (let attempt = 0; attempt < 40; attempt++) {
+              const tx = boss.x + Math.floor(Math.random()*5) - 2;
+              const ty = boss.y + Math.floor(Math.random()*5) - 2;
+              if (tx>=1 && tx<mapW-1 && ty>=1 && ty<mapH-1
+                  && tiles?.[ty]?.[tx]?.type !== 'wall'
+                  && !bossSupport.some(s => s.x===tx && s.y===ty)
+                  && (tx!==boss.x || ty!==boss.y)) { sx=tx; sy=ty; break; }
+            }
+            bossSupport.push({
+              id:`sup${i}`, type:UT.ENEMY, name:a.name, emoji:a.emoji,
+              x:sx, y:sy, hp:bsHp, maxHp:bsHp, dmg:bsDmg, def:0,
+              ap:2, moveRange:a.move, attackRange:a.attackRange||1,
+              fallen:false, raiseTurn:null, alerted:true, placement:'guard',
+              waypoints:undefined, wi:0, ambushTriggered:true, triggerRow:undefined,
+              patrol:[{dx:1,dy:0},{dx:-1,dy:0}], pi:0,
+              xp:a.xp, dc:a.dc, sight:a.sight, spot:a.spot,
+              weapon:null, armor:null, level:1, xpVal:0, chaseTurns:0, lastKnown:null,
+              statusEffects:[],
+            });
+          }
+        }
 
         const objective = generateObjective(locType || 'default', tiles, enemies, danger);
         // Mark the target loot tile on the map for loot_named objectives
@@ -226,7 +308,7 @@ export const useGameStore = create(
         missionTiles.forEach(row => row.forEach(t => {
           if (t.type === TILE.DOOR && t.locked && t.keyId) lockedKeyIds.push(t.keyId);
         }));
-        let missionEnemies = [...enemies, ...(boss ? [boss] : [])];
+        let missionEnemies = [...enemies, ...(boss ? [boss] : []), ...bossSupport];
         lockedKeyIds.forEach(keyId => {
           const eligible = missionEnemies.filter(e => !e.holdsKey && !e.sleeping && !e.isBoss);
           if (!eligible.length) return;
@@ -235,39 +317,47 @@ export const useGameStore = create(
         });
 
         // ── Bestiary: unlock enemy entries on first/second encounter ──
-        const seenDcs = [...new Set(enemies.map(e => e.dc).filter(Boolean))];
+        const seenNames = [...new Set(enemies.map(e => e.name).filter(Boolean))];
         const newBestiary = { ...bestiary };
-        seenDcs.forEach(dc => {
-          const prev2 = newBestiary[dc] ?? { encounters: 0, abilitiesSeen: false };
-          newBestiary[dc] = { encounters: prev2.encounters + 1, abilitiesSeen: prev2.encounters >= 1 };
+        seenNames.forEach(name => {
+          const prev2 = newBestiary[name] ?? { encounters: 0 };
+          const n = prev2.encounters + 1;
+          newBestiary[name] = { encounters: n, statsRevealed: n >= 2, abilitiesSeen: n >= 3 };
         });
         if (boss) {
-          const pb = newBestiary[boss.bossType] ?? { encounters: 0, abilitiesSeen: false };
-          newBestiary[boss.bossType] = { encounters: pb.encounters + 1, abilitiesSeen: pb.encounters >= 1 };
+          const pb = newBestiary[boss.bossType] ?? { encounters: 0 };
+          const nb = pb.encounters + 1;
+          newBestiary[boss.bossType] = { encounters: nb, statsRevealed: nb >= 2, abilitiesSeen: nb >= 3 };
         }
 
         const initialUnits = [varek, ...activeUndead, ...missionEnemies];
         const revealedTiles = revealTraps(missionTiles, initialUnits);
-        const bossLog = boss ? [`⚠️ A powerful presence stirs — ${boss.name} lurks within!`] : [];
+        const bossLog = boss ? [`⚠️ ${boss.name} commands the floor — with ${bossSupport.length} guards at their side!`] : [];
+        const floorLog = maxFloor > 1 ? [`📍 Floor ${floor} of ${maxFloor}.`] : [];
         set({
-          ms:    { tiles:revealedTiles, units:initialUnits, turn:1, loot:[], keys:[], width:mapW, height:mapH, objective, locationId:locId, deployedUndeadIds },
-          noise: md === 'raid' ? 30 : 0,
+          ms:    { tiles:revealedTiles, units:initialUnits, turn:1, loot:[], keys:[], width:mapW, height:mapH, objective, locationId:locId, deployedUndeadIds, floor, maxFloor, isBossFloor },
+          noise: prevNoise > 0 ? Math.max(30, prevNoise) : (md === 'raid' ? 30 : 0),
           loc:   location,
           mode:  md,
           luq:   [],
-          log:   [...bossLog, `${location.name} — ${md==='raid'?'Raid: enemies alerted.':'Scavenge: stay quiet.'}`, `◼ ${objective.label}`],
+          log:   [...bossLog, ...floorLog, `${location.name} — ${md==='raid'?'Raid: enemies alerted.':'Scavenge: stay quiet.'}`, `◼ ${objective.label}`],
           phase: 'player',
           screen:SCREEN.MISSION,
-          locationVisits: newLocationVisits,
-          bestiary: newBestiary,
+          locationVisits:    newLocationVisits,
+          locationScavenges: newLocationScavenges,
+          locationBosses:    newLocationBosses,
+          bestiary:          newBestiary,
         });
         const { currentUser: cu2 } = get();
         if (Object.keys(newBestiary).length) saveBestiary(newBestiary, cu2?.id ?? null);
       },
 
       endMission(units, loot, success = false) {
-        const { roster, vp, inv, travelBag, sanctuaryGrid, ms: currentMs, locationVisits, bestiary, book, loc, world } = get();
-        const objective = currentMs?.objective ?? null;
+        const { roster, vp, inv, travelBag, sanctuaryGrid, ms: currentMs, locationVisits, locationBosses, bestiary, book, loc, world } = get();
+        const objective    = currentMs?.objective ?? null;
+        const floor        = currentMs?.floor    ?? 1;
+        const maxFloor     = currentMs?.maxFloor ?? 1;
+        const isBossFloor  = currentMs?.isBossFloor ?? false;
 
         // ── Objective outcome ─────────────────────────────────────────────
         const CRITICAL = ['eliminate', 'loot_named', 'survive'];
@@ -320,8 +410,19 @@ export const useGameStore = create(
         const newRoster = [...roster.filter(u => u.atBase), ...surv.map(u => ({ ...u, atBase:false }))];
 
         // Loot goes into travelBag — Varek carries it; must return to Sanctuary to deposit
-        const newBag = { ...travelBag };
+        let newBag = { ...travelBag };
         finalLoot.forEach(id => { newBag[id] = (newBag[id]||0) + 1; });
+
+        // Boss floor retreat: lose 75% of the full bag (existing + new loot combined)
+        if (isBossFloor && !success) {
+          const allItems = Object.entries(newBag).flatMap(([id, cnt]) => Array(cnt).fill(id));
+          const keepCount = Math.ceil(allItems.length * 0.25);
+          const keptItems = [...allItems].sort(() => Math.random() - 0.5).slice(0, keepCount);
+          newBag = {};
+          keptItems.forEach(id => { newBag[id] = (newBag[id]||0)+1; });
+          const lostCount = allItems.length - keepCount;
+          if (lostCount > 0) logs.push(`💸 Retreated from the boss — ${lostCount} item${lostCount!==1?'s':''} scattered in the chaos.`);
+        }
 
         // Node yields — count placed tiles; each farm=2 food, each quarry=2 iron
         const newInv = { ...inv };
@@ -334,7 +435,7 @@ export const useGameStore = create(
         if (success) logs.push(`✓ Secured ${finalLoot.length} item${finalLoot.length!==1?'s':''} — return to Sanctuary to deposit.`);
         if (survivalUnits.length) logs.push(`+1 survival XP: ${survivalUnits.map(u => u.pname ?? u.name).join(', ')}.`);
 
-        // ── Boss kill: mark location cleared, unlock bestiary abilities ──
+        // ── Boss kill + location clear ─────────────────────────────────
         const killedBoss = units.find(u => u.isBoss && u.fallen);
         const locId2 = currentMs?.locationId;
         const newLocationVisits = killedBoss && locId2
@@ -342,12 +443,27 @@ export const useGameStore = create(
           : locationVisits;
         const newBestiary = { ...bestiary };
         if (killedBoss) {
-          const pb = newBestiary[killedBoss.bossType] ?? { encounters: 1, abilitiesSeen: false };
-          newBestiary[killedBoss.bossType] = { ...pb, abilitiesSeen: true };
+          const pb = newBestiary[killedBoss.bossType] ?? { encounters: 1 };
+          newBestiary[killedBoss.bossType] = { ...pb, abilitiesSeen: true, statsRevealed: true };
           logs.push(`💀 ${killedBoss.name} defeated — bestiary updated.`);
+          // Guaranteed rare drop from boss_loot pool
+          if (killedBoss.boss_loot) {
+            finalLoot.push(killedBoss.boss_loot);
+            logs.push(`⭐ ${killedBoss.name} drops ${item(killedBoss.boss_loot)?.name ?? killedBoss.boss_loot}!`);
+          } else {
+            finalLoot.push('arcane'); // fallback rare drop
+          }
+        }
+        // Update boss flags: clear when boss killed; set when all floors cleared (no boss this run)
+        const newLocationBosses = { ...(locationBosses ?? {}) };
+        if (killedBoss && locId2) {
+          newLocationBosses[locId2] = false;
+        } else if (success && floor === maxFloor && loc?.type !== 'cabin' && locId2) {
+          newLocationBosses[locId2] = true;
+          logs.push(`⚠️ The location falls silent... something powerful has taken notice.`);
         }
 
-        const clearedCabin = success && loc?.type === 'cabin';
+        const clearedCabin = success && loc?.type === 'cabin' && floor === maxFloor;
         const nextWorld = clearedCabin && world
           ? {
               ...world,
@@ -366,6 +482,7 @@ export const useGameStore = create(
           bestiary: newBestiary,
           world: nextWorld,
           ms:null, worldPath:[], selectedHex:null, loc:null,
+          locationBosses: newLocationBosses,
           missionResult: {
             success,
             locationName: loc?.name ?? currentMs?.locationId ?? 'Encounter',
@@ -374,6 +491,10 @@ export const useGameStore = create(
             logs,
             leveled: luqExtra.length,
             clearedLocation: clearedCabin,
+            floor,
+            maxFloor,
+            canGoDeeper: success && floor < maxFloor && !isBossFloor,
+            pendingLoc: (success && floor < maxFloor && !isBossFloor) ? loc : null,
             fallenUnits: fallenDeployed.map(u => ({ id:u.id, name:u.pname ?? u.name, className:u.cls ?? u.dc ?? 'Undead', emoji:u.emoji ?? '☠' })),
             gainedUnits: gainedUnits.map(u => ({ id:u.id, name:u.pname ?? u.name, className:u.cls ?? u.dc ?? 'Undead', emoji:u.emoji ?? '☠' })),
             survivalXpUnits: survivalUnits.map(u => ({ id:u.id, name:u.pname ?? u.name, className:u.cls ?? u.dc ?? 'Undead', emoji:u.emoji ?? '☠' })),
@@ -394,6 +515,7 @@ export const useGameStore = create(
         set(s => {
           const newRoster = s.roster.map(u => {
             if (u.id !== unitId) return u;
+            const ps = computePromotedStats(u, cls);
             const promotedName = `${u.pname} the ${cls.name}`;
             return {
               ...u,
@@ -403,13 +525,15 @@ export const useGameStore = create(
               baseClass:     cls.baseClass,
               emoji:         cls.emoji,
               name:          promotedName,
-              hp:            cls.stats.hp,
-              maxHp:         cls.stats.hp,
-              dmg:           cls.stats.dmg,
-              def:           cls.stats.def ?? 0,
-              moveRange:     cls.stats.move,
-              attackRange:   cls.stats.range ?? 1,
-              trapReveal:    cls.stats.trapReveal ?? 1,
+              hp:            ps.hp,
+              maxHp:         ps.hp,
+              dmg:           ps.dmg,
+              def:           ps.def,
+              moveRange:     ps.move,
+              attackRange:   ps.range,
+              trapReveal:    ps.trapReveal,
+              weapon:        u.weapon ?? null,
+              armor:         u.armor  ?? null,
               silentAttacks:        cls.silentAttacks ?? false,
               untargetableInShadow: cls.untargetableInShadow ?? false,
               cannotInteract:       cls.cannotInteract ?? false,
@@ -448,6 +572,7 @@ export const useGameStore = create(
         const ab = ABILITIES[abilityId];
         set(s => {
           const promote = (u) => {
+            const ps = computePromotedStats(u, cls);
             const promotedName = `${u.pname} the ${cls.name}`;
             return {
               ...u,
@@ -457,13 +582,15 @@ export const useGameStore = create(
               baseClass:     cls.baseClass,
               emoji:         cls.emoji,
               name:          promotedName,
-              hp:            cls.stats.hp,
-              maxHp:         cls.stats.hp,
-              dmg:           cls.stats.dmg,
-              def:           cls.stats.def ?? 0,
-              moveRange:     cls.stats.move,
-              attackRange:   cls.stats.range ?? 1,
-              trapReveal:    cls.stats.trapReveal ?? 1,
+              hp:            ps.hp,
+              maxHp:         ps.hp,
+              dmg:           ps.dmg,
+              def:           ps.def,
+              moveRange:     ps.move,
+              attackRange:   ps.range,
+              trapReveal:    ps.trapReveal,
+              weapon:        u.weapon ?? null,
+              armor:         u.armor  ?? null,
               silentAttacks:        cls.silentAttacks ?? false,
               untargetableInShadow: cls.untargetableInShadow ?? false,
               cannotInteract:       cls.cannotInteract ?? false,
@@ -505,9 +632,7 @@ export const useGameStore = create(
           if (!u || u.level < 5 || u.tier !== 2) return s;
           const sac = sacrificeId ? s.roster.find(r => r.id === sacrificeId) : null;
           const bonus = sac ? calcSacrificeBonus(sac) : null; // null for tier-3 sac (tier-3 can't be used for Ascension)
-          const baseHp  = cls.stats.hp  + (bonus?.hp   ?? 0);
-          const baseDmg = cls.stats.dmg + (bonus?.dmg  ?? 0);
-          const baseMov = cls.stats.move + (bonus?.move ?? 0);
+          const ps = computePromotedStats(u, cls);
           const promotedName = `${u.pname} the ${cls.name}`;
           const promoted = {
             ...u,
@@ -517,13 +642,15 @@ export const useGameStore = create(
             baseClass:     cls.baseClass,
             emoji:         cls.emoji,
             name:          promotedName,
-            hp:            baseHp,
-            maxHp:         baseHp,
-            dmg:           baseDmg,
-            def:           cls.stats.def ?? 0,
-            moveRange:     baseMov,
-            attackRange:   cls.stats.range ?? 1,
-            trapReveal:    cls.stats.trapReveal ?? 1,
+            hp:            ps.hp  + (bonus?.hp   ?? 0),
+            maxHp:         ps.hp  + (bonus?.hp   ?? 0),
+            dmg:           ps.dmg + (bonus?.dmg  ?? 0),
+            def:           ps.def,
+            moveRange:     ps.move + (bonus?.move ?? 0),
+            attackRange:   ps.range,
+            trapReveal:    ps.trapReveal,
+            weapon:        u.weapon ?? null,
+            armor:         u.armor  ?? null,
             silentAttacks:        cls.silentAttacks ?? false,
             untargetableInShadow: cls.untargetableInShadow ?? false,
             cannotInteract:       cls.cannotInteract ?? false,
@@ -666,7 +793,7 @@ export const useGameStore = create(
           world:null, worldPos:null, sanctuaryPos:null, selectedHex:null,
           pendingSanctuaryTile:null, worldPath:[], travelBag:{},
           sanctuaryGrid:null, activeSlot:null, promotionQueue:[],
-          locationVisits:{}, missionResult:null });
+          locationVisits:{}, locationScavenges:{}, locationBosses:{}, missionResult:null });
         // bestiary intentionally NOT cleared — it is account-scoped
       },
 
@@ -1123,7 +1250,9 @@ export const useGameStore = create(
           }
         } else if (t.type === TILE.LOOT) {
           tiles[y][x] = { type:TILE.LOOT_OPEN };
-          const tbl = LOOT[s.loc.lq];
+          const floorDepth = s.ms?.floor ?? 1;
+          const floorKey = Math.min(floorDepth, 4);
+          const tbl = (floorDepth > 1 && FLOOR_LOOT[floorKey]) ? FLOOR_LOOT[floorKey] : LOOT[s.loc.lq];
           const iid = tbl[Math.floor(Math.random()*tbl.length)];
           loot.push(iid);
           logs.push(`${unit.emoji} Found ${item(iid)?.emoji} ${item(iid)?.name}!`);
@@ -1249,8 +1378,10 @@ export const useGameStore = create(
 
           // Boss passive: armored reduces all incoming damage by 2
           const armoredReduction = defUnit.isBoss && defUnit.bossPassive === 'armored' ? 2 : 0;
-
-          let dmg = Math.max(1, (attUnit.dmg||2) + wb + bonusDmg + ambushBonus - defVal + markBonus - armoredReduction);
+          // e_battle_hardened: enemy takes -1 dmg (passive)
+          const battleHardenedReduction = (defUnit.abilities ?? []).includes('e_battle_hardened') ? 1 : 0;
+          // e_pack_tactics attacker bonus (player units don't have it, so always 0 here)
+          let dmg = Math.max(1, (attUnit.dmg||2) + wb + bonusDmg + ambushBonus - defVal + markBonus - armoredReduction - battleHardenedReduction);
 
           // Incorporeal: 30% dodge (class or bonded)
           const hasIncorporeal = defUnit.classAbility === 'incorporeal'
@@ -1336,6 +1467,20 @@ export const useGameStore = create(
             if (u.id === sel) return { ...u, ap:u.ap-1 };
             return u;
           });
+
+          // ── Enemy passive reactions to taking damage ──────────────────
+          const hitUnit = units.find(u => u.id === enemy.id && !u.fallen);
+          if (hitUnit) {
+            if ((hitUnit.abilities ?? []).includes('e_bloodrage') && (hitUnit.bloodrageStacks ?? 0) < 3) {
+              const stacks = (hitUnit.bloodrageStacks ?? 0) + 1;
+              units = units.map(u => u.id===enemy.id ? { ...u, bloodrageStacks:stacks, dmg:u.dmg+1 } : u);
+              logs.push(`💢 ${hitUnit.name} Bloodrage! DMG +${stacks} total.`);
+            }
+            if ((hitUnit.abilities ?? []).includes('e_enrage') && !hitUnit.enrageTriggered && hitUnit.hp <= Math.ceil(hitUnit.maxHp * 0.5)) {
+              units = units.map(u => u.id===enemy.id ? { ...u, enrageTriggered:true, dmg:u.dmg+2, moveRange:(u.moveRange||2)+1 } : u);
+              logs.push(`🐻 ${hitUnit.name} Enrages — +2 DMG +1 Move!`);
+            }
+          }
 
           // ── Boss conditionals triggered on taking damage ──────────────
           const bossNow = units.find(u => u.id === enemy.id && u.isBoss && !u.fallen);
@@ -1426,11 +1571,14 @@ export const useGameStore = create(
             logs.push(`🌿 Verdant drain restores ${heal} HP to Varek!`);
           }
 
-          // XP
+          // XP — tier formula + tier comparison multiplier
           units = applyXpToUnits(units, sel, 1, luq);
           const killed = units.find(u => u.id===enemy.id && u.fallen && u.raiseTurn===prev.ms.turn);
           if (killed) {
-            const killXp = 1 + Math.floor((enemy.maxHp||5)/5);
+            const enemyTier = enemy.xpTier ?? (enemy.isBoss ? 3 : 1);
+            const baseKillXp = killXpByTier(enemy.maxHp || 5, enemyTier, !!enemy.isBoss);
+            const mult = xpTierMultiplier(attUnit.level ?? 1, !!attUnit.reborn, enemyTier);
+            const killXp = Math.max(1, Math.round(baseKillXp * mult));
             units = applyXpToUnits(units, sel, killXp, luq);
             if (killed.holdsKey && killed.keyId) { newKeys = [...newKeys, killed.keyId]; logs.push(`🔑 ${attUnit.name} finds a key!`); }
             if (objective?.type==='eliminate' && objective.targetId===enemy.id && !objective.complete) {
@@ -1871,11 +2019,14 @@ export const useGameStore = create(
               logs.push(`${actor.name} uses ${ABILITIES[abilityId]?.name ?? abilityId}`);
           }
 
-          // Grant XP for kills caused by this ability
+          // Grant XP for kills caused by this ability (tier formula)
+          const actor2 = units.find(u => u.id === unitId);
           const freshKills = units.filter(u => u.type === UT.ENEMY && u.fallen && u.raiseTurn === undefined);
           freshKills.forEach(k => {
             k.raiseTurn = prev.ms.turn;
-            const kxp = 1 + Math.floor((k.maxHp||5)/5);
+            const et = k.xpTier ?? (k.isBoss ? 3 : 1);
+            const km = xpTierMultiplier(actor2?.level ?? 1, !!actor2?.reborn, et);
+            const kxp = Math.max(1, Math.round(killXpByTier(k.maxHp || 5, et, !!k.isBoss) * km));
             units = applyXpToUnits(units, unitId, kxp, luq);
           });
 
@@ -1895,7 +2046,7 @@ export const useGameStore = create(
         set(prev => {
           const ms       = prev.ms;
           const noiseMod = prev.noise < 30 ? -1 : prev.noise < 60 ? 0 : 1;
-          let units      = ms.units.map(u => ({ ...u, ap:u.fallen?0:2 }));
+          let units      = ms.units.map(u => ({ ...u, ap:u.fallen?0:2, moveBonusThisTurn:0 }));
           const logs     = [];
           let luq        = [...prev.luq];
           let objective  = ms.objective ? { ...ms.objective } : null;
@@ -1955,6 +2106,26 @@ export const useGameStore = create(
             units = units.map(u => {
               if (u.type === UT.ENEMY || u.fallen) return u;
               return dist(bossAlive, u) <= 1 ? { ...u, ap: Math.max(0, u.ap - 1) } : u;
+            });
+          }
+
+          // ── Enemy start-of-turn passives ──────────────────────────────────
+          // e_battle_cry: one Veteran per encounter grants all raiders within 3 tiles +1 move
+          const battleCrySource = units.find(u => u.type===UT.ENEMY && !u.fallen && (u.abilities??[]).includes('e_battle_cry') && !u.battleCryUsed);
+          if (battleCrySource) {
+            units = units.map(u => u.id === battleCrySource.id ? { ...u, battleCryUsed: true } : u);
+            units = units.map(u => {
+              if (u.type!==UT.ENEMY || u.fallen || u.faction!=='raider') return u;
+              return dist(battleCrySource, u) <= 3 ? { ...u, moveBonusThisTurn: (u.moveBonusThisTurn||0)+1 } : u;
+            });
+            logs.push(`⚔️ ${battleCrySource.name} rallies! Raiders surge forward.`);
+          }
+          // e_alpha_presence: Dire Wolf alive → all animal allies within 5 tiles +1 move
+          const alphaAlive = units.find(u => u.type===UT.ENEMY && !u.fallen && (u.abilities??[]).includes('e_alpha_presence'));
+          if (alphaAlive) {
+            units = units.map(u => {
+              if (u.type!==UT.ENEMY || u.fallen || u.faction!=='animal' || u.id===alphaAlive.id) return u;
+              return dist(alphaAlive, u) <= 5 ? { ...u, moveBonusThisTurn: (u.moveBonusThisTurn||0)+1 } : u;
             });
           }
 
@@ -2041,8 +2212,80 @@ export const useGameStore = create(
                 return { ...u, chaseTurns:nc };
               }
 
-              const tgt   = adj || visibleTgt || fr.reduce((a,b) => dist(u,a)<=dist(u,b)?a:b);
               const aRange = u.attackRange || 1;
+              const effMove = (u.moveRange || 1) + (u.moveBonusThisTurn || 0);
+
+              // ── Territorial: boss/captain stays put until player is close ──
+              if ((u.territorial || u.isBoss) && !adj) {
+                const trigR = u.triggerRadius ?? 5;
+                if (!fr.some(f => dist(u,f) <= trigR)) return u;
+              }
+
+              // ── Support: move toward most wounded ally ─────────────────────
+              if (u.aiRole === 'support' && !adj) {
+                const woundedAlly = units
+                  .filter(a => a.type===UT.ENEMY && !a.fallen && a.id!==u.id && a.hp < a.maxHp)
+                  .sort((a,b) => (a.hp/a.maxHp)-(b.hp/b.maxHp))[0];
+                if (woundedAlly) {
+                  const sp = bfsGridPath(ms.tiles, u.x, u.y, woundedAlly.x, woundedAlly.y, units);
+                  if (sp.length) {
+                    let nx=u.x, ny=u.y, steps=0;
+                    for (const step of sp) {
+                      if (steps >= effMove) break;
+                      if (step.x===woundedAlly.x && step.y===woundedAlly.y) break;
+                      if (!walkable(ms.tiles, step.x, step.y, units)) break;
+                      nx=step.x; ny=step.y; steps++;
+                    }
+                    if (nx!==u.x || ny!==u.y) return { ...u, x:nx, y:ny, alerted:true, chaseTurns:0, lastKnown };
+                  }
+                }
+                // No wounded ally: stay put unless adjacent to player
+                return { ...u, alerted:true, chaseTurns:0, lastKnown };
+              }
+
+              // ── Ranged: maintain preferred distance, kite backwards if too close ─
+              if (u.aiRole === 'ranged' && visibleTgt) {
+                const distToTgt = dist(u, visibleTgt);
+                if (distToTgt < aRange && distToTgt > 0) {
+                  // Too close: step away
+                  const dx = Math.sign(u.x - visibleTgt.x), dy = Math.sign(u.y - visibleTgt.y);
+                  let nx=u.x, ny=u.y;
+                  for (let step=1; step<=effMove; step++) {
+                    const tx=u.x+dx*step, ty=u.y+dy*step;
+                    if (tx<1||tx>=ms.width-1||ty<1||ty>=ms.tiles.length-1) break;
+                    if (!walkable(ms.tiles,tx,ty,units)) break;
+                    nx=tx; ny=ty;
+                  }
+                  if (nx!==u.x || ny!==u.y) return { ...u, x:nx, y:ny, alerted:true, chaseTurns:0, lastKnown };
+                }
+                if (distToTgt <= aRange) {
+                  // In range: attack from here
+                  pendingAttacks.push({ attacker:u, target:visibleTgt });
+                  return { ...u, alerted:true, chaseTurns:0, lastKnown };
+                }
+                // Out of range: move closer but stop at aRange
+                const rp = bfsGridPath(ms.tiles, u.x, u.y, visibleTgt.x, visibleTgt.y, units);
+                if (rp.length) {
+                  let nx=u.x, ny=u.y, steps=0;
+                  for (const step of rp) {
+                    if (steps >= effMove) break;
+                    if (dist({x:step.x,y:step.y}, visibleTgt) <= aRange) break;
+                    if (!walkable(ms.tiles,step.x,step.y,units)) break;
+                    nx=step.x; ny=step.y; steps++;
+                  }
+                  const movedU = { ...u, x:nx, y:ny, alerted:true, chaseTurns:0, lastKnown };
+                  if (dist(movedU, visibleTgt) <= aRange) pendingAttacks.push({ attacker:movedU, target:visibleTgt });
+                  return movedU;
+                }
+                return { ...u, alerted:true, chaseTurns:0, lastKnown };
+              }
+
+              // ── Flanker: target Varek specifically ─────────────────────────
+              const varekUnit = fr.find(f => f.type === UT.VAREK);
+              const tgt = (u.aiRole === 'flanker' && varekUnit)
+                ? varekUnit
+                : (adj || visibleTgt || fr.reduce((a,b) => dist(u,a)<=dist(u,b)?a:b));
+
               if (dist(u,tgt) <= aRange) {
                 pendingAttacks.push({ attacker:u, target:tgt });
                 return { ...u, alerted:true, chaseTurns:0, lastKnown };
@@ -2051,14 +2294,13 @@ export const useGameStore = create(
               if (path.length) {
                 let nx = u.x, ny = u.y, steps = 0;
                 for (const step of path) {
-                  if (steps >= (u.moveRange || 1)) break;
+                  if (steps >= effMove) break;
                   if (step.x === tgt.x && step.y === tgt.y) break;
                   if (!walkable(ms.tiles, step.x, step.y, units)) break;
                   nx = step.x; ny = step.y; steps++;
                 }
                 if (nx !== u.x || ny !== u.y) {
                   const movedU = { ...u, x:nx, y:ny, alerted:true, chaseTurns:0, lastKnown };
-                  // If movement brought enemy into attack range, queue attack
                   const newAdj = fr.find(f => dist(movedU, f) <= aRange);
                   if (newAdj) pendingAttacks.push({ attacker: movedU, target: newAdj });
                   return movedU;
@@ -2200,7 +2442,11 @@ export const useGameStore = create(
             if (!tgt || tgt.fallen) continue;
             const ad    = tgt.armor ? (item(tgt.armor)?.def||0) : 0;
             const ignoreDef = attacker.bossPassive === 'brutal';
-            let dmg = Math.max(1, (attacker.dmg||2) - (ignoreDef ? 0 : ad));
+            // e_pack_tactics: attacker gains +1 dmg per adjacent faction ally
+            const packBonus = (attacker.abilities ?? []).includes('e_pack_tactics')
+              ? units.filter(a => a.type===UT.ENEMY && !a.fallen && a.id!==attacker.id && a.faction===attacker.faction && dist(attacker,a)<=1).length
+              : 0;
+            let dmg = Math.max(1, (attacker.dmg||2) + packBonus - (ignoreDef ? 0 : ad));
 
             const consumeReactive = (aid, bonded) => {
               const usesLeft = tgt.abilityUses?.[aid] ?? 0;
