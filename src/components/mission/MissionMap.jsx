@@ -1,4 +1,5 @@
 import { TILE } from '../../data/constants';
+import UnitSprite from './UnitSprite';
 
 // Per-theme wall backgrounds and floor backgrounds
 const THEME_WALL_BG = {
@@ -96,12 +97,13 @@ function tileContent(tile, visible, theme, x, y) {
   return TILE_ICON[tile.type] || null;
 }
 
+const STATUS_ICONS = { root:'🌿', slow:'🐢', bind:'⛓', stun:'💫', poison:'☠', burning:'🔥', marked:'🎯', shielded:'🛡' };
+
 export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, onCellClick, theme = 'dungeon', tileSize = 46 }) {
-  const uFont = Math.round(tileSize * 0.30);   // regular unit emoji
-  const vFont = Math.round(tileSize * 0.38);   // varek emoji (slightly larger)
-  const sFont = Math.round(tileSize * 0.17);   // status effect badge
-  const wFont = Math.round(tileSize * 0.28);   // wall decoration
-  const iFont = Math.round(tileSize * 0.22);   // tile icon (loot, exit, etc.)
+  const spriteSize = Math.round(tileSize * 0.58);
+  const sFont      = Math.round(tileSize * 0.17);
+  const wFont      = Math.round(tileSize * 0.28);
+  const iFont      = Math.round(tileSize * 0.22);
 
   return (
     <div style={{
@@ -114,41 +116,71 @@ export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, on
         const k      = `${x},${y}`;
         const vis    = fv.has(k);
         const hi     = hilight.has(k);
-        const u      = units.find(u => u.x===x && u.y===y);
         const isR    = raiseable.some(r => r.x===x && r.y===y);
         const marked = tile.marked && tile.type === TILE.LOOT && vis;
         const bg     = hi ? '#0f2a0f' : isR ? '#0f0f2a' : tileBg(tile, vis, theme);
         const content = tileContent(tile, vis, theme, x, y);
 
-        const visibleUnit = u && u.ambushTriggered !== false;
-        const apGlow = visibleUnit && !u.fallen && u.type !== 'enemy'
-          ? u.ap >= 2 ? '0 0 4px 1px #2a7a2a'
-          : u.ap === 1 ? '0 0 4px 1px #7a6a10'
-          : '0 0 4px 1px #7a1a1a'
+        // All units at this tile, sorted: living first (z-order top), fallen last (z-order bottom)
+        const tileUnits = units
+          .filter(u => u.x === x && u.y === y && u.ambushTriggered !== false)
+          .sort((a, b) => (a.fallen ? 1 : 0) - (b.fallen ? 1 : 0));
+
+        // Top unit drives glow + click — always the living one if present
+        const topUnit = tileUnits[0] ?? null;
+        const liveUnit = topUnit && !topUnit.fallen ? topUnit : null;
+        const clickTarget = liveUnit ?? (tileUnits.find(u => u.fallen) ?? null);
+
+        const apGlow = liveUnit && liveUnit.type !== 'enemy'
+          ? liveUnit.ap >= 2 ? '0 0 5px 2px #2a7a2a88'
+          : liveUnit.ap === 1 ? '0 0 5px 2px #7a6a1088'
+          : '0 0 5px 2px #7a1a1a88'
           : undefined;
-        const STATUS_ICONS = { root:'🌿', slow:'🐢', bind:'⛓', stun:'💫', poison:'☠', burning:'🔥', marked:'🎯', shielded:'🛡' };
-        const statusIcon = visibleUnit && u?.statusEffects?.length
-          ? STATUS_ICONS[u.statusEffects[0]?.id] ?? null
+
+        const statusIcon = liveUnit?.statusEffects?.length
+          ? STATUS_ICONS[liveUnit.statusEffects[0]?.id] ?? null
           : null;
 
         return (
           <div key={k}
-            onClick={() => onCellClick(x, y, visibleUnit ? u : null, vis, hi)}
+            onClick={() => onCellClick(x, y, clickTarget, vis, hi)}
             style={{
               width:tileSize, height:tileSize,
               background: bg,
               border: hi ? '1px solid #2a5a2a' : isR ? '1px solid #4a4a8a' : marked ? '1px solid #c4a882' : '1px solid transparent',
               boxShadow: marked ? '0 0 5px 1px #c4a88288' : apGlow,
               display:'flex', alignItems:'center', justifyContent:'center',
-              cursor:vis ? 'pointer' : 'default', borderRadius:1,
+              cursor: vis ? 'pointer' : 'default', borderRadius:1,
               position:'relative', flexShrink:0,
             }}>
             {vis && (
-              visibleUnit
+              tileUnits.length > 0
                 ? <>
-                    <span style={{ opacity:u.fallen?0.3:1, fontSize:u.id==='varek'?vFont:uFont }}>{u.sleeping ? '💤' : u.emoji}</span>
-                    {statusIcon && !u.fallen && (
-                      <span style={{ position:'absolute', top:1, right:1, fontSize:sFont, lineHeight:1 }}>{statusIcon}</span>
+                    {/* Fallen units drawn first (behind) */}
+                    {tileUnits.filter(u => u.fallen).map(u => (
+                      <div key={u.id} style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', zIndex:0 }}>
+                        <UnitSprite unit={u} size={spriteSize} fallen />
+                      </div>
+                    ))}
+                    {/* Living unit drawn on top */}
+                    {liveUnit && (
+                      <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', zIndex:1 }}>
+                        <UnitSprite unit={liveUnit} size={spriteSize} />
+                      </div>
+                    )}
+                    {/* Status badge */}
+                    {statusIcon && (
+                      <span style={{ position:'absolute', top:2, right:2, fontSize:sFont, lineHeight:1, zIndex:2 }}>{statusIcon}</span>
+                    )}
+                    {/* Sleeping indicator */}
+                    {liveUnit?.sleeping && (
+                      <span style={{ position:'absolute', top:2, left:2, fontSize:sFont, lineHeight:1, zIndex:2 }}>💤</span>
+                    )}
+                    {/* Multi-unit indicator: show count of fallen when living is also present */}
+                    {liveUnit && tileUnits.length > 1 && (
+                      <span style={{ position:'absolute', bottom:2, right:2, fontSize:Math.round(tileSize*0.14), color:'#5a3a3a', lineHeight:1, zIndex:2 }}>
+                        ⊗{tileUnits.length - 1}
+                      </span>
                     )}
                   </>
                 : content
