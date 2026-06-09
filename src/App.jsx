@@ -16,7 +16,7 @@ export default function App() {
   const activeSlot = useGameStore(s => s.activeSlot);
   const world = useGameStore(s => s.world);
   const worldPos = useGameStore(s => s.worldPos);
-  const setScreen = useGameStore(s => s.setScreen);
+  const ms = useGameStore(s => s.ms);
   const setCurrentUser = useGameStore(s => s.setCurrentUser);
   const setSaveSlots = useGameStore(s => s.setSaveSlots);
 
@@ -45,23 +45,17 @@ export default function App() {
     };
   }, [setCurrentUser, setSaveSlots]);
 
-  useEffect(() => {
-    if (!activeSlot && !['home', 'bestiary', 'gameover'].includes(screen)) {
-      setScreen('home');
-      return;
-    }
+  if (screen === 'world' && (!world || !worldPos)) {
+    return activeSlot ? <TitleScreen /> : <HomeScreen />;
+  }
 
-    if (activeSlot && screen === 'world' && (!world || !worldPos)) {
-      setScreen('title');
-    }
-  }, [activeSlot, screen, setScreen, world, worldPos]);
+  if (screen === 'mission' && !ms) {
+    if (world && worldPos) return <WorldScreen />;
+    return activeSlot ? <TitleScreen /> : <HomeScreen />;
+  }
 
   if (!activeSlot && !['home', 'bestiary', 'gameover'].includes(screen)) {
     return <HomeScreen />;
-  }
-
-  if (activeSlot && screen === 'world' && (!world || !worldPos)) {
-    return <TitleScreen />;
   }
   switch (screen) {
     case 'home':         return <HomeScreen />;
