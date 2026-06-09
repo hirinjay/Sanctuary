@@ -26,6 +26,6 @@ export async function getSession() {
 // Returns an unsubscribe function
 export function onAuthStateChange(callback) {
   if (!hasSupabase) return () => {}
-  const { data } = supabase.auth.onAuthStateChange((_event, session) => callback(session))
+  const { data } = supabase.auth.onAuthStateChange((event, session) => callback(session, event))
   return () => data.subscription.unsubscribe()
 }

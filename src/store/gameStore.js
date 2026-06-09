@@ -69,6 +69,13 @@ export const useGameStore = create(
       locationVisits: {},   // { [locId]: { visits: N, bossDefeated: bool } }
       // ── Bestiary (account-scoped — never wiped on resetGame) ──────────
       bestiary: {},         // { [entityId]: { encounters: N, abilitiesSeen: bool } }
+      // ── Achievement system (run-scoped) ───────────────────────────────
+      varekAchievements: [], // ability IDs unlocked by in-run milestones
+      achievements: {
+        totalFallen: 0, dungeonsCleared: 0,
+        firstRebirth: false, firstBossRaised: false,
+        villageAllied: false, villageDestroyed: false, sanctuaryLost: false,
+      },
 
       // ── Simple setters ────────────────────────────────────────────────
       setScreen(screen) {
@@ -111,7 +118,7 @@ export const useGameStore = create(
 
       // ── Mission lifecycle ─────────────────────────────────────────────
       startMission(location, md) {
-        const { vp, roster, locationVisits, bestiary } = get();
+        const { vp, roster, locationVisits, bestiary, varekAchievements } = get();
         const danger  = location.danger ?? 1;
         const locId   = location.id ?? '';
         const locType = location.type ?? '';
@@ -132,12 +139,14 @@ export const useGameStore = create(
         // Strip loot/specials that ended up in disconnected areas, then find valid spawn slots
         const tiles = cullUnreachable(rawTiles, spawnX, spawnY);
         const spawnSlots = findSpawnSlots(tiles, spawnX, spawnY, 1 + activeRoster.length);
-        const varekAbils = vp.varekAbilities ?? [];
+        const hasGrief  = (varekAchievements ?? []).includes('grief');
+        const varekAbils = [...(vp.varekAbilities ?? []), ...(varekAchievements ?? [])];
         const varekAbilUses = Object.fromEntries(varekAbils.map(aid => [aid, ABILITIES[aid]?.usesPerEncounter ?? 0]));
         const varekBondedArmed = Object.fromEntries(varekAbils.map(aid => [aid, ABILITIES[aid]?.type === 'reactive']));
         const varek = {
           id:'varek', type:UT.VAREK, name:'Varek', emoji:'🧙',
           x: spawnSlots[0]?.x ?? spawnX, y: spawnSlots[0]?.y ?? spawnY, ...vp,
+          dmg: (vp.dmg || 2) + (hasGrief ? 1 : 0),
           moveRange: vp.moveRange || 3,
           trapReveal: vp.trapReveal || 1,
           ap:2, fallen:false, raiseTurn:null,
@@ -382,8 +391,7 @@ export const useGameStore = create(
         if (!cls) return;
         const ab = ABILITIES[abilityId];
         set(s => {
-          const newRoster = s.roster.map(u => {
-            if (u.id !== unitId) return u;
+          const promote = (u) => {
             const promotedName = `${u.pname} the ${cls.name}`;
             return {
               ...u,
@@ -412,14 +420,18 @@ export const useGameStore = create(
               classAbility:  abilityId,
               abilityUses:   { [abilityId]: ab?.usesPerEncounter ?? 0 },
               abilityArmed:  ab?.type === 'reactive',
+              bondedAbilities: u.bondedAbilities ?? [],
+              bondedArmed:    u.bondedArmed ?? {},
               encounterKills: 0, encounterBonusDmg: 0, encounterBonusMove: 0,
               surviveUsed: false,
               lifetime_levels: u.lifetime_levels ?? u.level ?? 1,
             };
-          });
-          const pname = s.roster.find(u => u.id === unitId)?.pname ?? '?';
+          };
+          const source = s.ms?.units.find(u => u.id === unitId) ?? s.roster.find(u => u.id === unitId);
+          const pname = source?.pname ?? '?';
           return {
-            roster: newRoster,
+            roster: s.roster.map(u => u.id === unitId ? promote(u) : u),
+            ms: s.ms ? { ...s.ms, units: s.ms.units.map(u => u.id === unitId ? promote(u) : u) } : s.ms,
             luq: s.luq.slice(1),
             log: [`${cls.emoji} ${pname} ascends to ${cls.name}!`, ...s.log].slice(0, 14),
           };
@@ -496,6 +508,33 @@ export const useGameStore = create(
           return {
             vp: { ...s.vp, varekAbilities: [...(s.vp.varekAbilities || []), choice], varekAscensions: newAscensions },
             log: [`🧙 Varek ascends — learned ${ab?.name ?? choice}!`, ...s.log].slice(0, 14),
+          };
+        });
+        debouncedSave(get);
+      },
+
+      checkAchievements() {
+        set(s => {
+          const a   = s.achievements || {};
+          const cur = s.varekAchievements || [];
+          const unlock = [], logs = [];
+          function tryUnlock(id, cond, msg) {
+            if (!cur.includes(id) && cond) { unlock.push(id); logs.push(`🧙 Achievement: ${msg}`); }
+          }
+          const nonMulti = BUILDINGS.filter(b => !b.multi).map(b => b.id);
+          tryUnlock('tether_pulse',   s.nodes.includes('ascension_forge'),  'Ascension Forge built — learned Tether Pulse');
+          tryUnlock('pale_ward',      !!a.villageAllied,                    'Village allied — learned Pale Ward');
+          tryUnlock('desecrate',      !!a.villageDestroyed,                 'Village destroyed — learned Desecrate');
+          tryUnlock('varek_mark',     !!a.firstBossRaised,                  'First boss raised — learned Mark');
+          tryUnlock('reclaim',        (a.totalFallen||0) >= 10,             '10 allies fallen — learned Reclaim');
+          tryUnlock('phantom_sight',  nonMulti.every(id => s.nodes.includes(id)), 'Sanctuary complete — learned Phantom Sight');
+          tryUnlock('grief',          !!a.sanctuaryLost,                    'Sanctuary lost — learned Grief');
+          tryUnlock('grave_knowledge', (a.dungeonsCleared||0) >= 5,         '5 dungeons cleared — learned Grave Knowledge');
+          tryUnlock('unravel',        !!a.firstRebirth,                     'First rebirth — learned Unravel');
+          if (!unlock.length) return s;
+          return {
+            varekAchievements: [...cur, ...unlock],
+            log: [...logs, ...s.log].slice(0, 14),
           };
         });
         debouncedSave(get);
@@ -1266,7 +1305,7 @@ export const useGameStore = create(
           }
 
           // Thornwall reactive (attacker's tile becomes impassable)
-          const thornAbilities = ['thornwall','briarvine','briarvine_warden'];
+          const thornAbilities = ['thornwall','briarvine','briarvine_warden','root_strike'];
           const activeThorn = thornAbilities.find(ta =>
             (ta === defUnit.classAbility && defUnit.abilityArmed) ||
             ((defUnit.bondedAbilities ?? []).includes(ta) && defUnit.bondedArmed?.[ta])
@@ -1284,6 +1323,11 @@ export const useGameStore = create(
                 if (defNow && !defNow.fallen) {
                   units = units.map(u=>u.id===sel ? {...u,hp:Math.max(0,u.hp-1)} : u);
                 }
+              } else if (tw === 'root_strike') {
+                logs.push(`🌿 ${defUnit.name}'s Root Strike roots attacker!`);
+                units = units.map(u => u.id===sel ? {
+                  ...u, statusEffects:[...(u.statusEffects||[]),{id:'root',duration:1,magnitude:1,sourceId:enemy.id}]
+                } : u);
               } else {
                 logs.push(`🌿 ${defUnit.name}'s Thornwall triggers!`);
               }
@@ -1610,6 +1654,36 @@ export const useGameStore = create(
               logs.push(`⛓ Stranglehold — ${t2.name} Bound!`);
               break;
             }
+            case 'volley': {
+              const t2 = units.find(u => u.id === targetUnitId);
+              if (!t2 || t2.type !== UT.ENEMY || dist(actor, t2) > (actor.attackRange||3)) break;
+              const dx = Math.sign(t2.x - actor.x), dy = Math.sign(t2.y - actor.y);
+              const targets = units.filter(u => !u.fallen && u.id !== unitId && dist(actor, u) <= (actor.attackRange||3)
+                && (dx === 0 ? u.x === actor.x : Math.sign(u.x - actor.x) === dx)
+                && (dy === 0 ? u.y === actor.y : Math.sign(u.y - actor.y) === dy));
+              targets.forEach(u => {
+                const d = Math.max(1, actor.dmg - (u.def||0));
+                u.hp = Math.max(0, u.hp - d);
+                if (u.hp <= 0) u.fallen = true;
+              });
+              logs.push(`🏹 Volley — ${targets.length} unit${targets.length!==1?'s':''} hit`);
+              break;
+            }
+            case 'scatter_shot': {
+              const t2 = units.find(u => u.id === targetUnitId);
+              if (!t2 || t2.type !== UT.ENEMY || dist(actor, t2) > (actor.attackRange||3)) break;
+              const targets = units
+                .filter(u => u.type === UT.ENEMY && !u.fallen && dist(actor, u) <= (actor.attackRange||3))
+                .sort((a,b) => (a.id === t2.id ? -1 : b.id === t2.id ? 1 : dist(actor,a) - dist(actor,b)))
+                .slice(0, 3);
+              targets.forEach(u => {
+                const d = Math.max(1, actor.dmg - 1 - (u.def||0));
+                u.hp = Math.max(0, u.hp - d);
+                if (u.hp <= 0) u.fallen = true;
+              });
+              logs.push(`🏹 Scatter Shot — ${targets.length} enem${targets.length===1?'y':'ies'} hit`);
+              break;
+            }
             case 'entangle': case 'mass_entangle': case 'mass_entangle_warden': {
               const radius = abilityId === 'entangle' ? 2 : 3;
               const duration = abilityId === 'entangle' ? 1 : 2;
@@ -1620,11 +1694,25 @@ export const useGameStore = create(
               logs.push(`🌿 Entangle — ${enemies.length} enemies Rooted`);
               break;
             }
-            case 'death_mark': {
+            case 'thornfield': case 'thornfield_shot': case 'stranglehold_field': {
+              const radius = abilityId === 'thornfield' ? 2 : 3;
+              const duration = abilityId === 'stranglehold_field' ? 5 : 3;
+              const enemies = units.filter(u => u.type === UT.ENEMY && !u.fallen && dist(actor, u) <= radius);
+              enemies.forEach(u => {
+                u.statusEffects = [...(u.statusEffects||[]), { id:'slow', duration, magnitude:0, sourceId:unitId }];
+                if (abilityId === 'stranglehold_field') {
+                  u.hp = Math.max(0, u.hp - 1);
+                  if (u.hp <= 0) u.fallen = true;
+                }
+              });
+              logs.push(`🌿 ${ABILITIES[abilityId]?.name ?? 'Field'} — ${enemies.length} enemies affected`);
+              break;
+            }
+            case 'death_mark': case 'varek_mark': {
               const t2 = units.find(u => u.id === targetUnitId);
-              if (!t2) break;
-              t2.statusEffects = [...(t2.statusEffects||[]), { id:'marked', duration:2, magnitude:3, sourceId:unitId }];
-              logs.push(`🎯 Death Mark — ${t2.name} marked (+3 dmg from all sources)`);
+              if (!t2 || t2.type !== UT.ENEMY || dist(actor, t2) > 4) break;
+              t2.statusEffects = [...(t2.statusEffects||[]), { id:'marked', duration:2, magnitude: abilityId === 'varek_mark' ? 1 : 3, sourceId:unitId }];
+              logs.push(`🎯 ${ABILITIES[abilityId]?.name ?? 'Mark'} — ${t2.name} marked`);
               break;
             }
             case 'shockwave': {
@@ -1682,6 +1770,42 @@ export const useGameStore = create(
                 if (u.hp <= 0) u.fallen = true;
               });
               logs.push(`🏹 Barrage — ${inRange.length} enemies hit`);
+              break;
+            }
+            case 'tether_pulse': {
+              const healed = units.filter(u => u.type === UT.UNDEAD && !u.fallen && dist(actor, u) <= 3 && u.hp < u.maxHp);
+              healed.forEach(u => { u.hp = Math.min(u.maxHp, u.hp + 1); });
+              logs.push(`⛓ Tether Pulse — ${healed.length} undead restored`);
+              break;
+            }
+            case 'pale_ward': {
+              const ally = units.find(u => u.id === targetUnitId && u.type !== UT.ENEMY && !u.fallen);
+              if (!ally || dist(actor, ally) > 1) break;
+              ally.statusEffects = [...(ally.statusEffects||[]), { id:'shielded', duration:99, magnitude:999, sourceId:unitId }];
+              logs.push(`🛡 Pale Ward protects ${ally.name}`);
+              break;
+            }
+            case 'desecrate': {
+              const victims = units.filter(u => u.type === UT.ENEMY && !u.fallen && dist(actor, u) <= (actor.drainRange ?? 2));
+              victims.forEach(u => {
+                u.hp = Math.max(0, u.hp - Math.max(1, actor.dmg||2));
+                if (u.hp <= 0) u.fallen = true;
+              });
+              logs.push(`☠ Desecrate — ${victims.length} living enemies drained`);
+              break;
+            }
+            case 'phantom_sight': {
+              units = units.map(u => u.type === UT.ENEMY ? { ...u, alerted:true, phantomRevealed:2 } : u);
+              logs.push('👁 Phantom Sight reveals all enemies');
+              break;
+            }
+            case 'reclaim': {
+              const ally = units.find(u => u.id === targetUnitId && u.type === UT.UNDEAD && u.fallen);
+              if (!ally || dist(actor, ally) > 3) break;
+              ally.fallen = false;
+              ally.raiseTurn = null;
+              ally.hp = Math.max(1, Math.ceil(ally.maxHp * 0.5));
+              logs.push(`⛓ Reclaim restores ${ally.name}`);
               break;
             }
             default:
@@ -2018,6 +2142,72 @@ export const useGameStore = create(
             const ad    = tgt.armor ? (item(tgt.armor)?.def||0) : 0;
             const ignoreDef = attacker.bossPassive === 'brutal';
             let dmg = Math.max(1, (attacker.dmg||2) - (ignoreDef ? 0 : ad));
+
+            const consumeReactive = (aid, bonded) => {
+              const usesLeft = tgt.abilityUses?.[aid] ?? 0;
+              if (usesLeft <= 0) return false;
+              if (bonded) {
+                tgt.bondedArmed = { ...(tgt.bondedArmed ?? {}), [aid]: false };
+              } else {
+                tgt.abilityArmed = false;
+              }
+              tgt.abilityUses = { ...(tgt.abilityUses ?? {}), [aid]: usesLeft - 1 };
+              return true;
+            };
+
+            const shieldedFx = tgt.statusEffects?.find(fx => fx.id === 'shielded');
+            if (shieldedFx) {
+              logs.push(`🛡 ${tgt.name}'s ward absorbs the hit!`);
+              units = units.map(v => v.id !== tgt.id ? v : {
+                ...v,
+                statusEffects: (v.statusEffects ?? []).filter(fx => fx !== shieldedFx),
+              });
+              continue;
+            }
+
+            const armedReactives = [];
+            if (tgt.abilityArmed && tgt.classAbility) armedReactives.push({ aid:tgt.classAbility, bonded:false });
+            for (const bAid of (tgt.bondedAbilities ?? [])) {
+              if (tgt.bondedArmed?.[bAid]) armedReactives.push({ aid:bAid, bonded:true });
+            }
+            let negated = false;
+            for (const { aid, bonded } of armedReactives) {
+              if (!consumeReactive(aid, bonded)) continue;
+              if (aid === 'construct_armor') {
+                dmg = 1;
+                logs.push(`🤖 ${tgt.name}'s Construct Armor reduces hit to 1!`);
+                break;
+              }
+              if (['bone_shield','shield_wall'].includes(aid)) {
+                logs.push(`🛡 ${tgt.name}'s ${ABILITIES[aid]?.name ?? aid} negates the hit!`);
+                negated = true;
+                break;
+              }
+              if (['fortress_shell','immovable'].includes(aid)) {
+                logs.push(`🛡 ${tgt.name}'s ${ABILITIES[aid]?.name ?? aid} negates and reflects!`);
+                units = units.map(v => v.id !== attacker.id ? v : { ...v, hp:Math.max(0, v.hp - 2), ...(v.hp - 2 <= 0 ? { fallen:true, raiseTurn:ms.turn } : {}) });
+                negated = true;
+                break;
+              }
+              if (aid === 'root_strike') {
+                units = units.map(v => v.id !== attacker.id ? v : { ...v, statusEffects:[...(v.statusEffects||[]),{id:'root',duration:1,magnitude:1,sourceId:tgt.id}] });
+                logs.push(`🌿 ${tgt.name}'s Root Strike roots ${attacker.name}!`);
+                break;
+              }
+              if (['thornwall','briarvine','briarvine_warden'].includes(aid)) {
+                const fxId = aid === 'thornwall' ? 'root' : 'bind';
+                units = units.map(v => v.id !== attacker.id ? v : {
+                  ...v,
+                  hp: aid === 'thornwall' ? v.hp : Math.max(0, v.hp - 1),
+                  statusEffects:[...(v.statusEffects||[]),{id:fxId,duration:1,magnitude:1,sourceId:tgt.id}],
+                  ...(aid !== 'thornwall' && v.hp - 1 <= 0 ? { fallen:true, raiseTurn:ms.turn } : {}),
+                });
+                logs.push(`🌿 ${tgt.name}'s ${ABILITIES[aid]?.name ?? aid} snares ${attacker.name}!`);
+                break;
+              }
+            }
+            if (negated) continue;
+
             // armored passive: attacker is the target's passive doesn't apply here (it's the enemy attacking player)
             // but when a boss IS the target (player attacks boss in doAttack) it's handled there
             // For enemy attacking player: check if attacker is boss with brutal
@@ -2038,6 +2228,18 @@ export const useGameStore = create(
                     });
                   });
                   if (adjFr.length) logs.push(`💥 ${v.name}'s Death Burst — ${adjFr.length} units hit!`);
+                }
+                // Pale Warden bone explosion: deals lifetime_levels dmg to all adjacent (friendly fire included)
+                if (v.boneExplosion) {
+                  const beDmg = v.lifetime_levels ?? 1;
+                  const adj = units.filter(u => !u.fallen && dist(v, u) <= 1 && u.id !== v.id);
+                  adj.forEach(a => {
+                    units = units.map(u => u.id !== a.id ? u : {
+                      ...u, hp: Math.max(0, u.hp - beDmg),
+                      ...(u.hp - beDmg <= 0 && u.id !== 'varek' ? { fallen:true, raiseTurn:ms.turn } : {}),
+                    });
+                  });
+                  if (adj.length) logs.push(`💀 ${v.name} Bone Explosion — ${beDmg} dmg to ${adj.length} adjacent!`);
                 }
                 return { ...v, hp:0, fallen:true, raiseTurn:ms.turn };
               }
@@ -2115,8 +2317,9 @@ export const useGameStore = create(
           units = units.map(u => {
             if (u.fallen) return u;
             let heal = u.regenPerTurn ?? 0;
-            if (u.classAbility === 'regenerate') heal = Math.max(heal, 1);
-            if (u.classAbility === 'undying')    heal = Math.max(heal, 2);
+            const allAbilities = [u.classAbility, ...(u.bondedAbilities ?? [])].filter(Boolean);
+            if (allAbilities.includes('regenerate')) heal = Math.max(heal, 1);
+            if (allAbilities.includes('undying'))    heal = Math.max(heal, 2);
             if (!heal) return u;
             const newHp = Math.min(u.maxHp, u.hp + heal);
             return { ...u, hp: newHp };
@@ -2124,7 +2327,7 @@ export const useGameStore = create(
 
           // ── fear_aura: Dread Knight alive → adjacent enemies lose 1 AP ────
           const fearSources = units.filter(u =>
-            !u.fallen && u.classAbility === 'fear_aura'
+            !u.fallen && [u.classAbility, ...(u.bondedAbilities ?? [])].includes('fear_aura')
           );
           if (fearSources.length) {
             units = units.map(u => {
@@ -2136,7 +2339,7 @@ export const useGameStore = create(
 
           // ── strangling_vines / living_fortress: adjacent enemies take dmg + lose move ──
           const vinesSources = units.filter(u =>
-            !u.fallen && (u.classAbility === 'strangling_vines' || u.classAbility === 'living_fortress')
+            !u.fallen && [u.classAbility, ...(u.bondedAbilities ?? [])].some(aid => aid === 'strangling_vines' || aid === 'living_fortress')
           );
           if (vinesSources.length) {
             units = units.map(u => {
