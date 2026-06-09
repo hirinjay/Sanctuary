@@ -985,6 +985,7 @@ export const useGameStore = create(
 
         const ms   = s.ms;
         const unit = ms.units.find(u => u.id === sel);
+        if (!unit || unit.ap <= 0) return;
 
         // Status effect movement blocks
         if (unit?.statusEffects?.length) {

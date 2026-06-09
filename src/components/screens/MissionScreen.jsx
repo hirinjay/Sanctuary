@@ -59,6 +59,7 @@ export default function MissionScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ms?.units, autoEnd]);
 
+
   const clearSel = useCallback(() => {
     setSel(null);
     setHilight(new Set());
@@ -286,7 +287,7 @@ export default function MissionScreen() {
         <div style={{ flex:1, overflow:'auto', minWidth:0 }}>
           <MissionMap
             tiles={tiles} units={units} W={mapW} fv={fv}
-            hilight={hilight} raiseable={raiseable}
+            hilight={selUnit && selUnit.ap > 0 ? hilight : new Set()} raiseable={raiseable}
             onCellClick={handleCellClick} theme={theme}
           />
         </div>
