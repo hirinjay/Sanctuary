@@ -1,13 +1,12 @@
 import { useGameStore } from '../../store/gameStore';
 import { item } from '../../data/items';
 import LevelUpModal from '../mission/LevelUpModal';
-import { SCREEN } from '../../state/screens';
 
 export default function MissionResultsScreen() {
   const result = useGameStore(s => s.missionResult);
   const luq = useGameStore(s => s.luq ?? []);
   const continueFromMissionResult = useGameStore(s => s.continueFromMissionResult);
-  const setScreen = useGameStore(s => s.setScreen);
+  const returnToWorld = useGameStore(s => s.returnToWorld);
 
   if (!result) {
     return (
@@ -15,7 +14,7 @@ export default function MissionResultsScreen() {
         <div style={panel}>
           <h2 style={title}>Encounter Resolved</h2>
           <p style={muted}>No mission summary is available.</p>
-          <button onClick={() => setScreen(SCREEN.WORLD)} style={primaryBtn(true)}>Return to Map</button>
+          <button onClick={() => returnToWorld()} style={primaryBtn(true)}>Return to Map</button>
         </div>
       </div>
     );

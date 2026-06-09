@@ -11,7 +11,7 @@ export default function WorldUI() {
     world, worldPos, sanctuaryPos, selectedHex,
     pendingSanctuaryTile, travelBag,
     luq, promotionQueue,
-    startMission, setScreen, selectHex,
+    startMission, selectHex, openBestiary, goHome, enterSanctuary,
     confirmSanctuaryPlacement, cancelSanctuaryPlacement,
     depositLoot, forageCurrentTile,
   } = useGameStore()
@@ -98,11 +98,11 @@ export default function WorldUI() {
             background: '#0b0f1c', border: '1px solid #2a2a3a', borderRadius: 8,
             padding: 8, display: 'flex', flexDirection: 'column', gap: 6, minWidth: 150,
           }}>
-            <button onClick={() => { setMenuOpen(false); setScreen('bestiary'); }} style={{
+            <button onClick={() => { setMenuOpen(false); openBestiary(); }} style={{
               background: '#0a0a14', border: '1px solid #3a2a5a', borderRadius: 5,
               padding: '7px 12px', color: '#8a6aba', cursor: 'pointer', fontSize: 11, textAlign: 'left',
             }}>📖 Bestiary</button>
-            <button onClick={() => { setMenuOpen(false); setScreen('home'); }} style={{
+            <button onClick={() => { setMenuOpen(false); goHome(); }} style={{
               background: '#0a0a14', border: '1px solid #3a3a5a', borderRadius: 5,
               padding: '7px 12px', color: '#8a8aba', cursor: 'pointer', fontSize: 11, textAlign: 'left',
             }}>🏚 Return to Home</button>
@@ -200,7 +200,7 @@ export default function WorldUI() {
             {/* ── Varek is here: sanctuary actions ── */}
             {selTile.hasSanctuary && isVarekHere && (
               <>
-                <button onClick={() => setScreen('sanctuary')} style={actionBtn('#6a9a6a')}>
+                <button onClick={() => enterSanctuary()} style={actionBtn('#6a9a6a')}>
                   ⌂ Enter Sanctuary
                 </button>
                 {bagCount > 0 && (

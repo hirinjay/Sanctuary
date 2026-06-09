@@ -23,7 +23,7 @@ function fmt(iso) {
 export default function HomeScreen() {
   const {
     currentUser, saveSlots, setCurrentUser, setSaveSlots,
-    loadSaveIntoStore, newGameInSlot, setScreen,
+    loadSaveIntoStore, newGameInSlot, openBestiary,
   } = useGameStore()
 
   const [tab,        setTab]        = useState('signin')
@@ -256,7 +256,7 @@ export default function HomeScreen() {
               )
             })}
           </div>
-          <button onClick={() => setScreen('bestiary')} style={{
+          <button onClick={() => openBestiary()} style={{
             display:'block', width:'100%', marginTop:16,
             background:'#0a0814', border:'1px solid #3a2a5a', borderRadius:6,
             padding:'11px 0', color:'#8a6aba', cursor:'pointer', fontSize:12, letterSpacing:1,

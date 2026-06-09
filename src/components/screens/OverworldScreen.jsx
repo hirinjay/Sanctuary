@@ -3,7 +3,7 @@ import NodeMap from '../overworld/NodeMap';
 import { xpNext } from '../../systems/combat';
 
 export default function OverworldScreen() {
-  const { vp, setScreen, ti } = useGameStore();
+  const { vp, enterSanctuary, ti } = useGameStore();
   const t = ti(null);
 
   const btn = (on, c) => ({
@@ -19,7 +19,7 @@ export default function OverworldScreen() {
       <div style={{ maxWidth:520, margin:'0 auto' }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
           <h2 style={{ color:'#e8d5b0', margin:0, fontSize:16, letterSpacing:2 }}>⬡ OVERWORLD</h2>
-          <button onClick={() => setScreen('sanctuary')} style={btn(true, '#6a9a6a')}>⌂ Sanctuary</button>
+          <button onClick={() => enterSanctuary()} style={btn(true, '#6a9a6a')}>⌂ Sanctuary</button>
         </div>
 
         {/* Varek status bar */}

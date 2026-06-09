@@ -32,7 +32,7 @@ function btn(on, c) {
 export default function SanctuaryMapScreen() {
   const {
     inv, nodes, sanctuaryGrid, sanctuaryPos,
-    setScreen, initSanctuaryGrid, placeBuilding, demolishBuilding, ti,
+    initSanctuaryGrid, placeBuilding, demolishBuilding, ti, enterSanctuary,
   } = useGameStore()
 
   const [placingId, setPlacingId] = useState(null)   // building being placed
@@ -108,7 +108,7 @@ export default function SanctuaryMapScreen() {
                 ✕ Cancel Placement
               </button>
             )}
-            <button onClick={() => setScreen('sanctuary')} style={btn(true, '#6a6aaa')}>
+            <button onClick={() => enterSanctuary()} style={btn(true, '#6a6aaa')}>
               ← Sanctuary
             </button>
           </div>
