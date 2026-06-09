@@ -3,6 +3,7 @@ import { Application, Graphics, Container, Text, TextStyle } from 'pixi.js'
 import { useGameStore } from '../../store/gameStore'
 import { hexToPixel, hexPoints, tileKey, hexNeighbors, hexDist } from '../../world/hexMath'
 import { TERRAIN, LOC_TYPE } from '../../world/tileTypes'
+import { isPlayableWorld } from '../../world/worldState'
 
 export default function WorldMapView() {
   const containerRef = useRef(null)
@@ -57,7 +58,7 @@ export default function WorldMapView() {
       layersRef.current = { worldCont, terrain, fog, locs, units, hl }
 
       const { world, worldPos, selectedHex, worldPath } = useGameStore.getState()
-      if (world) {
+      if (isPlayableWorld(world, worldPos)) {
         drawTerrain(world, terrain)
         drawLocIcons(world, locs)
         redrawFog(world, fog)
@@ -69,7 +70,8 @@ export default function WorldMapView() {
       const unsubWorld = useGameStore.subscribe(
         s => s.world,
         (world) => {
-          if (!world || !layersRef.current) return
+          const { worldPos } = useGameStore.getState()
+          if (!isPlayableWorld(world, worldPos) || !layersRef.current) return
           const { terrain, fog, locs } = layersRef.current
           drawTerrain(world, terrain)
           drawLocIcons(world, locs)
@@ -80,7 +82,7 @@ export default function WorldMapView() {
         s => s.world?.tiles,
         () => {
           const { world } = useGameStore.getState()
-          if (!world || !layersRef.current) return
+          if (!isPlayableWorld(world, useGameStore.getState().worldPos) || !layersRef.current) return
           redrawFog(world, layersRef.current.fog)
           drawUnits(world, layersRef.current.units)
         }
@@ -89,7 +91,7 @@ export default function WorldMapView() {
         s => s.worldPos,
         (pos) => {
           const { world } = useGameStore.getState()
-          if (!pos || !world || !layersRef.current) return
+          if (!isPlayableWorld(world, pos) || !layersRef.current) return
           drawUnits(world, layersRef.current.units)
           centerOn(pos.col, pos.row)
         }
@@ -105,6 +107,8 @@ export default function WorldMapView() {
 
       setupInteraction(cv)
       app._worldUnsubs = [unsubWorld, unsubFog, unsubPos, unsubSel]
+    }).catch(err => {
+      console.error('[world-map] Pixi initialization failed:', err)
     })
 
     const ro = new ResizeObserver(() => {
@@ -129,6 +133,7 @@ export default function WorldMapView() {
   // ── Draw terrain ──────────────────────────────────────────────────────
   function drawTerrain(world, g) {
     g.clear()
+    if (!Array.isArray(world?.tiles)) return
     for (const tile of world.tiles) {
       const { x, y } = hexToPixel(tile.col, tile.row)
       const color     = TERRAIN[tile.terrain]?.color ?? 0x111111
@@ -141,6 +146,7 @@ export default function WorldMapView() {
   // ── Draw location icons ───────────────────────────────────────────────
   function drawLocIcons(world, cont) {
     cont.removeChildren()
+    if (!Array.isArray(world?.tiles)) return
     const style = new TextStyle({ fontSize: 14, fill: 0xffffff })
     for (const tile of world.tiles) {
       if (!tile.location && !tile.hasSanctuary) continue
@@ -169,6 +175,7 @@ export default function WorldMapView() {
   // ── Fog of war ────────────────────────────────────────────────────────
   function redrawFog(world, g) {
     g.clear()
+    if (!Array.isArray(world?.tiles)) return
     const locs = layersRef.current?.locs
     if (locs) locs.children.forEach(c => { c.alpha = 0 })
 
@@ -197,8 +204,7 @@ export default function WorldMapView() {
   function drawUnits(world, cont) {
     cont.removeChildren()
     const { worldPos } = useGameStore.getState()
-    if (!worldPos) return
-    if (!world.tiles.some(t => t.col === worldPos.col && t.row === worldPos.row)) return
+    if (!isPlayableWorld(world, worldPos)) return
     const { x, y } = hexToPixel(worldPos.col, worldPos.row)
     const g = new Graphics()
     g.circle(x, y - 3, 7).fill({ color: 0xffffff, alpha: 0.95 })
@@ -210,7 +216,7 @@ export default function WorldMapView() {
   // ── Highlight ─────────────────────────────────────────────────────────
   function redrawHighlight(sel, _path, varekPos, world, g) {
     g.clear()
-    if (varekPos && world) {
+    if (isPlayableWorld(world, varekPos)) {
       const { x: vx, y: vy } = hexToPixel(varekPos.col, varekPos.row)
       g.poly(hexPoints(vx, vy)).fill({ color: 0xff8800, alpha: 0.28 })
       g.poly(hexPoints(vx, vy)).stroke({ color: 0xff8800, width: 2.5, alpha: 0.95 })
@@ -318,7 +324,7 @@ export default function WorldMapView() {
     const cam   = cameraRef.current
     const store = useGameStore.getState()
     const { world, sanctuaryPos, pendingSanctuaryTile, worldPos } = store
-    if (!world) return
+    if (!isPlayableWorld(world, worldPos)) return
 
     if (pendingSanctuaryTile) { store.cancelSanctuaryPlacement(); return }
 

@@ -15,6 +15,7 @@ import { saveRun, saveBestiary, loadBestiary } from '../lib/persistence';
 import { CLASSES, DC_TO_BASE } from '../data/classes';
 import { deleteSave } from '../lib/persistence';
 import { ABILITIES } from '../data/abilities';
+import { isPlayableWorld } from '../world/worldState';
 import { spawnBoss } from '../data/bosses';
 
 // Throttled save — fires immediately on first call, then coalesces rapid calls (400ms window)
@@ -873,6 +874,9 @@ export const useGameStore = create(
 
       // ── Load a full save into the store ───────────────────────────────
       loadSaveIntoStore(data, slot) {
+        const world = data.world ?? null;
+        const worldPos = data.world_pos ?? null;
+        const canResumeWorld = isPlayableWorld(world, worldPos);
         set({
           vp:             data.vp              ?? { ...DEFAULT_VP },
           roster:         data.roster          ?? [],
@@ -880,8 +884,8 @@ export const useGameStore = create(
           travelBag:      data.travel_bag      ?? {},
           nodes:          data.nodes           ?? [],
           book:           data.book            ?? null,
-          world:          data.world           ?? null,
-          worldPos:       data.world_pos       ?? null,
+          world,
+          worldPos,
           sanctuaryPos:   data.sanctuary_pos   ?? null,
           unlockedLocs:   data.unlocked_locs   ?? ['town'],
           log:            data.log             ?? [],
@@ -891,7 +895,7 @@ export const useGameStore = create(
           // Reset transient state
           ms: null, phase:'player', luq:[], noise:0, selectedHex:null,
           equipTgt:null, loc:null, worldPath:[], pendingSanctuaryTile:null,
-          screen: data.world ? 'world' : 'title',
+          screen: canResumeWorld ? 'world' : 'title',
         });
         // Bestiary is account-scoped — load separately via loadBestiary()
       },
@@ -2443,7 +2447,23 @@ export const useGameStore = create(
         });
       },
     }),
-    { name: 'sanctuary-save' }
+    {
+      name: 'sanctuary-save',
+      partialize: (state) => ({
+        bestiary: state.bestiary,
+      }),
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        state.screen = 'home';
+        state.currentUser = null;
+        state.saveSlots = [];
+        state.activeSlot = null;
+        state.ms = null;
+        state.worldPath = [];
+        state.selectedHex = null;
+        state.pendingSanctuaryTile = null;
+      },
+    }
   )
   )
 );

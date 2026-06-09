@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useGameStore } from '../../store/gameStore'
 import { TERRAIN, LOC_TYPE } from '../../world/tileTypes'
 import { item } from '../../data/items'
+import { isPlayableWorld } from '../../world/worldState'
 import LevelUpModal from '../mission/LevelUpModal'
 import PromotionModal from '../mission/PromotionModal'
 
@@ -16,18 +17,22 @@ export default function WorldUI() {
   } = useGameStore()
   const [menuOpen, setMenuOpen] = useState(false)
 
-  if (!world) return null
+  if (!isPlayableWorld(world, worldPos)) return null
+
+  const safeTravelBag = travelBag ?? {}
+  const safeLuq = luq ?? []
+  const safePromotionQueue = promotionQueue ?? []
 
   // Post-mission modals: level-up stat picks first, then promotions
-  if (luq.length > 0) return <LevelUpModal />
-  if (promotionQueue.length > 0) return <PromotionModal />
+  if (safeLuq.length > 0) return <LevelUpModal />
+  if (safePromotionQueue.length > 0) return <PromotionModal />
 
   const selTile = selectedHex
     ? world.tiles[selectedHex.row * world.width + selectedHex.col]
     : null
 
-  const bagCount = Object.values(travelBag).reduce((a, b) => a + b, 0)
-  const bagItems = Object.entries(travelBag).map(([id, cnt]) => ({ it: item(id), cnt })).filter(x => x.it)
+  const bagCount = Object.values(safeTravelBag).reduce((a, b) => a + b, 0)
+  const bagItems = Object.entries(safeTravelBag).map(([id, cnt]) => ({ it: item(id), cnt })).filter(x => x.it)
 
   const isVarekHere = worldPos && selectedHex &&
     worldPos.col === selectedHex.col && worldPos.row === selectedHex.row

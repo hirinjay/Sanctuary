@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useGameStore } from './store/gameStore';
 import { getSession, onAuthStateChange } from './lib/auth';
 import { loadSaveSlots } from './lib/persistence';
+import { isPlayableWorld } from './world/worldState';
 import HomeScreen        from './components/screens/HomeScreen';
 import TitleScreen       from './components/screens/TitleScreen';
 import WorldScreen       from './components/screens/WorldScreen';
@@ -19,6 +20,7 @@ export default function App() {
   const ms = useGameStore(s => s.ms);
   const setCurrentUser = useGameStore(s => s.setCurrentUser);
   const setSaveSlots = useGameStore(s => s.setSaveSlots);
+  const canShowWorld = isPlayableWorld(world, worldPos);
 
   useEffect(() => {
     let alive = true;
@@ -45,12 +47,12 @@ export default function App() {
     };
   }, [setCurrentUser, setSaveSlots]);
 
-  if (screen === 'world' && (!world || !worldPos)) {
+  if (screen === 'world' && !canShowWorld) {
     return activeSlot ? <TitleScreen /> : <HomeScreen />;
   }
 
   if (screen === 'mission' && !ms) {
-    if (world && worldPos) return <WorldScreen />;
+    if (canShowWorld) return <WorldScreen />;
     return activeSlot ? <TitleScreen /> : <HomeScreen />;
   }
 
