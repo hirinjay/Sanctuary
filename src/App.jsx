@@ -10,7 +10,9 @@ import SanctuaryScreen   from './components/screens/SanctuaryScreen';
 import SanctuaryMapScreen from './components/screens/SanctuaryMapScreen';
 import MissionScreen     from './components/screens/MissionScreen';
 import GameOverScreen    from './components/screens/GameOverScreen';
+import MissionResultsScreen from './components/screens/MissionResultsScreen';
 import BestiaryScreen   from './components/screens/BestiaryScreen';
+import ScreenErrorBoundary from './components/common/ScreenErrorBoundary';
 
 export default function App() {
   const screen = useGameStore(s => s.screen);
@@ -59,15 +61,19 @@ export default function App() {
   if (!activeSlot && !['home', 'bestiary', 'gameover'].includes(screen)) {
     return <HomeScreen />;
   }
+  let rendered;
   switch (screen) {
-    case 'home':         return <HomeScreen />;
-    case 'title':        return <TitleScreen />;
-    case 'world':        return <WorldScreen />;
-    case 'sanctuary':    return <SanctuaryScreen />;
-    case 'sanctuarymap': return <SanctuaryMapScreen />;
-    case 'mission':      return <MissionScreen />;
-    case 'gameover':     return <GameOverScreen />;
-    case 'bestiary':     return <BestiaryScreen />;
-    default:             return <HomeScreen />;
+    case 'home':           rendered = <HomeScreen />; break;
+    case 'title':          rendered = <TitleScreen />; break;
+    case 'world':          rendered = <WorldScreen />; break;
+    case 'sanctuary':      rendered = <SanctuaryScreen />; break;
+    case 'sanctuarymap':   rendered = <SanctuaryMapScreen />; break;
+    case 'mission':        rendered = <MissionScreen />; break;
+    case 'missionResults': rendered = <MissionResultsScreen />; break;
+    case 'gameover':       rendered = <GameOverScreen />; break;
+    case 'bestiary':       rendered = <BestiaryScreen />; break;
+    default:               rendered = <HomeScreen />;
   }
+
+  return <ScreenErrorBoundary resetKey={screen}>{rendered}</ScreenErrorBoundary>;
 }

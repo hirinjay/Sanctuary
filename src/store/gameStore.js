@@ -66,6 +66,7 @@ export const useGameStore = create(
       activeSlot:   null,   // 1 | 2 | 3
       // ── Promotion queue ───────────────────────────────────────────────
       promotionQueue: [],   // [{ unit, level }] — resolved on WorldScreen after mission
+      missionResult: null,   // summary shown between encounter and world map
       // ── Location visit tracking ───────────────────────────────────────
       locationVisits: {},   // { [locId]: { visits: N, bossDefeated: bool } }
       // ── Bestiary (account-scoped — never wiped on resetGame) ──────────
@@ -93,6 +94,12 @@ export const useGameStore = create(
 
       addLog: (msg) => set(s => ({ log: [msg, ...s.log].slice(0, 14) })),
       dismissLevelUp: () => set(s => ({ luq: (s.luq ?? []).slice(1) })),
+      continueFromMissionResult() {
+        const { luq } = get();
+        if ((luq ?? []).length > 0) return;
+        set({ missionResult:null, screen:'world' });
+        debouncedSave(get);
+      },
 
       // ── Tether info (helper) ─────────────────────────────────────────
       // fieldCap = baseCap = tetherCap. Total roster cap = tetherCap * 2.
@@ -250,7 +257,7 @@ export const useGameStore = create(
       },
 
       endMission(units, loot, success = false) {
-        const { roster, vp, inv, travelBag, sanctuaryGrid, ms: currentMs, locationVisits, bestiary, book } = get();
+        const { roster, vp, inv, travelBag, sanctuaryGrid, ms: currentMs, locationVisits, bestiary, book, loc, world } = get();
         const objective = currentMs?.objective ?? null;
 
         // ── Objective outcome ─────────────────────────────────────────────
@@ -319,12 +326,35 @@ export const useGameStore = create(
           logs.push(`💀 ${killedBoss.name} defeated — bestiary updated.`);
         }
 
+        const clearedCabin = success && loc?.type === 'cabin';
+        const nextWorld = clearedCabin && world
+          ? {
+              ...world,
+              tiles: world.tiles.map(t => {
+                const isMissionTile = locId2 === `${t.location?.type}_${t.col}_${t.row}`;
+                return isMissionTile && t.location?.type === 'cabin' ? { ...t, location:null } : t;
+              }),
+            }
+          : world;
+        if (clearedCabin) logs.push('🛖 The abandoned cabin is cleared from the map.');
+
         set(s => ({
           vp:newVp, roster:newRoster, inv:newInv, travelBag:newBag,
-          luq: [...s.luq, ...luqExtra],
+          luq: [...(s.luq ?? []), ...luqExtra],
           locationVisits: newLocationVisits,
           bestiary: newBestiary,
-          ms:null, worldPath:[], screen:'world',
+          world: nextWorld,
+          ms:null, worldPath:[], selectedHex:null, loc:null,
+          missionResult: {
+            success,
+            locationName: loc?.name ?? currentMs?.locationId ?? 'Encounter',
+            locationType: loc?.type ?? null,
+            loot: finalLoot,
+            logs,
+            leveled: luqExtra.length,
+            clearedLocation: clearedCabin,
+          },
+          screen:'missionResults',
           log: [...logs, ...s.log].slice(0, 14),
         }));
         debouncedSave(get);
@@ -612,7 +642,7 @@ export const useGameStore = create(
           world:null, worldPos:null, sanctuaryPos:null, selectedHex:null,
           pendingSanctuaryTile:null, worldPath:[], travelBag:{},
           sanctuaryGrid:null, activeSlot:null, promotionQueue:[],
-          locationVisits:{} });
+          locationVisits:{}, missionResult:null });
         // bestiary intentionally NOT cleared — it is account-scoped
       },
 
@@ -895,7 +925,7 @@ export const useGameStore = create(
           activeSlot:     slot,
           // Reset transient state
           ms: null, phase:'player', luq:[], noise:0, selectedHex:null,
-          equipTgt:null, loc:null, worldPath:[], pendingSanctuaryTile:null,
+          equipTgt:null, loc:null, worldPath:[], pendingSanctuaryTile:null, missionResult:null,
           screen: canResumeWorld ? 'world' : 'title',
         });
         // Bestiary is account-scoped — load separately via loadBestiary()
@@ -908,7 +938,7 @@ export const useGameStore = create(
           world:null, worldPos:null, sanctuaryPos:null, unlockedLocs:['town'],
           ms:null, phase:'player', luq:[], noise:0, log:[], selectedHex:null,
           equipTgt:null, loc:null, travelBag:{}, worldPath:[], sanctuaryGrid:null,
-          pendingSanctuaryTile:null, activeSlot:slot, screen:'title',
+          pendingSanctuaryTile:null, missionResult:null, activeSlot:slot, screen:'title',
         });
       },
 
