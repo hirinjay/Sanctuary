@@ -17,7 +17,7 @@ import { deleteSave } from '../lib/persistence';
 import { ABILITIES } from '../data/abilities';
 import { spawnBoss } from '../data/bosses';
 
-// Debounced save — calls get() at fire time to capture most recent state
+// Throttled save — fires immediately on first call, then coalesces rapid calls (400ms window)
 let _saveTimer = null
 function debouncedSave(get) {
   clearTimeout(_saveTimer)
@@ -25,7 +25,7 @@ function debouncedSave(get) {
     const state = get()
     const { currentUser, activeSlot } = state
     if (activeSlot) saveRun(state, currentUser?.id ?? null, activeSlot)
-  }, 1500)
+  }, 400)
 }
 
 export const useGameStore = create(
@@ -223,6 +223,8 @@ export const useGameStore = create(
           locationVisits: newLocationVisits,
           bestiary: newBestiary,
         });
+        const { currentUser: cu2 } = get();
+        if (Object.keys(newBestiary).length) saveBestiary(newBestiary, cu2?.id ?? null);
       },
 
       endMission(units, loot, success = false) {
@@ -607,6 +609,7 @@ export const useGameStore = create(
 
         const newTiles = revealAround(world.tiles, next.col, next.row, 3, hexesInRange, world.width, world.height);
         set({ world:{ ...world, tiles:newTiles }, worldPos:{ col:next.col, row:next.row }, worldPath:rest, selectedHex:null });
+        debouncedSave(get);
 
         // Wild encounter check
         const enc = rollWildEncounter(tile.terrain);
@@ -2143,6 +2146,7 @@ export const useGameStore = create(
         });
 
         setTimeout(() => set({ phase:'player' }), 200);
+        debouncedSave(get);
       },
 
       // ── Body looting ──────────────────────────────────────────────────

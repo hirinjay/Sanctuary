@@ -1,26 +1,26 @@
 import { TILE } from '../../data/constants';
 import UnitSprite from './UnitSprite';
 
-// Per-theme wall backgrounds and floor backgrounds
+// Per-theme wall backgrounds and floor backgrounds — walls are near-black, floors are clearly lighter
 const THEME_WALL_BG = {
-  forest:      '#071407',
-  plains:      '#0c1408',
-  ruins:       '#1a1610',
-  swamp:       '#071410',
-  dungeon:     '#111118',
-  cabin:       '#130e08',
-  battlefield: '#0e0c06',
-  default:     '#111118',
+  forest:      '#020804',
+  plains:      '#040904',
+  ruins:       '#0c0904',
+  swamp:       '#020a06',
+  dungeon:     '#070710',
+  cabin:       '#0a0604',
+  battlefield: '#080604',
+  default:     '#070710',
 };
 const THEME_FLOOR_BG = {
-  forest:      '#0a170a',
-  plains:      '#0d1609',
-  ruins:       '#131008',
-  swamp:       '#0a160e',
-  dungeon:     '#0b1120',
-  cabin:       '#100e08',
-  battlefield: '#14120a',
-  default:     '#0b1120',
+  forest:      '#0e2210',
+  plains:      '#131e0a',
+  ruins:       '#201a10',
+  swamp:       '#0e1e14',
+  dungeon:     '#141a2e',
+  cabin:       '#1c1610',
+  battlefield: '#1c1a0e',
+  default:     '#141a2e',
 };
 
 const TILE_BG = {

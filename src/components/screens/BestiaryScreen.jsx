@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useGameStore } from '../../store/gameStore';
-import { ARCHETYPES } from '../../data/archetypes';
+import { ARCHETYPES, CLASS_STATS } from '../../data/archetypes';
 import { CLASSES } from '../../data/classes';
 import { BOOKS } from '../../data/books';
 import { ABILITIES } from '../../data/abilities';
@@ -13,10 +13,11 @@ const TAB_ENEMIES = 'enemies';
 const TAB_BOSSES  = 'bosses';
 const TAB_UNDEAD  = 'undead';
 
-const DC_ENTRIES = [
-  { dc:'Skeleton Warrior', emoji:'💀', archetypes: ARCHETYPES.filter(a => a.dc === 'Skeleton Warrior') },
-  { dc:'Grave Stalker',    emoji:'🏹', archetypes: ARCHETYPES.filter(a => a.dc === 'Grave Stalker') },
-  { dc:'Grave Warden',     emoji:'🛡',  archetypes: ARCHETYPES.filter(a => a.dc === 'Grave Warden') },
+// Base undead classes — always visible in the undead tab
+const BASE_UNDEAD = [
+  { id:'skeleton_warrior', name:'Skeleton Warrior', emoji:'💀', dc:'Skeleton Warrior', stats: CLASS_STATS['Skeleton Warrior'], desc:'Melee combatant raised from fallen warriors. Balanced stats.' },
+  { id:'grave_stalker',    name:'Grave Stalker',    emoji:'🏹', dc:'Grave Stalker',    stats: CLASS_STATS['Grave Stalker'],    desc:'Ranged undead raised from scouts. Fast, fragile, long range.' },
+  { id:'grave_warden',     name:'Grave Warden',     emoji:'🛡', dc:'Grave Warden',     stats: CLASS_STATS['Grave Warden'],     desc:'Heavy undead raised from brutes. Slow, high HP and defense.' },
 ];
 
 const BOSS_TYPES = [
@@ -50,39 +51,58 @@ function AbilityLine({ abilityId }) {
   );
 }
 
-function EnemyCard({ entry, info }) {
+function EnemyCard({ archetype, info }) {
   const encountered = (info?.encounters ?? 0) > 0;
-  const showAbilities = (info?.encounters ?? 0) >= 2;
-  const first = entry.archetypes[0];
   return (
     <div style={{ ...card, opacity: encountered ? 1 : 0.5 }}>
       <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-        <span style={{ fontSize:20 }}>{encountered ? entry.emoji : '❓'}</span>
+        <span style={{ fontSize:20 }}>{encountered ? archetype.emoji : '❓'}</span>
         <div>
           <div style={{ color:'#e8d5b0', fontWeight:'bold', fontSize:13 }}>
-            {encountered ? entry.dc : '???'}
+            {encountered ? archetype.name : '???'}
           </div>
           {encountered
-            ? <div style={{ fontSize:9, color:'#3a5a3a' }}>Encountered {info.encounters}×</div>
+            ? <div style={{ fontSize:9, color:'#3a5a3a' }}>Encountered {info.encounters}× · Raises as {archetype.dc}</div>
             : <div style={{ fontSize:9, color:'#3a3a3a' }}>Not yet encountered</div>}
         </div>
         {encountered && (
           <div style={{ marginLeft:'auto', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'2px 10px', fontSize:9, color:'#4a6a5a' }}>
-            <span>❤️ {first?.hp}</span>
-            <span>⚔️ {first?.dmg}</span>
-            <span>👟 {first?.move}</span>
-            <span>👁 {first?.sight}</span>
+            <span>❤️ {archetype.hp}</span>
+            <span>⚔️ {archetype.dmg}</span>
+            <span>👟 {archetype.move}</span>
+            <span>👁 {archetype.sight}</span>
           </div>
         )}
       </div>
-      {encountered && showAbilities && entry.archetypes.map(a => (
-        <div key={a.name} style={{ fontSize:10, color:'#4a5a4a', marginBottom:2 }}>
-          <span style={{ color:'#7a6a3a' }}>{a.name}</span> — can be raised as {entry.dc}
+      {encountered && (info?.encounters ?? 0) >= 2 && (
+        <div style={{ fontSize:10, color:'#4a5a4a' }}>
+          Defeat to raise as <span style={{ color:'#c4a882' }}>{archetype.dc}</span> — unlock class tree in Ascension Forge.
         </div>
-      ))}
-      {encountered && !showAbilities && (
+      )}
+      {encountered && (info?.encounters ?? 0) < 2 && (
         <div style={{ fontSize:10, color:'#3a4a3a', fontStyle:'italic' }}>Encounter again to learn more.</div>
       )}
+    </div>
+  );
+}
+
+function BaseUndeadCard({ entry }) {
+  return (
+    <div style={{ ...card }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+        <span style={{ fontSize:18 }}>{entry.emoji}</span>
+        <div>
+          <div style={{ color:'#e8d5b0', fontWeight:'bold', fontSize:12 }}>{entry.name}</div>
+          <div style={{ fontSize:9, color:'#3a5a4a' }}>Tier 1 base — raised from fallen {entry.dc}s</div>
+        </div>
+        <div style={{ marginLeft:'auto', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'2px 10px', fontSize:9, color:'#4a6a5a' }}>
+          <span>❤️ {entry.stats.hp}</span>
+          <span>⚔️ {entry.stats.dmg}</span>
+          <span>🛡️ {entry.stats.def}</span>
+          <span>👟 {entry.stats.moveRange}</span>
+        </div>
+      </div>
+      <div style={{ fontSize:10, color:'#4a5a4a' }}>{entry.desc}</div>
     </div>
   );
 }
@@ -235,8 +255,8 @@ export default function BestiaryScreen() {
           {tabBtn(TAB_UNDEAD,  '💀 Undead Classes')}
         </div>
 
-        {tab === TAB_ENEMIES && DC_ENTRIES.map(entry => (
-          <EnemyCard key={entry.dc} entry={entry} info={bestiary[entry.dc]} />
+        {tab === TAB_ENEMIES && ARCHETYPES.map(a => (
+          <EnemyCard key={a.name} archetype={a} info={bestiary[a.dc]} />
         ))}
 
         {tab === TAB_BOSSES && BOSS_TYPES.map(boss => (
@@ -245,10 +265,16 @@ export default function BestiaryScreen() {
 
         {tab === TAB_UNDEAD && (
           <>
-            <div style={{ fontSize:10, color:'#3a4a3a', marginBottom:12 }}>
+            <div style={{ fontSize:10, color:'#3a4a3a', marginBottom:10 }}>
               Promote units to unlock class details. Abilities unlock on first promotion.
             </div>
 
+            <div style={{ fontSize:10, color:'#5a6a5a', marginBottom:6, letterSpacing:1, textTransform:'uppercase' }}>
+              Base Undead
+            </div>
+            {BASE_UNDEAD.map(e => <BaseUndeadCard key={e.id} entry={e} />)}
+
+            <div style={{ marginTop:12 }} />
             <ClassGroup
               label="General — available to multiple grimoires"
               classes={generalClasses}
