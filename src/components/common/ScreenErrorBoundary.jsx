@@ -1,5 +1,6 @@
 import { Component } from 'react';
 import { useGameStore } from '../../store/gameStore';
+import { SCREEN } from '../../state/screens';
 
 class Boundary extends Component {
   constructor(props) {
@@ -29,7 +30,7 @@ class Boundary extends Component {
 
 export default function ScreenErrorBoundary({ resetKey, children }) {
   const recoverHome = () => {
-    useGameStore.setState({ screen:'home', ms:null, luq:[], missionResult:null, worldPath:[] });
+    useGameStore.setState({ screen:SCREEN.HOME, ms:null, luq:[], missionResult:null, worldPath:[] });
   };
 
   return (
