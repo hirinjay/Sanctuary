@@ -2,8 +2,8 @@ import { create } from 'zustand';
 import { persist, subscribeWithSelector } from 'zustand/middleware';
 import { DEFAULT_VP, UT, TILE, UNAMES } from '../data/constants';
 import { item, LOOT, BODY_LOOT } from '../data/items';
-import { genMap, genDungeonMap, genCabinMap, genForest, genRuinedTown, genRaiderCamp, genSwamp, genBattlefield, genAbandonedVillage, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath } from '../systems/map';
-import { spawnEnemies, applyXpToUnits, calcSacrificeBonus } from '../systems/combat';
+import { genMap, genDungeonMap, genCabinMap, genForest, genRuinedTown, genRaiderCamp, genSwamp, genBattlefield, genAbandonedVillage, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath, cullUnreachable, findSpawnSlots } from '../systems/map';
+import { spawnEnemies, applyXpToUnits, calcSacrificeBonus, VERDANT_VAREK_LU } from '../systems/combat';
 import { ARCHETYPES, CLASS_STATS } from '../data/archetypes';
 import { generateWorld, revealAround } from '../world/worldGen';
 import { hexesInRange } from '../world/hexMath';
@@ -127,18 +127,22 @@ export const useGameStore = create(
         else if (locType==='battlefield')                             { mapFn=genBattlefield;      mapW=24; mapH=18; }
         else                                                          { mapFn=genMap;              mapW=16+Math.floor(Math.random()*7); mapH=12+Math.floor(Math.random()*5); }
         const spawnX = 1, spawnY = mapH - 2;
-        const tiles  = mapFn(danger, mapW, mapH);
+        const activeRoster = roster.filter(u => !u.atBase);
+        const rawTiles = mapFn(danger, mapW, mapH);
+        // Strip loot/specials that ended up in disconnected areas, then find valid spawn slots
+        const tiles = cullUnreachable(rawTiles, spawnX, spawnY);
+        const spawnSlots = findSpawnSlots(tiles, spawnX, spawnY, 1 + activeRoster.length);
         const varek = {
           id:'varek', type:UT.VAREK, name:'Varek', emoji:'🧙',
-          x:spawnX, y:spawnY, ...vp,
+          x: spawnSlots[0]?.x ?? spawnX, y: spawnSlots[0]?.y ?? spawnY, ...vp,
           moveRange: vp.moveRange || 3,
           trapReveal: vp.trapReveal || 1,
           ap:2, fallen:false, raiseTurn:null,
           statusEffects: [],
         };
-        const activeUndead = roster
-          .filter(u => !u.atBase)
+        const activeUndead = activeRoster
           .map((u, i) => {
+            const slot = spawnSlots[1 + i] ?? { x: spawnX+1+i, y: spawnY };
             const classUses = u.classAbility
               ? { [u.classAbility]: ABILITIES[u.classAbility]?.usesPerEncounter ?? 0 }
               : {};
@@ -149,7 +153,7 @@ export const useGameStore = create(
               (u.bondedAbilities ?? []).map(aid => [aid, ABILITIES[aid]?.type === 'reactive'])
             );
             return {
-              ...u, x:spawnX+1+i, y:spawnY, ap:2, fallen:false, raiseTurn:null, atBase:false,
+              ...u, x:slot.x, y:slot.y, ap:2, fallen:false, raiseTurn:null, atBase:false,
               statusEffects: [],
               abilityUses: { ...classUses, ...bondedUses },
               abilityArmed: ABILITIES[u.classAbility]?.type === 'reactive' ? true : false,
@@ -228,7 +232,7 @@ export const useGameStore = create(
       },
 
       endMission(units, loot, success = false) {
-        const { roster, vp, inv, travelBag, sanctuaryGrid, ms: currentMs, locationVisits, bestiary } = get();
+        const { roster, vp, inv, travelBag, sanctuaryGrid, ms: currentMs, locationVisits, bestiary, book } = get();
         const objective = currentMs?.objective ?? null;
 
         // ── Objective outcome ─────────────────────────────────────────────
@@ -258,13 +262,14 @@ export const useGameStore = create(
         let varek = units.find(u => u.id === 'varek');
 
         if (varek && varekXpBonus > 0) {
-          const updated = applyXpToUnits([varek], 'varek', varekXpBonus, luqExtra);
+          const vOpts = book?.id === 'verdant' ? VERDANT_VAREK_LU : undefined;
+          const updated = applyXpToUnits([varek], 'varek', varekXpBonus, luqExtra, vOpts);
           varek = updated[0];
         }
 
         const newVp = varek
           ? { ...vp, hp:varek.hp, xp:varek.xp, level:varek.level, raiseRange:varek.raiseRange,
-              drainRange:varek.drainRange, tetherCap:varek.tetherCap,
+              drainRange:varek.drainRange, tetherCap:varek.tetherCap, dmg:varek.dmg??2,
               moveRange:varek.moveRange||3, weapon:varek.weapon, armor:varek.armor }
           : vp;
         const newRoster = [...roster.filter(u => u.atBase), ...surv.map(u => ({ ...u, atBase:false }))];
@@ -854,7 +859,7 @@ export const useGameStore = create(
             if (choice==='drain')  return { ...base, drainRange: u.drainRange + 1 };
             if (choice==='hp')     return { ...base, maxHp: u.maxHp + hpGain, hp: u.hp + hpGain };
             if (choice==='raise')  return { ...base, raiseRange: u.raiseRange + 1 };
-            if (choice==='dmg')    return { ...base, dmg: u.dmg + 1, dmgUpgrades: (u.dmgUpgrades||0) + 1 };
+            if (choice==='dmg')    return { ...base, dmg: (u.dmg||2) + 1, dmgUpgrades: (u.dmgUpgrades||0) + 1 };
             if (choice==='move')   return { ...base, moveRange: u.moveRange + 1 };
             return base;
           };
@@ -868,10 +873,10 @@ export const useGameStore = create(
             };
           }
           if (isVarek) {
-            const fake = { tetherCap:s.vp.tetherCap||1, drainRange:s.vp.drainRange||2, raiseRange:s.vp.raiseRange||2, hp:s.vp.hp, maxHp:s.vp.maxHp, moveRange:s.vp.moveRange||3 };
+            const fake = { tetherCap:s.vp.tetherCap||1, drainRange:s.vp.drainRange||2, raiseRange:s.vp.raiseRange||2, hp:s.vp.hp, maxHp:s.vp.maxHp, moveRange:s.vp.moveRange||3, dmg:s.vp.dmg||2 };
             const b = boost(fake);
             return {
-              vp: { ...s.vp, tetherCap:b.tetherCap, drainRange:b.drainRange, raiseRange:b.raiseRange, hp:b.hp, maxHp:b.maxHp, moveRange:b.moveRange },
+              vp: { ...s.vp, tetherCap:b.tetherCap, drainRange:b.drainRange, raiseRange:b.raiseRange, hp:b.hp, maxHp:b.maxHp, moveRange:b.moveRange, dmg:b.dmg },
               luq: newLuq,
               log: [logLine, ...s.log].slice(0, 14),
             };
@@ -1283,6 +1288,13 @@ export const useGameStore = create(
           const attAllAbilities = [attUnit.classAbility, ...(attUnit.bondedAbilities ?? [])].filter(Boolean);
           if (attAllAbilities.includes('drain_touch') && isMelee) {
             units = units.map(u => u.id===sel ? {...u,hp:Math.min(u.maxHp,u.hp+1)} : u);
+          }
+
+          // Verdant Rite lifesteal: Varek at dmg cap 6 heals floor(dmg/2) per drain hit
+          if (attUnit.type === UT.VAREK && prev.book?.id === 'verdant' && (attUnit.dmg||2) >= 6) {
+            const heal = Math.floor((attUnit.dmg||2) / 2);
+            units = units.map(u => u.id===sel ? {...u,hp:Math.min(u.maxHp,u.hp+heal)} : u);
+            logs.push(`🌿 Verdant drain restores ${heal} HP to Varek!`);
           }
 
           // XP

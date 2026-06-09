@@ -22,6 +22,13 @@ export const VAREK_LU = [
   { id:'hp',     label:'HP +4',          desc:'More health' },
   { id:'raise',  label:'Raise Range +1', desc:'Raise from further' },
 ];
+// Verdant Rite variant — drain is melee-only so range is moot; swap for attack power
+export const VERDANT_VAREK_LU = [
+  { id:'tether', label:'Tether +2',      desc:'+1 auto per level, +1 bonus if chosen' },
+  { id:'dmg',    label:'Attack +1',      desc:'Drain hits harder (cap 6, then lifesteal)' },
+  { id:'hp',     label:'HP +4',          desc:'More health' },
+  { id:'raise',  label:'Raise Range +1', desc:'Raise from further' },
+];
 export const UNDEAD_LU = [
   { id:'hp',   label:'HP +3',     desc:'Sturdier bones' },
   { id:'dmg',  label:'Damage +1', desc:'Hits harder' },
@@ -42,6 +49,6 @@ export const STATUS = {
 
 export const DEFAULT_VP = {
   hp:10, maxHp:10, xp:0, level:1,
-  raiseRange:2, drainRange:2, tetherCap:1,
+  dmg:2, raiseRange:2, drainRange:2, tetherCap:1,
   moveRange:3, trapReveal:1, weapon:null, armor:null,
 };

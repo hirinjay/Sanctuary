@@ -2,6 +2,58 @@ import { TILE, W as DEF_W, H as DEF_H } from '../data/constants';
 
 export const dist = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 
+// BFS from spawn: returns Set of "x,y" keys reachable through non-wall tiles
+export function reachableSet(tiles, spawnX, spawnY) {
+  const H = tiles.length, W = tiles[0]?.length ?? 0;
+  const IMPASSABLE = new Set([TILE.WALL]);
+  const visited = new Set();
+  const q = [{ x: spawnX, y: spawnY }];
+  visited.add(`${spawnX},${spawnY}`);
+  while (q.length) {
+    const { x, y } = q.shift();
+    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const nx = x+dx, ny = y+dy, k = `${nx},${ny}`;
+      if (!visited.has(k) && nx >= 0 && nx < W && ny >= 0 && ny < H) {
+        const tile = tiles[ny][nx];
+        if (!IMPASSABLE.has(tile?.type)) { visited.add(k); q.push({ x: nx, y: ny }); }
+      }
+    }
+  }
+  return visited;
+}
+
+// Strip special tiles (LOOT, TRAP, HOLY, etc.) that ended up unreachable from spawn
+export function cullUnreachable(tiles, spawnX, spawnY) {
+  const reach = reachableSet(tiles, spawnX, spawnY);
+  const SPECIAL = new Set([TILE.LOOT, TILE.TRAP, TILE.HOLY, TILE.SHADOW, TILE.WATER, TILE.ELEVATED, TILE.FIRE, TILE.EXIT]);
+  return tiles.map((row, y) => row.map((tile, x) => {
+    if (reach.has(`${x},${y}`)) return tile;
+    if (SPECIAL.has(tile?.type)) return { type: TILE.WALL };
+    return tile;
+  }));
+}
+
+// Find N valid floor positions near spawn for unit placement (BFS order)
+export function findSpawnSlots(tiles, spawnX, spawnY, count) {
+  const H = tiles.length, W = tiles[0]?.length ?? 0;
+  const slots = [];
+  const visited = new Set([`${spawnX},${spawnY}`]);
+  const q = [{ x: spawnX, y: spawnY }];
+  slots.push({ x: spawnX, y: spawnY });
+  while (q.length && slots.length < count) {
+    const { x, y } = q.shift();
+    for (const [dx, dy] of [[1,0],[0,-1],[-1,0],[0,1]]) {
+      const nx = x+dx, ny = y+dy, k = `${nx},${ny}`;
+      if (!visited.has(k) && nx > 0 && nx < W-1 && ny > 0 && ny < H-1) {
+        visited.add(k);
+        const t = tiles[ny]?.[nx];
+        if (t?.type === TILE.FLOOR) { slots.push({ x: nx, y: ny }); q.push({ x: nx, y: ny }); }
+      }
+    }
+  }
+  return slots;
+}
+
 export function walkable(tiles, x, y, units) {
   const H = tiles.length, W = tiles[0]?.length ?? 0;
   if (x < 0 || x >= W || y < 0 || y >= H) return false;

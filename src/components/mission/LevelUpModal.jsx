@@ -4,7 +4,10 @@ import { CLASSES, getAvailablePromotions } from '../../data/classes';
 import { ABILITIES } from '../../data/abilities';
 
 export default function LevelUpModal() {
-  const { luq, ms, roster, book, applyLu, applyPromotionFromLu } = useGameStore();
+  const { luq, ms, roster, book, applyLu, applyPromotionFromLu } = useGameStore(s => ({
+    luq: s.luq, ms: s.ms, roster: s.roster, book: s.book,
+    applyLu: s.applyLu, applyPromotionFromLu: s.applyPromotionFromLu,
+  }));
   const [selClassId, setSelClassId] = useState(null);
 
   if (!luq.length) return null;
@@ -91,8 +94,13 @@ export default function LevelUpModal() {
   }
 
   // ── Normal stat boost ──────────────────────────────────────────────────
+  const isVerdantVarek = u?.type === 'varek' && book?.id === 'verdant';
   const dmgCap = u?.isTinker ? 2 : 1;
-  const filteredOpts = (opts ?? []).filter(o => o.id !== 'dmg' || (u?.dmgUpgrades||0) < dmgCap);
+  const filteredOpts = (opts ?? []).filter(o => {
+    if (o.id !== 'dmg') return true;
+    if (isVerdantVarek) return (u?.dmg || 2) < 6;
+    return (u?.dmgUpgrades||0) < dmgCap;
+  });
 
   return (
     <div style={overlay}>

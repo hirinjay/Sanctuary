@@ -1,4 +1,4 @@
-import { UT, XP_LEVELS, VAREK_LU, UNDEAD_LU } from '../data/constants';
+import { UT, XP_LEVELS, VAREK_LU, UNDEAD_LU, VERDANT_VAREK_LU } from '../data/constants';
 import { ARCHETYPES, CLASS_STATS } from '../data/archetypes';
 
 const PLACEMENT_WEIGHTS = {
@@ -71,7 +71,7 @@ export function calcSacrificeBonus(sac) {
   return bonus;
 }
 
-export function applyXpToUnits(units, uid, amt, luqRef) {
+export function applyXpToUnits(units, uid, amt, luqRef, varekOpts) {
   return units.map(u => {
     if (u.id !== uid) return u;
     let xp = u.xp + amt, lv = u.level;
@@ -82,7 +82,7 @@ export function applyXpToUnits(units, uid, amt, luqRef) {
       const isClassPromo = u.type !== UT.VAREK && !u.classId && lv === 2;
       luqRef.push({
         uid,
-        opts: u.type === UT.VAREK ? VAREK_LU : UNDEAD_LU,
+        opts: u.type === UT.VAREK ? (varekOpts ?? VAREK_LU) : UNDEAD_LU,
         ...(isClassPromo ? { type: 'class_promotion' } : {}),
       });
     }
@@ -90,6 +90,7 @@ export function applyXpToUnits(units, uid, amt, luqRef) {
     return { ...u, xp, level: lv };
   });
 }
+export { VERDANT_VAREK_LU };
 
 export function spawnEnemies(danger, mode, tiles, spawnX = 1, spawnY = 10, threats = null, locType = '') {
   const pool    = threats?.length ? threats : ARCHETYPES;
