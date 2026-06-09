@@ -4,16 +4,21 @@ import { CLASSES, getAvailablePromotions } from '../../data/classes';
 import { ABILITIES } from '../../data/abilities';
 
 export default function LevelUpModal() {
-  const { luq, ms, roster, book, applyLu, applyPromotionFromLu, dismissLevelUp } = useGameStore(s => ({
-    luq: s.luq ?? [], ms: s.ms, roster: s.roster ?? [], book: s.book,
-    applyLu: s.applyLu, applyPromotionFromLu: s.applyPromotionFromLu, dismissLevelUp: s.dismissLevelUp,
-  }));
+  const luq = useGameStore(s => s.luq ?? []);
+  const ms = useGameStore(s => s.ms);
+  const roster = useGameStore(s => s.roster ?? []);
+  const vp = useGameStore(s => s.vp);
+  const book = useGameStore(s => s.book);
+  const applyLu = useGameStore(s => s.applyLu);
+  const applyPromotionFromLu = useGameStore(s => s.applyPromotionFromLu);
+  const dismissLevelUp = useGameStore(s => s.dismissLevelUp);
   const [selClassId, setSelClassId] = useState(null);
 
   if (!luq.length) return null;
 
   const { uid, opts, type } = luq[0];
-  const u = ms?.units?.find(x => x.id === uid) ?? roster.find(x => x.id === uid);
+  const varekUnit = uid === 'varek' ? { ...vp, id:'varek', type:'varek', name:'Varek', emoji:'🧙' } : null;
+  const u = ms?.units?.find(x => x.id === uid) ?? roster.find(x => x.id === uid) ?? varekUnit;
 
   const overlay = {
     position:'fixed', inset:0, background:'#000d', display:'flex',
