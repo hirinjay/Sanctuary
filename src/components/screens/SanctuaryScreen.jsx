@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useGameStore } from '../../store/gameStore';
 import { item, RECIPES } from '../../data/items';
 import { xpNext, calcSacrificeBonus } from '../../systems/combat';
-import { getTier3Class } from '../../data/classes';
+import { getTier3Class, CLASSES } from '../../data/classes';
 import { ABILITIES } from '../../data/abilities';
 import { CLASS_STATS } from '../../data/archetypes';
 import EquipModal from '../sanctuary/EquipModal';
@@ -21,14 +21,16 @@ function btn(on, c) {
 }
 
 export default function SanctuaryScreen() {
-  const { vp, roster, inv, nodes, travelBag, sanctuaryPos,
-          setScreen, setEquipTgt, ti, depositLoot, ascendUnit, rebirthUnit } = useGameStore();
+  const { vp, roster, inv, nodes, travelBag, sanctuaryPos, book,
+          setScreen, setEquipTgt, ti, depositLoot, ascendUnit, rebirthUnit, ascendVarek } = useGameStore();
   const set = useGameStore.setState;
   const t = ti(null);
   const [ascendingId, setAscendingId] = useState(null);
   const [ascendSacId, setAscendSacId] = useState(null);
   const [rebirthConfirmId, setRebirthConfirmId] = useState(null);
   const [rebirthSacId, setRebirthSacId] = useState(null);
+  const [varekAscendOpen, setVarekAscendOpen] = useState(false);
+  const [varekAscendChoices, setVarekAscendChoices] = useState(null);
   const baseCount  = t.baseCount;
   const fieldCount = t.fieldCount;
   const established = !!sanctuaryPos;
@@ -272,6 +274,92 @@ export default function SanctuaryScreen() {
           return (
             <div style={card}>
               <div style={{ fontWeight:'bold', color:'#c4a882', marginBottom:7, fontSize:12 }}>⚗️ Ascension Forge</div>
+              {/* ── Varek Ascension ───────────────────────────────────────── */}
+              {(() => {
+                const ascCap = 3;
+                const ascCount = vp.varekAscensions || 0;
+                const maxVarekLv = 5 + ascCount * 5;
+                if (ascCount >= ascCap || vp.level < maxVarekLv) return null;
+                function getPool(type) {
+                  const bookId = book?.id ?? 'pale';
+                  const alreadyHas = vp.varekAbilities || [];
+                  const seen = new Set();
+                  Object.values(CLASSES).forEach(cls => {
+                    if (cls.grimoires?.includes(bookId)) {
+                      (cls.abilityChoice ?? []).forEach(aid => {
+                        if (ABILITIES[aid]?.type === type && !alreadyHas.includes(aid)) seen.add(aid);
+                      });
+                    }
+                  });
+                  return [...seen];
+                }
+                function openChoices() {
+                  const acts = getPool('active'), pass = getPool('passive');
+                  setVarekAscendChoices({
+                    activeChoice:  acts.length  ? acts[Math.floor(Math.random()  * acts.length)]  : null,
+                    passiveChoice: pass.length ? pass[Math.floor(Math.random() * pass.length)] : null,
+                  });
+                  setVarekAscendOpen(true);
+                }
+                return (
+                  <div style={{ borderBottom:'1px solid #1a2a3a', paddingBottom:10, marginBottom:10 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                      marginBottom: varekAscendOpen ? 8 : 0 }}>
+                      <span style={{ fontSize:11, color:'#e8d5b0' }}>🧙 Varek ready (Lv{maxVarekLv})</span>
+                      <button onClick={() => varekAscendOpen ? setVarekAscendOpen(false) : openChoices()}
+                        style={btn(true, varekAscendOpen ? '#4a4a6a' : '#6a4a9a')}>
+                        {varekAscendOpen ? 'Cancel' : 'Ascend'}
+                      </button>
+                    </div>
+                    {varekAscendOpen && varekAscendChoices && (
+                      <div>
+                        <div style={{ fontSize:10, color:'#5a5a3a', marginBottom:7 }}>
+                          Ascension {ascCount + 1}/{ascCap} — choose a path:
+                        </div>
+                        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                          <button onClick={() => { ascendVarek('dmg'); setVarekAscendOpen(false); setVarekAscendChoices(null); }}
+                            style={{ background:'#120a0a', border:'1px solid #5a2a2a', borderRadius:5,
+                              padding:'8px 10px', color:'#c4a882', cursor:'pointer', textAlign:'left' }}>
+                            <div style={{ fontWeight:'bold', fontSize:12, color:'#e8a050', marginBottom:2 }}>⚔️ Drain +2</div>
+                            <div style={{ fontSize:10, color:'#5a4a3a' }}>
+                              Drain damage increases to {(vp.dmg || 2) + 2}.
+                            </div>
+                          </button>
+                          {varekAscendChoices.activeChoice && (() => {
+                            const ab = ABILITIES[varekAscendChoices.activeChoice];
+                            return (
+                              <button onClick={() => { ascendVarek(varekAscendChoices.activeChoice); setVarekAscendOpen(false); setVarekAscendChoices(null); }}
+                                style={{ background:'#0a0a18', border:'1px solid #2a2a6a', borderRadius:5,
+                                  padding:'8px 10px', color:'#c4a882', cursor:'pointer', textAlign:'left' }}>
+                                <div style={{ fontWeight:'bold', fontSize:12, color:'#8a8adc', marginBottom:2 }}>
+                                  ✦ {ab.name} <span style={{ fontSize:9, color:'#4a4a8a', fontWeight:'normal' }}>ACTIVE</span>
+                                </div>
+                                <div style={{ fontSize:10, color:'#4a4a5a' }}>{ab.desc}</div>
+                              </button>
+                            );
+                          })()}
+                          {varekAscendChoices.passiveChoice && (() => {
+                            const ab = ABILITIES[varekAscendChoices.passiveChoice];
+                            return (
+                              <button onClick={() => { ascendVarek(varekAscendChoices.passiveChoice); setVarekAscendOpen(false); setVarekAscendChoices(null); }}
+                                style={{ background:'#0a140a', border:'1px solid #2a4a2a', borderRadius:5,
+                                  padding:'8px 10px', color:'#c4a882', cursor:'pointer', textAlign:'left' }}>
+                                <div style={{ fontWeight:'bold', fontSize:12, color:'#5a9a5a', marginBottom:2 }}>
+                                  ◆ {ab.name} <span style={{ fontSize:9, color:'#3a6a3a', fontWeight:'normal' }}>PASSIVE</span>
+                                </div>
+                                <div style={{ fontSize:10, color:'#3a5a3a' }}>{ab.desc}</div>
+                              </button>
+                            );
+                          })()}
+                          {!varekAscendChoices.activeChoice && !varekAscendChoices.passiveChoice && (
+                            <div style={{ fontSize:10, color:'#4a3a2a' }}>No abilities available for this book.</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               {eligible.length === 0 ? (
                 <div style={{ fontSize:11, color:'#3a3a2a' }}>No units ready — reach Level 5 (Tier 2) to ascend.</div>
               ) : eligible.map(u => {

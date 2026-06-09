@@ -75,7 +75,7 @@ export function applyXpToUnits(units, uid, amt, luqRef, varekOpts) {
   return units.map(u => {
     if (u.id !== uid) return u;
     let xp = u.xp + amt, lv = u.level;
-    const maxLv = u.tier === 3 ? 10 : 5;
+    const maxLv = u.tier === 3 ? 10 : u.type === UT.VAREK ? 5 + (u.varekAscensions ?? 0) * 5 : 5;
     while (xp >= xpNext(lv) && lv < maxLv) {
       xp -= xpNext(lv);
       lv++;
