@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useGameStore } from './store/gameStore';
 import { getSession, onAuthStateChange } from './lib/auth';
 import { loadSaveSlots } from './lib/persistence';
-import { isPlayableWorld } from './world/worldState';
+import { SCREEN, resolveScreen } from './state/screens';
 import HomeScreen        from './components/screens/HomeScreen';
 import TitleScreen       from './components/screens/TitleScreen';
 import WorldScreen       from './components/screens/WorldScreen';
@@ -20,9 +20,11 @@ export default function App() {
   const world = useGameStore(s => s.world);
   const worldPos = useGameStore(s => s.worldPos);
   const ms = useGameStore(s => s.ms);
+  const missionResult = useGameStore(s => s.missionResult);
   const setCurrentUser = useGameStore(s => s.setCurrentUser);
   const setSaveSlots = useGameStore(s => s.setSaveSlots);
-  const canShowWorld = isPlayableWorld(world, worldPos);
+  const setScreen = useGameStore(s => s.setScreen);
+  const routedScreen = resolveScreen(screen, { activeSlot, world, worldPos, ms, missionResult });
 
   useEffect(() => {
     let alive = true;
@@ -49,31 +51,23 @@ export default function App() {
     };
   }, [setCurrentUser, setSaveSlots]);
 
-  if (screen === 'world' && !canShowWorld) {
-    return activeSlot ? <TitleScreen /> : <HomeScreen />;
-  }
+  useEffect(() => {
+    if (routedScreen !== screen) setScreen(routedScreen);
+  }, [routedScreen, screen, setScreen]);
 
-  if (screen === 'mission' && !ms) {
-    if (canShowWorld) return <WorldScreen />;
-    return activeSlot ? <TitleScreen /> : <HomeScreen />;
-  }
-
-  if (!activeSlot && !['home', 'bestiary', 'gameover'].includes(screen)) {
-    return <HomeScreen />;
-  }
   let rendered;
-  switch (screen) {
-    case 'home':           rendered = <HomeScreen />; break;
-    case 'title':          rendered = <TitleScreen />; break;
-    case 'world':          rendered = <WorldScreen />; break;
-    case 'sanctuary':      rendered = <SanctuaryScreen />; break;
-    case 'sanctuarymap':   rendered = <SanctuaryMapScreen />; break;
-    case 'mission':        rendered = <MissionScreen />; break;
-    case 'missionResults': rendered = <MissionResultsScreen />; break;
-    case 'gameover':       rendered = <GameOverScreen />; break;
-    case 'bestiary':       rendered = <BestiaryScreen />; break;
+  switch (routedScreen) {
+    case SCREEN.HOME:            rendered = <HomeScreen />; break;
+    case SCREEN.TITLE:           rendered = <TitleScreen />; break;
+    case SCREEN.WORLD:           rendered = <WorldScreen />; break;
+    case SCREEN.SANCTUARY:       rendered = <SanctuaryScreen />; break;
+    case SCREEN.SANCTUARY_MAP:   rendered = <SanctuaryMapScreen />; break;
+    case SCREEN.MISSION:         rendered = <MissionScreen />; break;
+    case SCREEN.MISSION_RESULTS: rendered = <MissionResultsScreen />; break;
+    case SCREEN.GAME_OVER:       rendered = <GameOverScreen />; break;
+    case SCREEN.BESTIARY:        rendered = <BestiaryScreen />; break;
     default:               rendered = <HomeScreen />;
   }
 
-  return <ScreenErrorBoundary resetKey={screen}>{rendered}</ScreenErrorBoundary>;
+  return <ScreenErrorBoundary resetKey={routedScreen}>{rendered}</ScreenErrorBoundary>;
 }

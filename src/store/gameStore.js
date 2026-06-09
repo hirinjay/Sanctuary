@@ -16,6 +16,7 @@ import { CLASSES, DC_TO_BASE } from '../data/classes';
 import { deleteSave } from '../lib/persistence';
 import { ABILITIES } from '../data/abilities';
 import { isPlayableWorld } from '../world/worldState';
+import { SCREEN, resolveScreen } from '../state/screens';
 import { spawnBoss } from '../data/bosses';
 
 // Throttled save — fires immediately on first call, then coalesces rapid calls (400ms window)
@@ -34,7 +35,7 @@ export const useGameStore = create(
   persist(
     (set, get) => ({
       // ── Persistent state ──────────────────────────────────────────────
-      screen:       'home',
+      screen:       SCREEN.HOME,
       book:         null,
       vp:           { ...DEFAULT_VP },
       roster:       [],
@@ -81,13 +82,15 @@ export const useGameStore = create(
 
       // ── Simple setters ────────────────────────────────────────────────
       setScreen(screen) {
-        if (screen === 'gameover') {
-          const { currentUser, activeSlot } = get();
+        const state = get();
+        const nextScreen = resolveScreen(screen, state);
+        if (nextScreen === SCREEN.GAME_OVER) {
+          const { currentUser, activeSlot } = state;
           if (activeSlot) deleteSave(currentUser?.id ?? null, activeSlot);
-          set({ screen, activeSlot: null });
+          set({ screen:nextScreen, activeSlot:null });
           return;
         }
-        set({ screen });
+        set({ screen:nextScreen });
       },
       setEquipTgt: (id)       => set({ equipTgt: id }),
       setPhase:    (phase)    => set({ phase }),
@@ -97,7 +100,7 @@ export const useGameStore = create(
       continueFromMissionResult() {
         const { luq } = get();
         if ((luq ?? []).length > 0) return;
-        set({ missionResult:null, screen:'world' });
+        set(s => ({ missionResult:null, screen:resolveScreen(SCREEN.WORLD, { ...s, missionResult:null }) }));
         debouncedSave(get);
       },
 
@@ -248,7 +251,7 @@ export const useGameStore = create(
           luq:   [],
           log:   [...bossLog, `${location.name} — ${md==='raid'?'Raid: enemies alerted.':'Scavenge: stay quiet.'}`, `◼ ${objective.label}`],
           phase: 'player',
-          screen:'mission',
+          screen:SCREEN.MISSION,
           locationVisits: newLocationVisits,
           bestiary: newBestiary,
         });
@@ -354,7 +357,7 @@ export const useGameStore = create(
             leveled: luqExtra.length,
             clearedLocation: clearedCabin,
           },
-          screen:'missionResults',
+          screen:SCREEN.MISSION_RESULTS,
           log: [...logs, ...s.log].slice(0, 14),
         }));
         debouncedSave(get);
@@ -636,7 +639,7 @@ export const useGameStore = create(
       },
 
       resetGame() {
-        set({ screen:'home', book:null, vp:{ ...DEFAULT_VP }, roster:[], inv:{},
+        set({ screen:SCREEN.HOME, book:null, vp:{ ...DEFAULT_VP }, roster:[], inv:{},
           nodes:[], ms:null, noise:0, luq:[], log:[], phase:'player',
           equipTgt:null, loc:null, mode:'scavenge', unlockedLocs:['town'],
           world:null, worldPos:null, sanctuaryPos:null, selectedHex:null,
@@ -663,7 +666,7 @@ export const useGameStore = create(
           }
         }
         const revealedTiles = revealAround(world.tiles, col, row, 3, hexesInRange, world.width, world.height);
-        set({ world:{ ...world, tiles:revealedTiles }, worldPos:{ col, row }, sanctuaryPos:null, selectedHex:null, screen:'world' });
+        set({ world:{ ...world, tiles:revealedTiles }, worldPos:{ col, row }, sanctuaryPos:null, selectedHex:null, screen:SCREEN.WORLD });
         // Save immediately so the world record exists from day one of a new game
         debouncedSave(get);
       },
@@ -926,7 +929,7 @@ export const useGameStore = create(
           // Reset transient state
           ms: null, phase:'player', luq:[], noise:0, selectedHex:null,
           equipTgt:null, loc:null, worldPath:[], pendingSanctuaryTile:null, missionResult:null,
-          screen: canResumeWorld ? 'world' : 'title',
+          screen: canResumeWorld ? SCREEN.WORLD : SCREEN.TITLE,
         });
         // Bestiary is account-scoped — load separately via loadBestiary()
       },
@@ -938,7 +941,7 @@ export const useGameStore = create(
           world:null, worldPos:null, sanctuaryPos:null, unlockedLocs:['town'],
           ms:null, phase:'player', luq:[], noise:0, log:[], selectedHex:null,
           equipTgt:null, loc:null, travelBag:{}, worldPath:[], sanctuaryGrid:null,
-          pendingSanctuaryTile:null, missionResult:null, activeSlot:slot, screen:'title',
+          pendingSanctuaryTile:null, missionResult:null, activeSlot:slot, screen:SCREEN.TITLE,
         });
       },
 
@@ -1178,7 +1181,7 @@ export const useGameStore = create(
           log:   [...logs.reverse(), ...prev.log].slice(0, 14),
         }));
 
-        if (over) setTimeout(() => get().setScreen('gameover'), 500);
+        if (over) setTimeout(() => get().setScreen(SCREEN.GAME_OVER), 500);
         if (esc)  setTimeout(() => get().endMission(units, loot, true), 400);
       },
 
@@ -1287,7 +1290,7 @@ export const useGameStore = create(
                   if (u.id !== sel) return u;
                   const nh = u.hp - rfl;
                   if (nh <= 0) {
-                    if (sel==='varek') { setTimeout(()=>get().setScreen('gameover'),300); return {...u,hp:0}; }
+                    if (sel==='varek') { setTimeout(()=>get().setScreen(SCREEN.GAME_OVER),300); return {...u,hp:0}; }
                     return {...u,hp:0,fallen:true,raiseTurn:prev.ms.turn};
                   }
                   return {...u,hp:nh};
@@ -1452,7 +1455,7 @@ export const useGameStore = create(
                 if (u.id !== sel) return u;
                 const nh = u.hp - rdmg;
                 if (nh <= 0) {
-                  if (sel==='varek') { setTimeout(()=>get().setScreen('gameover'),300); return {...u,hp:0}; }
+                  if (sel==='varek') { setTimeout(()=>get().setScreen(SCREEN.GAME_OVER),300); return {...u,hp:0}; }
                   logs.push(`${u.name} falls!`);
                   return {...u,hp:0,fallen:true,raiseTurn:prev.ms.turn};
                 }
@@ -2251,7 +2254,7 @@ export const useGameStore = create(
               if (v.id !== tgt.id) return v;
               const nh = v.hp - dmg;
               if (nh <= 0) {
-                if (v.id==='varek') { setTimeout(() => get().setScreen('gameover'), 300); return { ...v, hp:0 }; }
+                if (v.id==='varek') { setTimeout(() => get().setScreen(SCREEN.GAME_OVER), 300); return { ...v, hp:0 }; }
                 logs.push(`${v.name} falls!`);
                 // death_burst conditional: boss deals 2 dmg to all adjacent on death
                 if (v.isBoss && v.bossConditional === 'death_burst') {
@@ -2312,7 +2315,7 @@ export const useGameStore = create(
               if (ht % 2 === 0) {
                 const nh = u.hp - 1;
                 logs.push(`☩ Holy ground weakens Varek (-1hp).`);
-                if (nh <= 0) { setTimeout(() => get().setScreen('gameover'), 300); return { ...u, hp:0, holyTurns:ht }; }
+                if (nh <= 0) { setTimeout(() => get().setScreen(SCREEN.GAME_OVER), 300); return { ...u, hp:0, holyTurns:ht }; }
                 return { ...u, hp:nh, holyTurns:ht };
               }
               return { ...u, holyTurns:ht };
@@ -2340,7 +2343,7 @@ export const useGameStore = create(
               if (remaining > 0) nextEffects.push({ ...fx, duration: remaining });
             }
             const fallen2 = hp <= 0 && !u.fallen;
-            if (fallen2 && u.type === UT.VAREK) { setTimeout(() => get().setScreen('gameover'), 300); }
+            if (fallen2 && u.type === UT.VAREK) { setTimeout(() => get().setScreen(SCREEN.GAME_OVER), 300); }
             return {
               ...u, hp: Math.max(0, hp),
               statusEffects: nextEffects,
