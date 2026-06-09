@@ -168,6 +168,7 @@ export const useGameStore = create(
           abilityArmed: false,
           bondedArmed: varekBondedArmed,
         };
+        const deployedUndeadIds = activeRoster.map(u => u.id);
         const activeUndead = activeRoster
           .map((u, i) => {
             const slot = spawnSlots[1 + i] ?? { x: spawnX+1+i, y: spawnY };
@@ -244,7 +245,7 @@ export const useGameStore = create(
         const revealedTiles = revealTraps(missionTiles, initialUnits);
         const bossLog = boss ? [`⚠️ A powerful presence stirs — ${boss.name} lurks within!`] : [];
         set({
-          ms:    { tiles:revealedTiles, units:initialUnits, turn:1, loot:[], keys:[], width:mapW, height:mapH, objective, locationId:locId },
+          ms:    { tiles:revealedTiles, units:initialUnits, turn:1, loot:[], keys:[], width:mapW, height:mapH, objective, locationId:locId, deployedUndeadIds },
           noise: md === 'raid' ? 30 : 0,
           loc:   location,
           mode:  md,
@@ -285,8 +286,19 @@ export const useGameStore = create(
         }
 
         // ── Unit / roster resolution ──────────────────────────────────────
-        const surv  = units.filter(u => u.type === UT.UNDEAD && !u.fallen);
+        const rosterIds = new Set(roster.map(u => u.id));
+        const deployedUndeadIds = currentMs?.deployedUndeadIds ?? roster.filter(u => !u.atBase).map(u => u.id);
+        const deployedIdSet = new Set(deployedUndeadIds);
         const luqExtra = [];
+        let surv = units.filter(u => u.type === UT.UNDEAD && !u.fallen);
+        const fallenDeployed = deployedUndeadIds
+          .map(id => units.find(u => u.id === id) ?? roster.find(u => u.id === id))
+          .filter(u => u && (u.fallen || !surv.some(su => su.id === u.id)));
+        const gainedUnits = surv.filter(u => !rosterIds.has(u.id));
+        const survivalUnits = surv.filter(u => deployedIdSet.has(u.id));
+        survivalUnits.forEach(u => {
+          surv = applyXpToUnits(surv, u.id, 1, luqExtra);
+        });
         let varek = units.find(u => u.id === 'varek');
 
         if (varek && varekXpBonus > 0) {
@@ -315,6 +327,7 @@ export const useGameStore = create(
         if (quarryCount > 0) { newInv.scrap_iron = (newInv.scrap_iron||0)+quarryCount*2; logs.push(`⛏ ${quarryCount} quarr${quarryCount!==1?'ies':'y'} yield${quarryCount===1?'s':''} ${quarryCount*2} scrap iron.`); }
 
         if (success) logs.push(`✓ Secured ${finalLoot.length} item${finalLoot.length!==1?'s':''} — return to Sanctuary to deposit.`);
+        if (survivalUnits.length) logs.push(`+1 survival XP: ${survivalUnits.map(u => u.pname ?? u.name).join(', ')}.`);
 
         // ── Boss kill: mark location cleared, unlock bestiary abilities ──
         const killedBoss = units.find(u => u.isBoss && u.fallen);
@@ -356,6 +369,9 @@ export const useGameStore = create(
             logs,
             leveled: luqExtra.length,
             clearedLocation: clearedCabin,
+            fallenUnits: fallenDeployed.map(u => ({ id:u.id, name:u.pname ?? u.name, className:u.cls ?? u.dc ?? 'Undead', emoji:u.emoji ?? '☠' })),
+            gainedUnits: gainedUnits.map(u => ({ id:u.id, name:u.pname ?? u.name, className:u.cls ?? u.dc ?? 'Undead', emoji:u.emoji ?? '☠' })),
+            survivalXpUnits: survivalUnits.map(u => ({ id:u.id, name:u.pname ?? u.name, className:u.cls ?? u.dc ?? 'Undead', emoji:u.emoji ?? '☠' })),
           },
           screen:SCREEN.MISSION_RESULTS,
           log: [...logs, ...s.log].slice(0, 14),

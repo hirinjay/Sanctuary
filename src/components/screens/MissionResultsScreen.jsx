@@ -1,6 +1,7 @@
 import { useGameStore } from '../../store/gameStore';
 import { item } from '../../data/items';
 import LevelUpModal from '../mission/LevelUpModal';
+import { SCREEN } from '../../state/screens';
 
 export default function MissionResultsScreen() {
   const result = useGameStore(s => s.missionResult);
@@ -14,7 +15,7 @@ export default function MissionResultsScreen() {
         <div style={panel}>
           <h2 style={title}>Encounter Resolved</h2>
           <p style={muted}>No mission summary is available.</p>
-          <button onClick={() => setScreen('world')} style={primaryBtn(true)}>Return to Map</button>
+          <button onClick={() => setScreen(SCREEN.WORLD)} style={primaryBtn(true)}>Return to Map</button>
         </div>
       </div>
     );
@@ -25,6 +26,9 @@ export default function MissionResultsScreen() {
     return acc;
   }, {});
   const hasPendingLevelUp = luq.length > 0;
+  const fallenUnits = result.fallenUnits ?? [];
+  const gainedUnits = result.gainedUnits ?? [];
+  const survivalXpUnits = result.survivalXpUnits ?? [];
 
   return (
     <div style={page}>
@@ -44,6 +48,31 @@ export default function MissionResultsScreen() {
               })}
             </div>
           ) : <div style={empty}>Nothing secured</div>}
+        </div>
+
+        <div style={section}>
+          <div style={label}>Company</div>
+          {survivalXpUnits.length > 0 && (
+            <div style={{ marginBottom:8 }}>
+              <div style={subLabel}>Survived +1 XP</div>
+              {survivalXpUnits.map(u => <div key={u.id} style={row}>{u.emoji} {u.name} <span style={mutedInline}>{u.className}</span></div>)}
+            </div>
+          )}
+          {fallenUnits.length > 0 && (
+            <div style={{ marginBottom:8 }}>
+              <div style={{ ...subLabel, color:'#8a4a4a' }}>Fallen</div>
+              {fallenUnits.map(u => <div key={u.id} style={row}>{u.emoji} {u.name} <span style={mutedInline}>{u.className}</span></div>)}
+            </div>
+          )}
+          {gainedUnits.length > 0 && (
+            <div>
+              <div style={{ ...subLabel, color:'#5a8a5a' }}>Raised</div>
+              {gainedUnits.map(u => <div key={u.id} style={row}>{u.emoji} {u.name} <span style={mutedInline}>{u.className}</span></div>)}
+            </div>
+          )}
+          {survivalXpUnits.length === 0 && fallenUnits.length === 0 && gainedUnits.length === 0 && (
+            <div style={empty}>No company changes</div>
+          )}
         </div>
 
         {(result.logs ?? []).length > 0 && (
@@ -86,6 +115,8 @@ const muted = { color:'#6a6a55', fontSize:12, margin:'0 0 18px' };
 const section = { borderTop:'1px solid #151522', paddingTop:12, marginTop:12, textAlign:'left' };
 const label = { color:'#4a5a4a', fontSize:10, letterSpacing:1, textTransform:'uppercase', marginBottom:7 };
 const row = { color:'#a89572', fontSize:12, lineHeight:1.5 };
+const subLabel = { color:'#7898b8', fontSize:10, marginBottom:3 };
+const mutedInline = { color:'#4a4a55', fontSize:10, marginLeft:6 };
 const empty = { color:'#3a3a45', fontSize:12 };
 const notice = {
   margin:'16px 0 0', border:'1px solid #27364a', background:'#080d16', borderRadius:5,
