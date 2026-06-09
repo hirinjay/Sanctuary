@@ -4,22 +4,44 @@ import { CLASSES, getAvailablePromotions } from '../../data/classes';
 import { ABILITIES } from '../../data/abilities';
 
 export default function LevelUpModal() {
-  const { luq, ms, roster, book, applyLu, applyPromotionFromLu } = useGameStore(s => ({
-    luq: s.luq, ms: s.ms, roster: s.roster, book: s.book,
-    applyLu: s.applyLu, applyPromotionFromLu: s.applyPromotionFromLu,
+  const { luq, ms, roster, book, applyLu, applyPromotionFromLu, dismissLevelUp } = useGameStore(s => ({
+    luq: s.luq ?? [], ms: s.ms, roster: s.roster ?? [], book: s.book,
+    applyLu: s.applyLu, applyPromotionFromLu: s.applyPromotionFromLu, dismissLevelUp: s.dismissLevelUp,
   }));
   const [selClassId, setSelClassId] = useState(null);
 
   if (!luq.length) return null;
 
   const { uid, opts, type } = luq[0];
-  const u = ms?.units.find(x => x.id === uid) ?? roster.find(x => x.id === uid);
+  const u = ms?.units?.find(x => x.id === uid) ?? roster.find(x => x.id === uid);
 
   const overlay = {
     position:'fixed', inset:0, background:'#000d', display:'flex',
     flexDirection:'column', alignItems:'center', justifyContent:'center',
     textAlign:'center', zIndex:50, fontFamily:'Georgia,serif', color:'#c4a882', padding:16,
   };
+  const panel = {
+    background:'#06090f', border:'1px solid #2a2a4a', borderRadius:10,
+    padding:'22px 20px', maxWidth:'94vw', boxShadow:'0 12px 40px #000a',
+  };
+  const recoverButton = (label = 'Continue') => (
+    <button onClick={dismissLevelUp} style={{
+      marginTop:16, background:'#0a141e', border:'1px solid #3a5a8a', borderRadius:5,
+      padding:'9px 18px', color:'#7aa0c8', cursor:'pointer', fontSize:12,
+    }}>{label}</button>
+  );
+
+  if (!u) {
+    return (
+      <div style={overlay}>
+        <div style={panel}>
+          <h2 style={{ color:'#e8d5b0', margin:'0 0 8px', fontSize:18 }}>Level Up Interrupted</h2>
+          <p style={{ color:'#7a7a5a', margin:0, fontSize:12 }}>This level-up entry no longer matches a unit in the encounter.</p>
+          {recoverButton()}
+        </div>
+      </div>
+    );
+  }
 
   // ── Class promotion at level 2 ─────────────────────────────────────────
   if (type === 'class_promotion') {
@@ -29,6 +51,7 @@ export default function LevelUpModal() {
     if (!selClassId) {
       return (
         <div style={overlay}>
+          <div style={panel}>
           <div style={{ fontSize:32, marginBottom:8 }}>⬆️</div>
           <h2 style={{ color:'#e8d5b0', marginBottom:4, fontSize:20 }}>Choose a Class</h2>
           <p style={{ color:'#7a7a5a', marginBottom:16, fontSize:12 }}>
@@ -58,6 +81,8 @@ export default function LevelUpModal() {
               <div style={{ color:'#5a3a3a', fontSize:12 }}>No classes unlocked for this unit type.</div>
             )}
           </div>
+          {classes.length === 0 && recoverButton()}
+          </div>
         </div>
       );
     }
@@ -65,6 +90,7 @@ export default function LevelUpModal() {
     const cls = CLASSES[selClassId];
     return (
       <div style={overlay}>
+        <div style={panel}>
         <div style={{ fontSize:28, marginBottom:6 }}>{cls?.emoji}</div>
         <h2 style={{ color:'#e8d5b0', marginBottom:4, fontSize:18 }}>{cls?.name}</h2>
         <p style={{ color:'#7a7a5a', marginBottom:16, fontSize:12 }}>Choose a class ability:</p>
@@ -85,10 +111,12 @@ export default function LevelUpModal() {
             );
           })}
         </div>
+        {(cls?.abilityChoice ?? []).length === 0 && recoverButton()}
         <button onClick={() => setSelClassId(null)} style={{
           marginTop:16, background:'none', border:'1px solid #2a2a3a', borderRadius:4,
           padding:'5px 12px', color:'#4a4a5a', cursor:'pointer', fontSize:11,
         }}>← Back</button>
+        </div>
       </div>
     );
   }
@@ -104,6 +132,7 @@ export default function LevelUpModal() {
 
   return (
     <div style={overlay}>
+      <div style={panel}>
       <div style={{ fontSize:32, marginBottom:8 }}>⬆️</div>
       <h2 style={{ color:'#e8d5b0', marginBottom:5, fontSize:20 }}>Level Up!</h2>
       <p style={{ color:'#7a7a5a', marginBottom:8, fontSize:12 }}>
@@ -124,6 +153,8 @@ export default function LevelUpModal() {
             <div style={{ fontSize:10, color:'#4a5a4a', marginTop:4 }}>{o.desc}</div>
           </button>
         ))}
+      </div>
+      {filteredOpts.length === 0 && recoverButton()}
       </div>
     </div>
   );
