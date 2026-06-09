@@ -132,6 +132,9 @@ export const useGameStore = create(
         // Strip loot/specials that ended up in disconnected areas, then find valid spawn slots
         const tiles = cullUnreachable(rawTiles, spawnX, spawnY);
         const spawnSlots = findSpawnSlots(tiles, spawnX, spawnY, 1 + activeRoster.length);
+        const varekAbils = vp.varekAbilities ?? [];
+        const varekAbilUses = Object.fromEntries(varekAbils.map(aid => [aid, ABILITIES[aid]?.usesPerEncounter ?? 0]));
+        const varekBondedArmed = Object.fromEntries(varekAbils.map(aid => [aid, ABILITIES[aid]?.type === 'reactive']));
         const varek = {
           id:'varek', type:UT.VAREK, name:'Varek', emoji:'🧙',
           x: spawnSlots[0]?.x ?? spawnX, y: spawnSlots[0]?.y ?? spawnY, ...vp,
@@ -139,6 +142,10 @@ export const useGameStore = create(
           trapReveal: vp.trapReveal || 1,
           ap:2, fallen:false, raiseTurn:null,
           statusEffects: [],
+          bondedAbilities: varekAbils,
+          abilityUses: varekAbilUses,
+          abilityArmed: false,
+          bondedArmed: varekBondedArmed,
         };
         const activeUndead = activeRoster
           .map((u, i) => {
@@ -471,6 +478,24 @@ export const useGameStore = create(
           return {
             roster: s.roster.filter(r => r.id !== sacrificeId).map(r => r.id === unitId ? promoted : r),
             log: [`⚗️ ${u.pname} ascends to ${cls.name}!${sacLog}`, ...s.log].slice(0, 14),
+          };
+        });
+        debouncedSave(get);
+      },
+
+      ascendVarek(choice) {
+        set(s => {
+          const newAscensions = (s.vp.varekAscensions || 0) + 1;
+          if (choice === 'dmg') {
+            return {
+              vp: { ...s.vp, dmg: (s.vp.dmg || 2) + 2, varekAscensions: newAscensions },
+              log: [`🧙 Varek ascends — Drain +2! (now ${(s.vp.dmg || 2) + 2})`, ...s.log].slice(0, 14),
+            };
+          }
+          const ab = ABILITIES[choice];
+          return {
+            vp: { ...s.vp, varekAbilities: [...(s.vp.varekAbilities || []), choice], varekAscensions: newAscensions },
+            log: [`🧙 Varek ascends — learned ${ab?.name ?? choice}!`, ...s.log].slice(0, 14),
           };
         });
         debouncedSave(get);
@@ -1437,6 +1462,13 @@ export const useGameStore = create(
             }),
           },
         }));
+      },
+
+      waitUnit(unitId) {
+        set(prev => {
+          if (!prev.ms) return prev;
+          return { ms: { ...prev.ms, units: prev.ms.units.map(u => u.id === unitId ? { ...u, ap:0 } : u) } };
+        });
       },
 
       // ── Active ability activation ─────────────────────────────────────
