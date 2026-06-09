@@ -101,7 +101,7 @@ export default function MissionScreen() {
     dist(varek, u) <= varek.raiseRange && (turn - u.raiseTurn) <= rw
   );
 
-  if (luq.length > 0) return <LevelUpModal />;
+  const pendingLevelUp = (luq ?? []).length > 0;
 
   function handleSelect(u) {
     if (u.fallen) return;
@@ -255,6 +255,8 @@ export default function MissionScreen() {
 
   return (
     <div style={pg}>
+
+      {pendingLevelUp && <LevelUpModal />}
 
       {/* ── Top: header + objective ───────────────────────────────────── */}
       <div style={{ flexShrink:0, padding:'6px 9px 0' }}>

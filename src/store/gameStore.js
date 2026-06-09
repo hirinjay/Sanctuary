@@ -92,6 +92,7 @@ export const useGameStore = create(
       setPhase:    (phase)    => set({ phase }),
 
       addLog: (msg) => set(s => ({ log: [msg, ...s.log].slice(0, 14) })),
+      dismissLevelUp: () => set(s => ({ luq: (s.luq ?? []).slice(1) })),
 
       // ── Tether info (helper) ─────────────────────────────────────────
       // fieldCap = baseCap = tetherCap. Total roster cap = tetherCap * 2.
