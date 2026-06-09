@@ -5,10 +5,12 @@ import { item } from '../../data/items';
 import { moveRange, fog, dist } from '../../systems/map';
 import { xpNext } from '../../systems/combat';
 import MissionMap from '../mission/MissionMap';
+import MissionMobileLayout from '../mission/MissionMobileLayout';
 import UnitBar from '../mission/UnitBar';
 import RaisePanel from '../mission/RaisePanel';
 import LevelUpModal from '../mission/LevelUpModal';
 import { ABILITIES } from '../../data/abilities';
+import useIsMobile from '../../hooks/useIsMobile';
 
 // Abilities that need a target enemy click before firing
 const UNIT_TARGET_ABILITIES = new Set([
@@ -52,6 +54,7 @@ export default function MissionScreen() {
   const hilightRef                  = useRef(new Set());
   const [abilityMode, setAbilityMode] = useState(null);
   const [autoEnd, setAutoEnd]       = useState(true);
+  const isMobile = useIsMobile();
 
   // Auto-end: fire when units or toggle change — if all friendlies are out of AP, end the turn
   useEffect(() => {
@@ -201,6 +204,37 @@ export default function MissionScreen() {
   const noiseColor = noise < 30 ? '#3a7a3a' : noise < 60 ? '#7a6a2a' : '#7a2a2a';
   const noiseLabel = noise < 30 ? 'Quiet (👁3)' : noise < 60 ? 'Tense (👁4)' : 'Alert! (👁5)';
 
+  function handleRetreat() {
+    const kept = [], dropped = [];
+    ms.loot.forEach(id => { (Math.random()<0.25 ? dropped : kept).push(id); });
+    const bagLost = [];
+    if (!sanctuaryPos && travelBag) {
+      Object.entries(travelBag).forEach(([id, cnt]) => {
+        for (let i = 0; i < cnt; i++) {
+          if (Math.random() < 0.25) bagLost.push(id);
+        }
+      });
+      if (bagLost.length) {
+        bagLost.forEach(id => {
+          if (!travelBag[id]) return;
+          useGameStore.setState(s => {
+            const nb = { ...s.travelBag };
+            nb[id] = Math.max(0, (nb[id]||0) - 1);
+            if (!nb[id]) delete nb[id];
+            return { travelBag: nb };
+          });
+        });
+      }
+    }
+    const allDropped = [...dropped, ...bagLost];
+    const msg = allDropped.length > 0
+      ? '🏃 Retreating! Lost: ' + allDropped.map(id => item(id)?.name||id).join(', ')
+      : '🏃 Retreating — nothing lost this time.';
+    addLog(msg);
+    if (!sanctuaryPos && bagLost.length) addLog('⚠ No sanctuary — travel bag was also at risk.');
+    endMission(ms.units, kept);
+  }
+
   // ── Build legend entries for this encounter ──────────────────────────
   const legendEntries = (() => {
     const out = [];
@@ -252,6 +286,22 @@ export default function MissionScreen() {
 
     return out;
   })();
+
+  if (isMobile) {
+    return (
+      <MissionMobileLayout
+        ms={ms} units={units} tiles={tiles} mapW={mapW} fv={fv} hilight={hilight} raiseable={raiseable}
+        theme={theme} loc={loc} mode={mode} turn={turn} varek={varek} t={t} fieldTether={fieldTether}
+        noiseColor={noiseColor} sel={sel} selUnit={selUnit} phase={phase} log={log} luq={luq} book={book}
+        abilityMode={abilityMode} setAbilityMode={setAbilityMode} handleSelect={handleSelect}
+        handleCellClick={handleCellClick} clearSel={clearSel} doUseKey={doUseKey} disarmTrap={disarmTrap}
+        doAbility={doAbility} toggleAbilityArmed={toggleAbilityArmed} waitUnit={waitUnit}
+        endTurn={endTurn} autoEnd={autoEnd} setAutoEnd={setAutoEnd}
+        adjacentTrapTarget={adjacentTrapTarget} adjacentKeyTarget={adjacentKeyTarget}
+        handleRetreat={handleRetreat}
+      />
+    );
+  }
 
   return (
     <div style={pg}>
@@ -566,40 +616,7 @@ export default function MissionScreen() {
             🔑 Use Key
           </button>
         )}
-        <button onClick={() => {
-          const kept = [], dropped = [];
-          // Current mission loot always at risk
-          ms.loot.forEach(id => { (Math.random()<0.25 ? dropped : kept).push(id); });
-          // No sanctuary: travelBag is also at risk — everything Varek carries can be lost
-          const bagLost = [];
-          if (!sanctuaryPos && travelBag) {
-            Object.entries(travelBag).forEach(([id, cnt]) => {
-              for (let i = 0; i < cnt; i++) {
-                if (Math.random() < 0.25) bagLost.push(id);
-              }
-            });
-            if (bagLost.length) {
-              // Remove lost items from the travelBag via endMission's bag update
-              bagLost.forEach(id => {
-                if (!travelBag[id]) return;
-                useGameStore.setState(s => {
-                  const nb = { ...s.travelBag };
-                  nb[id] = Math.max(0, (nb[id]||0) - 1);
-                  if (!nb[id]) delete nb[id];
-                  return { travelBag: nb };
-                });
-              });
-            }
-          }
-          const allDropped = [...dropped, ...bagLost];
-          const msg = allDropped.length > 0
-            ? `🏃 Retreating! Lost: ${allDropped.map(id => item(id)?.name||id).join(', ')}`
-            : '🏃 Retreating — nothing lost this time.';
-          addLog(msg);
-          if (!sanctuaryPos && bagLost.length)
-            addLog('⚠ No sanctuary — travel bag was also at risk.');
-          endMission(ms.units, kept);
-        }} style={btn(true,'#4a4a8a')}>
+        <button onClick={handleRetreat} style={btn(true,'#4a4a8a')}>
           🏃 Retreat
         </button>
         <button
