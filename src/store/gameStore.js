@@ -92,6 +92,11 @@ export const useGameStore = create(
         }
         set({ screen:nextScreen });
       },
+      goHome: () => get().setScreen(SCREEN.HOME),
+      returnToWorld: () => get().setScreen(SCREEN.WORLD),
+      enterSanctuary: () => get().setScreen(SCREEN.SANCTUARY),
+      openSanctuaryMap: () => get().setScreen(SCREEN.SANCTUARY_MAP),
+      openBestiary: () => get().setScreen(SCREEN.BESTIARY),
       setEquipTgt: (id)       => set({ equipTgt: id }),
       setPhase:    (phase)    => set({ phase }),
 

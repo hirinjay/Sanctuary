@@ -209,7 +209,7 @@ function ClassGroup({ label, classes, promotedClasses }) {
 }
 
 export default function BestiaryScreen() {
-  const { bestiary, roster, setScreen } = useGameStore();
+  const { bestiary, roster, enterSanctuary } = useGameStore();
   const [tab, setTab] = useState(TAB_ENEMIES);
 
   const promotedClasses = new Set(roster.map(u => u.classId).filter(Boolean));
@@ -243,7 +243,7 @@ export default function BestiaryScreen() {
       <div style={{ maxWidth:500, margin:'0 auto' }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
           <h2 style={{ color:'#e8d5b0', margin:0, fontSize:16, letterSpacing:2 }}>📖 BESTIARY</h2>
-          <button onClick={() => setScreen('sanctuary')} style={{
+          <button onClick={() => enterSanctuary()} style={{
             background:'none', border:'1px solid #2a2a3a', borderRadius:5,
             padding:'5px 10px', color:'#4a5a4a', cursor:'pointer', fontSize:11,
           }}>← Back</button>

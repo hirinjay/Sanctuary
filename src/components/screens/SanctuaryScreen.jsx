@@ -22,7 +22,7 @@ function btn(on, c) {
 
 export default function SanctuaryScreen() {
   const { vp, roster, inv, nodes, travelBag, sanctuaryPos, book,
-          setScreen, setEquipTgt, ti, depositLoot, ascendUnit, rebirthUnit, ascendVarek } = useGameStore();
+          setEquipTgt, ti, depositLoot, ascendUnit, rebirthUnit, ascendVarek, returnToWorld, openSanctuaryMap, openBestiary, goHome } = useGameStore();
   const set = useGameStore.setState;
   const t = ti(null);
   const [ascendingId, setAscendingId] = useState(null);
@@ -530,22 +530,22 @@ export default function SanctuaryScreen() {
         })()}
 
         <div style={{ display:'flex', gap:8 }}>
-          <button onClick={() => setScreen('world')} style={{
+          <button onClick={() => returnToWorld()} style={{
             ...btn(true,'#6a6aaa'), flex:1, padding:12, fontSize:12,
           }}>
             ⬡ World Map
           </button>
-          <button onClick={() => setScreen('sanctuarymap')} style={{
+          <button onClick={() => openSanctuaryMap()} style={{
             ...btn(true,'#4a8a4a'), flex:1, padding:12, fontSize:12,
           }}>
             🗺 View Map
           </button>
-          <button onClick={() => setScreen('bestiary')} style={{
+          <button onClick={() => openBestiary()} style={{
             ...btn(true,'#5a4a7a'), padding:'12px 18px', fontSize:12,
           }}>
             📖 Bestiary
           </button>
-          <button onClick={() => setScreen('home')} style={{
+          <button onClick={() => goHome()} style={{
             ...btn(true,'#4a4a6a'), padding:'12px 18px', fontSize:12,
           }}>
             🏚 Home
