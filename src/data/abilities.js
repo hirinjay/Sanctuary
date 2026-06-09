@@ -385,4 +385,51 @@ export const ABILITIES = {
     desc:'When HP hits 0, triggers survival AND deals 3 dmg to all adjacent enemies.',
     usesPerEncounter:null,
   },
+
+  // ── Varek achievement-gated abilities ────────────────────────────────
+  tether_pulse: {
+    id:'tether_pulse', name:'Tether Pulse', type:'active',
+    desc:'All undead within 3 tiles restore 1 HP. Cannot be used if last encounter was fled.',
+    usesPerEncounter:1,
+  },
+  pale_ward: {
+    id:'pale_ward', name:'Pale Ward', type:'active',
+    desc:'One adjacent undead takes no damage from the next hit this encounter.',
+    usesPerEncounter:1,
+  },
+  desecrate: {
+    id:'desecrate', name:'Desecrate', type:'active',
+    desc:'Drain hits all living units in drain range simultaneously.',
+    usesPerEncounter:1,
+  },
+  varek_mark: {
+    id:'varek_mark', name:'Mark', type:'active',
+    desc:'Target enemy takes +1 dmg from all sources this turn.',
+    usesPerEncounter:1,
+  },
+  reclaim: {
+    id:'reclaim', name:'Reclaim', type:'active',
+    desc:'Immediately raise your own fallen undead within 3 tiles at 50% HP.',
+    usesPerEncounter:1,
+  },
+  phantom_sight: {
+    id:'phantom_sight', name:'Phantom Sight', type:'active',
+    desc:'Reveal all living enemy positions on the map for 2 turns.',
+    usesPerEncounter:1,
+  },
+  grief: {
+    id:'grief', name:'Grief', type:'passive',
+    desc:'All undead +1 DMG permanently (gained after Sanctuary is lost to a raid).',
+    usesPerEncounter:null,
+  },
+  grave_knowledge: {
+    id:'grave_knowledge', name:'Grave Knowledge', type:'passive',
+    desc:'Arcane dust found in +1 quantity per find.',
+    usesPerEncounter:null,
+  },
+  unravel: {
+    id:'unravel', name:'Unravel', type:'passive',
+    desc:'On kill, 20% chance to automatically raise the fallen enemy at degraded stats.',
+    usesPerEncounter:null,
+  },
 };

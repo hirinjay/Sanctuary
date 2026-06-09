@@ -13,15 +13,19 @@ import { ABILITIES } from '../../data/abilities';
 // Abilities that need a target enemy click before firing
 const UNIT_TARGET_ABILITIES = new Set([
   'rend','consume','consume_gw','devour','devour_titan','frenzy',
-  'overgrowth_strike','entangling_shot','stranglehold','death_mark','shove',
+  'overgrowth_strike','entangling_shot','scatter_shot','volley',
+  'stranglehold','death_mark','varek_mark','shove',
 ]);
+// Abilities that need an allied unit click before firing
+const ALLY_TARGET_ABILITIES = new Set(['pale_ward','reclaim']);
 // Abilities that need a target cell click (e.g. phase destination)
 const CELL_TARGET_ABILITIES = new Set(['phase']);
 // Abilities that fire immediately with no targeting
 const SELF_ABILITIES = new Set([
   'intimidate','entangle','mass_entangle','mass_entangle_warden',
   'shockwave','overclock','rain_of_arrows','barrage','vanish',
-  'ambush','superior_ambush',
+  'ambush','superior_ambush','thornfield','thornfield_shot','stranglehold_field',
+  'tether_pulse','desecrate','phantom_sight',
 ]);
 
 const pg = { background:'#040810', height:'100vh', overflow:'hidden', display:'flex', flexDirection:'column', fontFamily:'Georgia,serif', color:'#c4a882', boxSizing:'border-box', userSelect:'none' };
@@ -101,9 +105,9 @@ export default function MissionScreen() {
 
   function handleSelect(u) {
     if (u.fallen) return;
-    if (u.ap <= 0) { addLog(`${u.name} has no AP.`); return; }
     if (sel === u.id) { clearSel(); return; }
     setSel(u.id);
+    if (u.ap <= 0) { setHL(new Set()); return; }
     // Apply slow: halve move range (rounded down)
     const hasSlow = u.statusEffects?.some(fx => fx.id === 'slow');
     const hasStun = u.statusEffects?.some(fx => fx.id === 'stun');
@@ -128,6 +132,16 @@ export default function MissionScreen() {
           setAbilityMode(null);
         } else if (live && live.id !== sel) {
           setAbilityMode(null); // clicked wrong unit — cancel
+        }
+        return;
+      }
+      if (ALLY_TARGET_ABILITIES.has(abilityMode)) {
+        const target = u && (!u.fallen || abilityMode === 'reclaim') ? u : null;
+        if (target?.type !== UT.ENEMY && target.id !== sel) {
+          doAbility(sel, abilityMode, null, null, target.id);
+          setAbilityMode(null);
+        } else if (target) {
+          setAbilityMode(null);
         }
         return;
       }
@@ -523,7 +537,7 @@ export default function MissionScreen() {
         {/* Hint */}
         <div style={{ fontSize:10, color:'#2a3a2a', marginBottom:4 }}>
           {abilityMode
-            ? `${ABILITIES[abilityMode]?.name}: ${UNIT_TARGET_ABILITIES.has(abilityMode) ? 'tap an enemy' : CELL_TARGET_ABILITIES.has(abilityMode) ? 'tap destination cell' : '...'}`
+            ? `${ABILITIES[abilityMode]?.name}: ${UNIT_TARGET_ABILITIES.has(abilityMode) ? 'tap an enemy' : ALLY_TARGET_ABILITIES.has(abilityMode) ? 'tap an ally' : CELL_TARGET_ABILITIES.has(abilityMode) ? 'tap destination cell' : '...'}`
             : selUnit ? `${selUnit.name} — tap green to move, tap enemy to attack` : 'Tap a unit to select'}
         </div>
 

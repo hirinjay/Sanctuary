@@ -21,7 +21,7 @@ export default function App() {
   useEffect(() => {
     let alive = true;
 
-    async function showSaveSelect(session) {
+    async function hydrateSession(session, event) {
       if (!alive) return;
 
       if (!session) {
@@ -33,11 +33,15 @@ export default function App() {
 
       setCurrentUser(session.user);
       setSaveSlots(await loadSaveSlots(session.user.id));
-      setScreen('home');
+
+      const state = useGameStore.getState();
+      const shouldForceSaveSelect = event === 'SIGNED_IN'
+        || (!state.activeSlot && !['home', 'bestiary', 'gameover'].includes(state.screen));
+      if (shouldForceSaveSelect) setScreen('home');
     }
 
-    getSession().then(showSaveSelect);
-    const unsub = onAuthStateChange(showSaveSelect);
+    getSession().then(session => hydrateSession(session, null));
+    const unsub = onAuthStateChange((session, event) => hydrateSession(session, event));
 
     return () => {
       alive = false;
@@ -45,7 +49,7 @@ export default function App() {
     };
   }, [setCurrentUser, setSaveSlots, setScreen]);
 
-  if (!activeSlot && screen !== 'home' && screen !== 'bestiary') {
+  if (!activeSlot && !['home', 'bestiary', 'gameover'].includes(screen)) {
     return <HomeScreen />;
   }
   switch (screen) {
