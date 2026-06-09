@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useGameStore } from '../../store/gameStore';
 import { ARCHETYPES, CLASS_STATS } from '../../data/archetypes';
+import { ENEMY_TYPES } from '../../data/enemies';
 import { CLASSES } from '../../data/classes';
 import { BOOKS } from '../../data/books';
 import { ABILITIES } from '../../data/abilities';
@@ -16,7 +17,7 @@ const TAB_UNDEAD  = 'undead';
 // Base undead classes — always visible in the undead tab
 const BASE_UNDEAD = [
   { id:'skeleton_warrior', name:'Skeleton Warrior', emoji:'💀', dc:'Skeleton Warrior', stats: CLASS_STATS['Skeleton Warrior'], desc:'Melee combatant raised from fallen warriors. Balanced stats.' },
-  { id:'grave_stalker',    name:'Grave Stalker',    emoji:'🏹', dc:'Grave Stalker',    stats: CLASS_STATS['Grave Stalker'],    desc:'Ranged undead raised from scouts. Fast, fragile, long range.' },
+  { id:'grave_stalker',    name:'Grave Stalker',    emoji:'🏹', dc:'Grave Stalker',    stats: CLASS_STATS['Grave Stalker'],    desc:'Ranged undead raised from giant spiders. Fast, fragile, long range.' },
   { id:'grave_warden',     name:'Grave Warden',     emoji:'🛡', dc:'Grave Warden',     stats: CLASS_STATS['Grave Warden'],     desc:'Heavy undead raised from brutes. Slow, high HP and defense.' },
 ];
 
@@ -26,6 +27,10 @@ const BOSS_TYPES = [
   { key:'lich',              name:'Lich',              emoji:'🔮', locType:'dungeon' },
   { key:'raid_captain',      name:'Raid Captain',      emoji:'⚔️',  locType:'camp' },
   { key:'warlord',           name:'Warlord',           emoji:'🪓',  locType:'camp' },
+  { key:'raider_warchief',   name:'Raider Warchief',   emoji:'🏴',  locType:'camp' },
+  { key:'tower_keeper',      name:'Tower Keeper',      emoji:'🗼',  locType:'wizard_tower' },
+  { key:'arcane_warden',     name:'Arcane Warden',     emoji:'🔮',  locType:'wizard_tower' },
+  { key:'void_architect',    name:'Void Architect',    emoji:'👁️', locType:'wizard_tower' },
 ];
 
 const BOOK_ORDER = ['pale', 'flesh', 'verdant', 'tinker'];
@@ -51,36 +56,60 @@ function AbilityLine({ abilityId }) {
   );
 }
 
-function EnemyCard({ archetype, info }) {
-  const encountered = (info?.encounters ?? 0) > 0;
+function StatGrid({ a }) {
+  const rangeTag = a.attackRange > 1
+    ? <span style={{ background:'#1a3a5a22', border:'1px solid #3a6a9a44', borderRadius:3, padding:'0 5px', color:'#5a8aba', fontSize:9 }}>Ranged</span>
+    : <span style={{ background:'#2a1a0a22', border:'1px solid #6a4a2a44', borderRadius:3, padding:'0 5px', color:'#8a6a4a', fontSize:9 }}>Melee</span>;
   return (
-    <div style={{ ...card, opacity: encountered ? 1 : 0.5 }}>
-      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-        <span style={{ fontSize:20 }}>{encountered ? archetype.emoji : '❓'}</span>
-        <div>
-          <div style={{ color:'#e8d5b0', fontWeight:'bold', fontSize:13 }}>
-            {encountered ? archetype.name : '???'}
+    <div style={{ display:'flex', gap:10, flexWrap:'wrap', fontSize:10, color:'#4a6a5a', marginTop:5 }}>
+      <span>❤️ {a.hp}</span>
+      <span>⚔️ {a.dmg}</span>
+      <span>👟 {a.move}</span>
+      <span>👁 {a.sight}</span>
+      <span>🎯 {Math.round(a.spot * 100)}%</span>
+      {rangeTag}
+    </div>
+  );
+}
+
+function EnemyCard({ tier, info }) {
+  const encounters = info?.encounters ?? 0;
+  const encountered = encounters > 0;
+  return (
+    <div style={{ ...card, opacity: encountered ? 1 : 0.38, borderColor: encountered ? '#2a2a3a' : '#111118', marginBottom:5 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+        <span style={{ fontSize:19 }}>{encountered ? tier.emoji : '❓'}</span>
+        <div style={{ flex:1 }}>
+          <div style={{ display:'flex', alignItems:'baseline', gap:6 }}>
+            <span style={{ color: encountered ? '#e8d5b0' : '#3a3028', fontWeight:'bold', fontSize:12 }}>
+              {encountered ? tier.name : '???'}
+            </span>
+            <span style={{ fontSize:8, color:'#2a3a28', background:'#080e08', border:'1px solid #14201a', borderRadius:3, padding:'0 4px' }}>
+              T{tier.tier}
+            </span>
+            {encountered
+              ? <span style={{ fontSize:9, color:'#4a7a4a' }}>{encounters}×</span>
+              : <span style={{ fontSize:9, color:'#242420' }}>not yet encountered</span>}
           </div>
-          {encountered
-            ? <div style={{ fontSize:9, color:'#3a5a3a' }}>Encountered {info.encounters}× · Raises as {archetype.dc}</div>
-            : <div style={{ fontSize:9, color:'#3a3a3a' }}>Not yet encountered</div>}
+          {encountered && (
+            <div style={{ fontSize:9, color:'#3a5a3a', marginTop:1 }}>
+              Raises as <span style={{ color:'#7a6a56' }}>{tier.dc}</span>
+            </div>
+          )}
         </div>
-        {encountered && (
-          <div style={{ marginLeft:'auto', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'2px 10px', fontSize:9, color:'#4a6a5a' }}>
-            <span>❤️ {archetype.hp}</span>
-            <span>⚔️ {archetype.dmg}</span>
-            <span>👟 {archetype.move}</span>
-            <span>👁 {archetype.sight}</span>
-          </div>
-        )}
       </div>
-      {encountered && (info?.encounters ?? 0) >= 2 && (
-        <div style={{ fontSize:10, color:'#4a5a4a' }}>
-          Defeat to raise as <span style={{ color:'#c4a882' }}>{archetype.dc}</span> — unlock class tree in Ascension Forge.
+      {encountered && (
+        <div style={{ marginTop:5 }}>
+          {tier.desc && (
+            <div style={{ fontSize:10, color:'#525040', fontStyle:'italic', marginBottom:5 }}>{tier.desc}</div>
+          )}
+          <StatGrid a={tier} />
+          {encounters >= 2 && (
+            <div style={{ fontSize:10, color:'#4a5a4a', marginTop:5 }}>
+              Defeat to raise as <span style={{ color:'#c4a882' }}>{tier.dc}</span> — unlock class tree in Ascension Forge.
+            </div>
+          )}
         </div>
-      )}
-      {encountered && (info?.encounters ?? 0) < 2 && (
-        <div style={{ fontSize:10, color:'#3a4a3a', fontStyle:'italic' }}>Encounter again to learn more.</div>
       )}
     </div>
   );
@@ -255,9 +284,31 @@ export default function BestiaryScreen() {
           {tabBtn(TAB_UNDEAD,  '💀 Undead Classes')}
         </div>
 
-        {tab === TAB_ENEMIES && ARCHETYPES.map(a => (
-          <EnemyCard key={a.name} archetype={a} info={bestiary[a.dc]} />
-        ))}
+        {tab === TAB_ENEMIES && (() => {
+          const familiesByArchetype = {};
+          for (const et of ENEMY_TYPES) {
+            if (!familiesByArchetype[et.archetype]) familiesByArchetype[et.archetype] = [];
+            familiesByArchetype[et.archetype].push(et);
+          }
+          return ARCHETYPES.map(arch => (
+            <div key={arch.dc} style={{ marginBottom:20 }}>
+              <div style={{ fontSize:9, color:'#3a5a3a', textTransform:'uppercase', letterSpacing:2,
+                borderBottom:'1px solid #0e1616', paddingBottom:4, marginBottom:8 }}>
+                {arch.emoji} {arch.name}
+              </div>
+              {(familiesByArchetype[arch.name] ?? []).map((family, fi) => (
+                <div key={family.id} style={{ marginBottom: fi < (familiesByArchetype[arch.name]?.length ?? 1) - 1 ? 10 : 0 }}>
+                  {family.tiers.map(t => (
+                    <EnemyCard key={t.key} tier={t} info={bestiary[t.key]} />
+                  ))}
+                </div>
+              ))}
+              {!familiesByArchetype[arch.name]?.length && (
+                <div style={{ fontSize:10, color:'#1e2820', fontStyle:'italic' }}>No enemies discovered.</div>
+              )}
+            </div>
+          ));
+        })()}
 
         {tab === TAB_BOSSES && BOSS_TYPES.map(boss => (
           <BossCard key={boss.key} boss={boss} info={bestiary[boss.key]} />

@@ -7,6 +7,7 @@ export default function MissionResultsScreen() {
   const luq = useGameStore(s => s.luq ?? []);
   const continueFromMissionResult = useGameStore(s => s.continueFromMissionResult);
   const returnToWorld = useGameStore(s => s.returnToWorld);
+  const goDeeper = useGameStore(s => s.goDeeper);
 
   if (!result) {
     return (
@@ -28,6 +29,10 @@ export default function MissionResultsScreen() {
   const fallenUnits = result.fallenUnits ?? [];
   const gainedUnits = result.gainedUnits ?? [];
   const survivalXpUnits = result.survivalXpUnits ?? [];
+  const canGoDeeper = result.canGoDeeper ?? false;
+  const floor = result.floor ?? 1;
+  const maxFloor = result.maxFloor ?? 1;
+  const isMultiFloor = maxFloor > 1;
 
   return (
     <div style={page}>
@@ -36,6 +41,19 @@ export default function MissionResultsScreen() {
         <div style={{ fontSize:34, marginBottom:8 }}>{result.success ? '✓' : '↩'}</div>
         <h2 style={title}>{result.success ? 'Mission Complete' : 'Mission Ended'}</h2>
         <p style={muted}>{result.locationName}</p>
+        {isMultiFloor && (
+          <div style={{ display:'flex', justifyContent:'center', gap:6, marginBottom:12 }}>
+            {Array.from({ length: maxFloor }, (_, i) => i + 1).map(f => (
+              <div key={f} style={{
+                width:22, height:22, borderRadius:3, fontSize:10,
+                display:'flex', alignItems:'center', justifyContent:'center',
+                background: f < floor ? '#1a3a1a' : f === floor ? '#2a5a2a' : '#0a0a14',
+                border: `1px solid ${f < floor ? '#3a6a3a' : f === floor ? '#5a9a5a' : '#1a1a2a'}`,
+                color: f < floor ? '#5a9a5a' : f === floor ? '#9aca9a' : '#2a3a2a',
+              }}>{f < floor ? '✓' : f}</div>
+            ))}
+          </div>
+        )}
 
         <div style={section}>
           <div style={label}>Spoils</div>
@@ -93,9 +111,21 @@ export default function MissionResultsScreen() {
           <div style={notice}>Resolve level-up choices before returning to the world map.</div>
         )}
 
-        <button disabled={hasPendingLevelUp} onClick={continueFromMissionResult} style={primaryBtn(!hasPendingLevelUp)}>
-          Return to Map
-        </button>
+        {canGoDeeper ? (
+          <div style={{ display:'flex', flexDirection:'column', gap:8, marginTop:18 }}>
+            <button disabled={hasPendingLevelUp} onClick={() => { if (!hasPendingLevelUp) goDeeper(); }}
+              style={primaryBtn(!hasPendingLevelUp)}>
+              ↓ Go Deeper — Floor {floor + 1}
+            </button>
+            <button onClick={continueFromMissionResult} style={secondaryBtn}>
+              ↩ Retreat with Loot
+            </button>
+          </div>
+        ) : (
+          <button disabled={hasPendingLevelUp} onClick={continueFromMissionResult} style={primaryBtn(!hasPendingLevelUp)}>
+            Return to Map
+          </button>
+        )}
       </div>
     </div>
   );
@@ -122,7 +152,11 @@ const notice = {
   padding:'8px 10px', color:'#7898b8', fontSize:11,
 };
 const primaryBtn = (enabled) => ({
-  marginTop:18, width:'100%', background: enabled ? '#0a1a14' : '#06090f',
+  width:'100%', background: enabled ? '#0a1a14' : '#06090f',
   border: `1px solid ${enabled ? '#4a8a5a' : '#1a1a2a'}`, borderRadius:5,
   padding:'10px 0', color: enabled ? '#7ab87a' : '#2a3a2a', cursor: enabled ? 'pointer' : 'default', fontSize:13,
 });
+const secondaryBtn = {
+  width:'100%', background:'#0a0a14', border:'1px solid #3a2a2a', borderRadius:5,
+  padding:'9px 0', color:'#7a5a5a', cursor:'pointer', fontSize:12,
+};

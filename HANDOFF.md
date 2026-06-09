@@ -582,6 +582,53 @@ Depends on Section 9 (class system must exist first).
 
 ---
 
+---
+
+## ⬜ Village Raid System (NEXT — requires NPC interactivity design session first)
+
+Do NOT start until NPC interactivity is designed. Notes:
+- Villages use `genAbandonedVillage` map (already in map.js)
+- Building-by-building navigation: each building is a mini-encounter zone
+- Requires: civilians NPC type, faction allegiance flags, loot-vs-rescue decision point
+- Faction consequence: raiding a village raises raider faction hostility, reduces kingdom soldier faction hostility
+- **Block condition:** NPC interactivity design must be completed in a dedicated session first
+
+---
+
+## ⬜ Claiming & Outpost Infrastructure (NEXT — requires reputation system first)
+
+Do NOT start until reputation system is designed. Notes:
+- After clearing a location (boss defeated), Varek can "Claim" it
+- Claimed camps become Raider Outposts (resource gen, increases faction hostility)
+- Claimed dungeons become Undead Waystations (safe rest, extend undead tether range)
+- Requires: `reputationScore` per faction, faction hostility affecting encounter frequency and type
+- **Block condition:** Reputation system design must be completed in a dedicated session first
+
+---
+
+## ✅ Session — Raid Mechanic + Enemy AI + Tier System (done)
+
+**Files created:** `src/data/enemyDefs.js`, `HANDOFF.md` (this file)
+**Files modified:** `abilities.js` (enemy abilities), `items.js` (FLOOR_LOOT + rare items), `bosses.js` (boss_loot), `enemies.js` (raider + animal bestiary entries), `combat.js` (tier spawn), `gameStore.js` (multiple), `WorldUI.jsx`, `MissionResultsScreen.jsx`
+
+What was built:
+- Multi-floor raids: Dungeons 5F, Raider Camps 3F, Wizard Towers 4F, Cabins 2F
+- Go Deeper button on mission results; Retreat with Loot option; floor pip progress display
+- Boss territorial: stays in room until player within 5 tiles
+- Noise propagates to deeper floors at 40% — alerts enemies before you arrive
+- Data-driven enemy config in `enemyDefs.js` — add enemies here without code changes
+- Tier system: `calcEnemyTier(danger, floor, isBossFloor)` — determines enemy variant
+- Raider faction: T1 Raider → T2 Veteran/Shaman/Captain → T3 Death Raider/Berserker
+- AI roles: ranged kite (backs up, fires from range), support (heals wounded allies), territorial (room-hold), flanker (targets Varek)
+- Enemy passives: e_bloodrage, e_enrage, e_battle_hardened, e_pack_tactics, e_battle_cry, e_alpha_presence
+- Loot floor scaling: FLOOR_LOOT tables by depth; boss guaranteed rare drop via boss_loot field
+- XP tier formula: T1=HP/5, T2=HP/4, T3=HP/3, Boss=HP/2, + comparison multiplier
+- Bestiary 3-tier revelation: encounter 1=name, 2=stats, 3=abilities
+
+**Adventuring parties:** Defined in `enemyDefs.js` but NOT spawning yet. Wire up after bounty threshold system exists.
+
+---
+
 ## Implementation Order
 
 1. ✅ **Section 1** — Movement Fix (done)

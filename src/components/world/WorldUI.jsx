@@ -11,6 +11,7 @@ export default function WorldUI() {
     world, worldPos, sanctuaryPos, selectedHex,
     pendingSanctuaryTile, travelBag,
     luq, promotionQueue,
+    locationBosses, locationScavenges,
     startMission, selectHex, openBestiary, goHome, enterSanctuary,
     confirmSanctuaryPlacement, cancelSanctuaryPlacement,
     depositLoot, forageCurrentTile,
@@ -38,6 +39,12 @@ export default function WorldUI() {
     worldPos.col === selectedHex.col && worldPos.row === selectedHex.row
 
   const canForage = isVarekHere && selTile && !selTile.location
+
+  const selLocId = selTile?.location
+    ? `${selTile.location.type}_${selTile.col}_${selTile.row}`
+    : null
+  const selHasBoss     = selLocId ? (locationBosses  ?? {})[selLocId] === true : false
+  const selScavengeCount = selLocId ? (locationScavenges ?? {})[selLocId] ?? 0 : 0
 
   const tag = (color, label) => (
     <span style={{
@@ -180,7 +187,7 @@ export default function WorldUI() {
 
           {/* Location detail */}
           {selTile.location && (
-            <div style={{ fontSize: 10, marginBottom: 8 }}>
+            <div style={{ fontSize: 10, marginBottom: selHasBoss ? 4 : 8 }}>
               <span style={{ color: '#4a5a4a' }}>Type: </span>
               <span style={{ color: '#c4a882' }}>
                 {LOC_TYPE[selTile.location.type]?.emoji} {selTile.location.name}
@@ -191,6 +198,21 @@ export default function WorldUI() {
               </span>
               <span style={{ color: '#4a5a4a', marginLeft: 10 }}>Loot: </span>
               <span style={{ color: '#c4a882' }}>{selTile.location.lq}</span>
+              {selScavengeCount > 0 && !selHasBoss && (
+                <span style={{ color: selScavengeCount >= 4 ? '#8a5a2a' : '#4a5a4a', marginLeft: 10 }}>
+                  🤫 {selScavengeCount}/5
+                </span>
+              )}
+            </div>
+          )}
+          {selHasBoss && (
+            <div style={{
+              background: '#1a080822', border: '1px solid #6a2a2a88',
+              borderRadius: 4, padding: '4px 8px', marginBottom: 8, fontSize: 10,
+              color: '#ba5a5a', display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <span style={{ fontSize: 14 }}>☠</span>
+              <span>A boss has taken hold — only a raid will challenge it.</span>
             </div>
           )}
 
@@ -212,36 +234,29 @@ export default function WorldUI() {
             )}
 
             {/* ── Varek is here: location actions ── */}
-            {isVarekHere && selTile.location && (
-              <>
-                <button onClick={() => {
-                  startMission({
-                    id: `${selTile.location.type}_${selTile.col}_${selTile.row}`,
-                    type: selTile.location.type,
-                    name: selTile.location.name,
-                    danger: selTile.location.danger,
-                    lq: selTile.location.lq, desc: '', links: [],
-                  }, 'scavenge')
-                  selectHex(null)
-                }} style={actionBtn('#3a6a3a')}>
-                  🤫 Scavenge
-                </button>
-                {selTile.location.type !== 'cabin' && (
-                  <button onClick={() => {
-                    startMission({
-                      id: `${selTile.location.type}_${selTile.col}_${selTile.row}`,
-                      type: selTile.location.type,
-                      name: selTile.location.name,
-                      danger: selTile.location.danger,
-                      lq: selTile.location.lq, desc: '', links: [],
-                    }, 'raid')
-                    selectHex(null)
-                  }} style={actionBtn('#6a3a3a')}>
-                    ⚔️ Raid
+            {isVarekHere && selTile.location && selTile.location.type !== 'merchant' && (() => {
+              const locObj = {
+                id: `${selTile.location.type}_${selTile.col}_${selTile.row}`,
+                type: selTile.location.type,
+                name: selTile.location.name,
+                danger: selTile.location.danger,
+                lq: selTile.location.lq, desc: '', links: [],
+              }
+              return (
+                <>
+                  {!selHasBoss && (
+                    <button onClick={() => { startMission(locObj, 'scavenge'); selectHex(null) }}
+                      style={actionBtn('#3a6a3a')}>
+                      🤫 Scavenge
+                    </button>
+                  )}
+                  <button onClick={() => { startMission(locObj, 'raid'); selectHex(null) }}
+                    style={actionBtn(selHasBoss ? '#8a2a2a' : '#6a3a3a')}>
+                    {selHasBoss ? '☠ Raid (Boss)' : '⚔️ Raid'}
                   </button>
-                )}
-              </>
-            )}
+                </>
+              )
+            })()}
 
             {/* ── Varek is here: forage empty tile ── */}
             {canForage && (

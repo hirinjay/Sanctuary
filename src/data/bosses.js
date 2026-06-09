@@ -40,13 +40,19 @@ export const BOSS_CONDITIONALS = {
 
 const BOSS_TYPES = {
   dungeon: [
-    { key:'dungeon_lord',       name:'Dungeon Lord',       emoji:'👑', hp:22, dmg:5, def:2, move:2, attackRange:1 },
-    { key:'skeletal_champion',  name:'Skeletal Champion',  emoji:'💀', hp:16, dmg:4, def:1, move:3, attackRange:1 },
-    { key:'lich',               name:'Lich',               emoji:'🔮', hp:14, dmg:6, def:0, move:2, attackRange:3 },
+    { key:'dungeon_lord',       name:'Dungeon Lord',       emoji:'👑', hp:22, dmg:5, def:2, move:2, attackRange:1, boss_loot:'dungeon_sigil' },
+    { key:'skeletal_champion',  name:'Skeletal Champion',  emoji:'💀', hp:16, dmg:4, def:1, move:3, attackRange:1, boss_loot:'bone_plate' },
+    { key:'lich',               name:'Lich',               emoji:'🔮', hp:14, dmg:6, def:0, move:2, attackRange:3, boss_loot:'lich_phylactery' },
   ],
   camp: [
-    { key:'raid_captain',       name:'Raid Captain',       emoji:'⚔️',  hp:20, dmg:5, def:1, move:3, attackRange:1 },
-    { key:'warlord',            name:'Warlord',            emoji:'🪓',  hp:24, dmg:4, def:2, move:2, attackRange:1 },
+    { key:'raid_captain',       name:'Raid Captain',       emoji:'⚔️',  hp:20, dmg:5, def:1, move:3, attackRange:1, boss_loot:'iron_sword' },
+    { key:'warlord',            name:'Warlord',            emoji:'🪓',  hp:24, dmg:4, def:2, move:2, attackRange:1, boss_loot:'warlord_axe' },
+    { key:'raider_warchief',    name:'Raider Warchief',    emoji:'🏴',  hp:28, dmg:5, def:2, move:2, attackRange:1, boss_loot:'warchief_banner' },
+  ],
+  wizard_tower: [
+    { key:'tower_keeper',       name:'Tower Keeper',       emoji:'🗼',  hp:20, dmg:5, def:1, move:2, attackRange:3, boss_loot:'arcane_focus' },
+    { key:'arcane_warden',      name:'Arcane Warden',      emoji:'🔮',  hp:16, dmg:6, def:0, move:3, attackRange:4, boss_loot:'arcane_tome' },
+    { key:'void_architect',     name:'Void Architect',     emoji:'👁️',  hp:18, dmg:7, def:0, move:2, attackRange:5, boss_loot:'void_shard' },
   ],
 };
 
@@ -105,9 +111,10 @@ export function spawnBoss(danger, tiles, spawnX, spawnY, locType) {
     ap: bossPassive === 'swift' ? 3 : 2,
     moveRange: btype.move + Math.floor(danger / 2),
     attackRange: btype.attackRange,
-    // Always alert
+    // Territorial: stays in room until player closes within 5 tiles
     fallen: false, raiseTurn: null,
     alerted: true, placement: 'guard',
+    territorial: true, triggerRadius: 5,
     waypoints: undefined, wi: 0,
     ambushTriggered: true,
     patrol: [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }], pi: 0,

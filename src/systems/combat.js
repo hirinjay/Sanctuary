@@ -1,5 +1,6 @@
 import { UT, XP_LEVELS, VAREK_LU, UNDEAD_LU, VERDANT_VAREK_LU } from '../data/constants';
 import { ARCHETYPES, CLASS_STATS } from '../data/archetypes';
+import { FACTION_POOLS, calcEnemyTier, killXpByTier } from '../data/enemyDefs';
 
 const PLACEMENT_WEIGHTS = {
   dungeon:     ['patrol','patrol','patrol','guard','guard','sleep','roam'],
@@ -92,23 +93,49 @@ export function applyXpToUnits(units, uid, amt, luqRef, varekOpts) {
 }
 export { VERDANT_VAREK_LU };
 
-export function spawnEnemies(danger, mode, tiles, spawnX = 1, spawnY = 10, threats = null, locType = '') {
-  const pool    = threats?.length ? threats : ARCHETYPES;
+// Pick enemy template: faction pool when locType matches, else archetype pool
+function pickTemplate(locType, requiredTier, threats) {
+  if (threats?.length) return threats[Math.floor(Math.random() * threats.length)];
+
+  const faction = locType === 'camp' ? 'raider' : null;
+  if (faction) {
+    const pool = FACTION_POOLS[faction] ?? [];
+    const eligible = pool.filter(e => e.tier <= requiredTier);
+    // Weight toward higher tiers within limit
+    const weighted = eligible.flatMap(e => Array(e.tier).fill(e));
+    const src = weighted.length ? weighted : eligible;
+    if (src.length) {
+      const def = src[Math.floor(Math.random() * src.length)];
+      // Convert enemyDef shape to the shared enemy template shape
+      return { name:def.name, emoji:def.emoji, hp:def.hp, dmg:def.dmg, def:def.def||0,
+               move:def.move, xp:0, dc:def.dc, sight:def.sight, spot:def.spot,
+               attackRange:def.attackRange||1, aiRole:def.aiRole, faction:def.faction,
+               tier:def.tier, abilities:def.abilities??[], triggerRadius:def.triggerRadius };
+    }
+  }
+  // Fallback: dungeon archetypes
+  const a = ARCHETYPES[Math.floor(Math.random() * ARCHETYPES.length)];
+  return { ...a, move: a.move, aiRole:'melee', faction:'dungeon', tier: requiredTier, abilities:[] };
+}
+
+export function spawnEnemies(danger, mode, tiles, spawnX = 1, spawnY = 10, threats = null, locType = '', floor = 1, isBossFloor = false) {
+  const requiredTier = calcEnemyTier(danger, floor, isBossFloor);
   const hpMult  = 1 + (danger-1) * 0.35;
   const dmgMult = 1 + (danger-1) * 0.25;
   const mapH = tiles?.length ?? 12;
   const mapW = tiles?.[0]?.length ?? 16;
+
   return Array.from({ length: 1+danger }, (_, i) => {
-    const a   = pool[Math.floor(Math.random() * pool.length)];
+    const a   = pickTemplate(locType, requiredTier, threats);
     const hp  = Math.round(a.hp * hpMult);
     const dmg = Math.max(1, Math.round(a.dmg * dmgMult));
-
-    const placement   = mode === 'raid' ? 'roam' : pickPlacement(locType);
+    // Faction enemies in raids use roam; dungeon enemies use placement weights
+    const factionRaid = mode === 'raid' && (a.faction === 'raider' || a.faction === 'animal');
+    const placement   = factionRaid ? 'roam' : (mode === 'raid' ? 'roam' : pickPlacement(locType));
     const sleeping    = placement === 'sleep';
     const waypoints   = placement === 'patrol' ? genWaypoints(tiles, mapW, mapH, spawnX, spawnY, 2+Math.floor(Math.random()*2)) : undefined;
     const triggerRow  = placement === 'ambush' ? Math.floor(mapH * 0.5) : undefined;
 
-    // Pick spawn; ambush units go in the upper half of the map
     let ex = Math.floor(mapW / 2), ey = Math.floor(mapH / 3);
     const maxEnemyY = placement === 'ambush' ? Math.floor(mapH * 0.5) - 1 : mapH - 2;
     for (let attempt = 0; attempt < 60; attempt++) {
@@ -119,11 +146,14 @@ export function spawnEnemies(danger, mode, tiles, spawnX = 1, spawnY = 10, threa
       if (!tooClose && passable) { ex = tx; ey = ty; break; }
     }
 
+    // xp computed by tier formula at spawn (scaled by danger via hp)
+    const xpVal = killXpByTier(hp, a.tier ?? 1, false);
+
     return {
       id: `e${i}`, type: UT.ENEMY,
       name: a.name, emoji: a.emoji,
       x: ex, y: ey,
-      hp, maxHp: hp, dmg, def: 0,
+      hp, maxHp: hp, dmg, def: a.def ?? 0,
       ap: 2, moveRange: a.move, attackRange: a.attackRange || 1,
       fallen: false, raiseTurn: null,
       alerted: mode === 'raid',
@@ -132,9 +162,15 @@ export function spawnEnemies(danger, mode, tiles, spawnX = 1, spawnY = 10, threa
       ambushTriggered: placement !== 'ambush',
       triggerRow,
       patrol: [{ dx:1, dy:0 }, { dx:-1, dy:0 }], pi: 0,
-      xp: a.xp, dc: a.dc, sight: a.sight, spot: a.spot,
+      xp: xpVal, xpTier: a.tier ?? 1,
+      dc: a.dc, sight: a.sight, spot: a.spot,
+      aiRole: a.aiRole ?? 'melee',
+      faction: a.faction ?? 'dungeon',
+      abilities: a.abilities ?? [],
+      triggerRadius: a.triggerRadius,
       weapon: null, armor: null, level: 1, xpVal: 0,
       chaseTurns: 0, lastKnown: null,
+      statusEffects: [],
     };
   });
 }

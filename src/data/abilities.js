@@ -432,4 +432,148 @@ export const ABILITIES = {
     desc:'On kill, 20% chance to automatically raise the fallen enemy at degraded stats.',
     usesPerEncounter:null,
   },
+
+  // ── Enemy-only abilities (resolved in AI loop / doAttack) ────────────────
+  // These appear on enemy units, not the player roster. Mechanics handled in code.
+
+  e_battle_cry: {
+    id:'e_battle_cry', name:'Battle Cry', type:'active', enemyOnly:true,
+    desc:'All Raiders within 3 tiles gain +1 Move this turn. Once per encounter.',
+    usesPerEncounter:1,
+  },
+  e_curse: {
+    id:'e_curse', name:'Curse', type:'active', enemyOnly:true,
+    desc:'Target unit is Marked for 2 turns, taking +2 dmg from all sources. Once per encounter.',
+    usesPerEncounter:1,
+  },
+  e_rally: {
+    id:'e_rally', name:'Rally', type:'reactive', enemyOnly:true,
+    desc:'When a Raider falls within 4 tiles, this unit and nearby Raiders gain +1 DMG for 2 turns.',
+    usesPerEncounter:1,
+  },
+  e_battle_hardened: {
+    id:'e_battle_hardened', name:'Battle Hardened', type:'passive', enemyOnly:true,
+    desc:'Takes -1 dmg from all sources (effectively +1 DEF).',
+    usesPerEncounter:null,
+  },
+  e_execution_strike: {
+    id:'e_execution_strike', name:'Execution Strike', type:'active', enemyOnly:true,
+    desc:'Double damage to any unit below 30% HP. Once per encounter.',
+    usesPerEncounter:1,
+  },
+  e_bloodrage: {
+    id:'e_bloodrage', name:'Bloodrage', type:'passive', enemyOnly:true,
+    desc:'Gains +1 DMG each time damaged this encounter, up to +3 total.',
+    usesPerEncounter:null,
+  },
+  e_reckless_charge: {
+    id:'e_reckless_charge', name:'Reckless Charge', type:'active', enemyOnly:true,
+    desc:'Moves full movement range and attacks, taking 1 self-damage. Once per encounter.',
+    usesPerEncounter:1,
+  },
+  e_pack_tactics: {
+    id:'e_pack_tactics', name:'Pack Tactics', type:'passive', enemyOnly:true,
+    desc:'+1 DMG per adjacent unit of the same faction.',
+    usesPerEncounter:null,
+  },
+  e_alpha_presence: {
+    id:'e_alpha_presence', name:'Alpha Presence', type:'passive', enemyOnly:true,
+    desc:'While alive, all animal-faction allies within 5 tiles gain +1 Move per turn.',
+    usesPerEncounter:null,
+  },
+  e_pounce: {
+    id:'e_pounce', name:'Pounce', type:'active', enemyOnly:true,
+    desc:'Moves full movement range, attacks, and knocks target back 1 tile. Once per encounter.',
+    usesPerEncounter:1,
+  },
+  e_maul: {
+    id:'e_maul', name:'Maul', type:'active', enemyOnly:true,
+    desc:'Double damage and applies Slow for 2 turns. Once per encounter.',
+    usesPerEncounter:1,
+  },
+  e_enrage: {
+    id:'e_enrage', name:'Enrage', type:'passive', enemyOnly:true,
+    desc:'When HP drops below 50%, permanently gains +2 DMG and +1 Move.',
+    usesPerEncounter:null,
+  },
+  e_shadow_stalker: {
+    id:'e_shadow_stalker', name:'Shadow Stalker', type:'passive', enemyOnly:true,
+    desc:'Counts as in a shadow tile at all times. Invisible until it attacks.',
+    usesPerEncounter:null,
+  },
+  e_intercept: {
+    id:'e_intercept', name:'Intercept', type:'reactive', enemyOnly:true,
+    desc:'When an adjacent adventurer is targeted, intercept and take the hit instead.',
+    usesPerEncounter:1,
+  },
+  e_aimed_shot: {
+    id:'e_aimed_shot', name:'Aimed Shot', type:'active', enemyOnly:true,
+    desc:'+2 DMG on next attack. Ignores DEF. Once per encounter.',
+    usesPerEncounter:1,
+  },
+  e_backstab: {
+    id:'e_backstab', name:'Backstab', type:'passive', enemyOnly:true,
+    desc:'+2 DMG when attacking Varek from outside Varek\'s vision cone.',
+    usesPerEncounter:null,
+  },
+  e_party_heal: {
+    id:'e_party_heal', name:'Heal', type:'active', enemyOnly:true,
+    desc:'Restores 3 HP to the most wounded adventurer within 3 tiles.',
+    usesPerEncounter:1,
+  },
+  e_arcane_bolt: {
+    id:'e_arcane_bolt', name:'Arcane Bolt', type:'active', enemyOnly:true,
+    desc:'Ranged attack +1 dmg per adjacent undead near the target.',
+    usesPerEncounter:1,
+  },
+  e_consecrate: {
+    id:'e_consecrate', name:'Consecrate', type:'active', enemyOnly:true,
+    desc:'Sanctifies ground in 1-tile radius — undead take 1 dmg per turn while standing in it.',
+    usesPerEncounter:1,
+  },
+  e_iron_will: {
+    id:'e_iron_will', name:'Iron Will', type:'passive', enemyOnly:true,
+    desc:'Immune to Slow and Root.',
+    usesPerEncounter:null,
+  },
+  e_eagle_eye: {
+    id:'e_eagle_eye', name:'Eagle Eye', type:'passive', enemyOnly:true,
+    desc:'Ranged attacks ignore cover and shadow bonuses within full range.',
+    usesPerEncounter:null,
+  },
+  e_shadow_vanish: {
+    id:'e_shadow_vanish', name:'Shadow Vanish', type:'active', enemyOnly:true,
+    desc:'Becomes untargetable for 1 turn. Cannot attack while active. Once per encounter.',
+    usesPerEncounter:1,
+  },
+  e_party_heal_strong: {
+    id:'e_party_heal_strong', name:'Greater Heal', type:'active', enemyOnly:true,
+    desc:'Restores 6 HP to the most wounded adventurer within 4 tiles.',
+    usesPerEncounter:1,
+  },
+  e_revive: {
+    id:'e_revive', name:'Revive', type:'active', enemyOnly:true,
+    desc:'Raises a fallen adventurer at 50% HP. Once per encounter.',
+    usesPerEncounter:1,
+  },
+  e_arcane_bolt_strong: {
+    id:'e_arcane_bolt_strong', name:'Arcane Bolt', type:'active', enemyOnly:true,
+    desc:'Ranged attack. +3 dmg per adjacent undead near the target.',
+    usesPerEncounter:1,
+  },
+  e_arcane_surge: {
+    id:'e_arcane_surge', name:'Arcane Surge', type:'active', enemyOnly:true,
+    desc:'Deals damage equal to undead count × 2 in a 3-tile radius. Once per encounter.',
+    usesPerEncounter:1,
+  },
+  e_consecrate_strong: {
+    id:'e_consecrate_strong', name:'Greater Consecrate', type:'active', enemyOnly:true,
+    desc:'Sanctifies 2-tile radius — undead take 1 dmg per turn. Lasts 3 turns.',
+    usesPerEncounter:1,
+  },
+  e_holy_shield: {
+    id:'e_holy_shield', name:'Holy Shield', type:'reactive', enemyOnly:true,
+    desc:'Reduces incoming damage to 1 once per encounter.',
+    usesPerEncounter:1,
+  },
 };
