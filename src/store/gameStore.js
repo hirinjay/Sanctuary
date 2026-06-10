@@ -260,12 +260,12 @@ export const useGameStore = create(
           newLocationBosses[locId] = true;
         }
 
-        // ── Enemy spawn ────────────────────────────────────────────────
-        const enemies = locType === 'battlefield' ? [] : spawnEnemies(effectiveDanger, md, tiles, spawnX, spawnY, location.threats ?? null, locType, floor, isBossFloor);
-
         // ── Boss floor spawn (boss present + deepest floor) ────────────
         const hasBoss    = newLocationBosses[locId] === true;
         const isBossFloor = hasBoss && floor === maxFloor;
+
+        // ── Enemy spawn ────────────────────────────────────────────────
+        const enemies = locType === 'battlefield' ? [] : spawnEnemies(effectiveDanger, md, tiles, spawnX, spawnY, location.threats ?? null, locType, floor, isBossFloor);
         const boss = isBossFloor ? spawnBoss(effectiveDanger, tiles, spawnX, spawnY, locType || 'dungeon') : null;
         // Three support units clustered near the boss
         const bossSupport = [];
@@ -413,6 +413,10 @@ export const useGameStore = create(
         let newBag = { ...travelBag };
         finalLoot.forEach(id => { newBag[id] = (newBag[id]||0) + 1; });
 
+        // Node yields — count placed tiles; each farm=2 food, each quarry=2 iron
+        const newInv = { ...inv };
+        const logs = [...objLogs];
+
         // Boss floor retreat: lose 75% of the full bag (existing + new loot combined)
         if (isBossFloor && !success) {
           const allItems = Object.entries(newBag).flatMap(([id, cnt]) => Array(cnt).fill(id));
@@ -423,10 +427,6 @@ export const useGameStore = create(
           const lostCount = allItems.length - keepCount;
           if (lostCount > 0) logs.push(`💸 Retreated from the boss — ${lostCount} item${lostCount!==1?'s':''} scattered in the chaos.`);
         }
-
-        // Node yields — count placed tiles; each farm=2 food, each quarry=2 iron
-        const newInv = { ...inv };
-        const logs = [...objLogs];
         const farmCount   = sanctuaryGrid?.tiles?.filter(t => t.building === 'farm')?.length ?? 0;
         const quarryCount = sanctuaryGrid?.tiles?.filter(t => t.building === 'quarry')?.length ?? 0;
         if (farmCount > 0)   { newInv.food = (newInv.food||0)+farmCount*2; logs.push(`🌱 ${farmCount} farm${farmCount!==1?'s':''} yield${farmCount===1?'s':''} ${farmCount*2} food.`); }
