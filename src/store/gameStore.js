@@ -353,7 +353,7 @@ export const useGameStore = create(
       },
 
       endMission(units, loot, success = false) {
-        const { roster, vp, inv, travelBag, sanctuaryGrid, ms: currentMs, locationVisits, locationBosses, bestiary, book, loc, world } = get();
+        const { roster, vp, inv, travelBag, sanctuaryGrid, ms: currentMs, locationVisits, locationBosses, bestiary, book, loc, world, mode } = get();
         const objective    = currentMs?.objective ?? null;
         const floor        = currentMs?.floor    ?? 1;
         const maxFloor     = currentMs?.maxFloor ?? 1;
@@ -493,8 +493,8 @@ export const useGameStore = create(
             clearedLocation: clearedCabin,
             floor,
             maxFloor,
-            canGoDeeper: success && floor < maxFloor && !isBossFloor,
-            pendingLoc: (success && floor < maxFloor && !isBossFloor) ? loc : null,
+            canGoDeeper: success && mode === 'raid' && floor < maxFloor && !isBossFloor,
+            pendingLoc: (success && mode === 'raid' && floor < maxFloor && !isBossFloor) ? loc : null,
             fallenUnits: fallenDeployed.map(u => ({ id:u.id, name:u.pname ?? u.name, className:u.cls ?? u.dc ?? 'Undead', emoji:u.emoji ?? '☠' })),
             gainedUnits: gainedUnits.map(u => ({ id:u.id, name:u.pname ?? u.name, className:u.cls ?? u.dc ?? 'Undead', emoji:u.emoji ?? '☠' })),
             survivalXpUnits: survivalUnits.map(u => ({ id:u.id, name:u.pname ?? u.name, className:u.cls ?? u.dc ?? 'Undead', emoji:u.emoji ?? '☠' })),
