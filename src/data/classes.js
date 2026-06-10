@@ -161,7 +161,7 @@ export const CLASSES = {
     id:'wraith', name:'Wraith', emoji:'🌫️',
     baseClass:'grave_stalker', tier:3,
     grimoires:['pale','flesh','tinker'],
-    stats:{ hp:8, dmg:3, def:0, move:4, range:1, trapReveal:4 },
+    stats:{ hp:8, dmg:3, def:0, move:4, range:1, trapReveal:5 },
     tether:1,
     untargetableInShadow:true,
     abilityChoice:['death_mark','incorporeal'],

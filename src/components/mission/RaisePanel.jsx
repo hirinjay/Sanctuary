@@ -8,7 +8,7 @@ export default function RaisePanel({ units, turn, raiseable }) {
   const friendly      = units.filter(u => u.type !== 'enemy' && !u.fallen);
   const fallenEnemies = units.filter(u => u.type === 'enemy' && u.fallen);
   const gatherable    = fallenEnemies.filter(fe =>
-    friendly.some(f => !f.fallen && f.ap > 0 && dist(f, fe) <= 1)
+    friendly.some(f => !f.fallen && f.actionPoints > 0 && dist(f, fe) <= 1)
   );
 
   if (raiseable.length === 0 && gatherable.length === 0) return null;
@@ -49,7 +49,7 @@ export default function RaisePanel({ units, turn, raiseable }) {
           <div style={{ fontSize:10, color:'#8a6a3a', marginBottom:5 }}>🦴 Loot Bodies (costs AP):</div>
           <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
             {gatherable.map(fe => {
-              const gatherer    = friendly.find(f => !f.fallen && f.ap>0 && dist(f,fe)<=1);
+              const gatherer    = friendly.find(f => !f.fallen && f.actionPoints>0 && dist(f,fe)<=1);
               const gatherCount = fe.gatherCount || 0;
               const pct         = Math.round(Math.min(1, 0.3 + gatherCount * 0.3) * 100);
               return (
@@ -58,8 +58,8 @@ export default function RaisePanel({ units, turn, raiseable }) {
                   <button onClick={() => doGather(fe, gatherer, false)} style={btnSt(true,'#8a6a3a')}>
                     🎲 1AP <span style={{ color:'#5a4a2a', fontSize:9 }}>({pct}% gone)</span>
                   </button>
-                  <button disabled={gatherer.ap<2} onClick={() => doGather(fe, gatherer, true)} style={btnSt(gatherer.ap>=2,'#6a8a3a')}>
-                    🦴 2AP guaranteed
+                  <button disabled={gatherer.actionPoints<=0 || gatherer.movementPoints<=0} onClick={() => doGather(fe, gatherer, true)} style={btnSt(gatherer.actionPoints>0 && gatherer.movementPoints>0,'#6a8a3a')}>
+                    🦴 Full turn guaranteed
                   </button>
                 </div>
               );

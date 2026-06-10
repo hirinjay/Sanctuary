@@ -154,7 +154,7 @@ export function spawnEnemies(danger, mode, tiles, spawnX = 1, spawnY = 10, threa
       name: a.name, emoji: a.emoji,
       x: ex, y: ey,
       hp, maxHp: hp, dmg, def: a.def ?? 0,
-      ap: 2, moveRange: a.move, attackRange: a.attackRange || 1,
+      actionPoints: 1, movementPoints: 1, moveRange: a.move, attackRange: a.attackRange || 1,
       fallen: false, raiseTurn: null,
       alerted: mode === 'raid',
       placement, sleeping,

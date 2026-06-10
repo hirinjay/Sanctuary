@@ -15,7 +15,8 @@ export default function UnitBar({ units, sel, onSelect }) {
           {u.emoji}{' '}
           <span style={{ color:'#d0c0a0' }}>{u.name}</span>
           <span style={{ color:'#4a5a4a', marginLeft:4 }}>{u.hp}/{u.maxHp}</span>
-          <span style={{ color:u.ap>0?'#3a7a3a':'#3a2a2a', marginLeft:4 }}>AP{u.ap}</span>
+          <span style={{ color:u.movementPoints>0?'#3a7a3a':'#3a2a2a', marginLeft:4 }}>👟{u.movementPoints>0?1:0}</span>
+          <span style={{ color:u.actionPoints>0?'#3a7a3a':'#3a2a2a', marginLeft:2 }}>⚔{u.actionPoints>0?1:0}</span>
           {u.fallen && <span style={{ color:'#7a2a2a', marginLeft:4 }}>fallen</span>}
         </div>
       ))}

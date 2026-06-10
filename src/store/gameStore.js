@@ -211,7 +211,7 @@ export const useGameStore = create(
           dmg: (vp.dmg || 2) + (hasGrief ? 1 : 0),
           moveRange: vp.moveRange || 3,
           trapReveal: vp.trapReveal || 1,
-          ap:2, fallen:false, raiseTurn:null,
+          actionPoints:1, movementPoints:1, fallen:false, raiseTurn:null,
           statusEffects: [],
           bondedAbilities: varekAbils,
           abilityUses: varekAbilUses,
@@ -232,7 +232,7 @@ export const useGameStore = create(
               (u.bondedAbilities ?? []).map(aid => [aid, ABILITIES[aid]?.type === 'reactive'])
             );
             return {
-              ...u, x:slot.x, y:slot.y, ap:2, fallen:false, raiseTurn:null, atBase:false,
+              ...u, x:slot.x, y:slot.y, actionPoints:1, movementPoints:1, fallen:false, raiseTurn:null, atBase:false,
               statusEffects: [],
               abilityUses: { ...classUses, ...bondedUses },
               abilityArmed: ABILITIES[u.classAbility]?.type === 'reactive' ? true : false,
@@ -286,7 +286,7 @@ export const useGameStore = create(
             bossSupport.push({
               id:`sup${i}`, type:UT.ENEMY, name:a.name, emoji:a.emoji,
               x:sx, y:sy, hp:bsHp, maxHp:bsHp, dmg:bsDmg, def:0,
-              ap:2, moveRange:a.move, attackRange:a.attackRange||1,
+              actionPoints:1, movementPoints:1, moveRange:a.move, attackRange:a.attackRange||1,
               fallen:false, raiseTurn:null, alerted:true, placement:'guard',
               waypoints:undefined, wi:0, ambushTriggered:true, triggerRow:undefined,
               patrol:[{dx:1,dy:0},{dx:-1,dy:0}], pi:0,
@@ -1190,7 +1190,7 @@ export const useGameStore = create(
           dc: fallen.dc,
           baseClass: DC_TO_BASE[fallen.dc] ?? null,
           x:fallen.x, y:fallen.y, ...stats,
-          ap:0, fallen:false, raiseTurn:null, atBase:false,
+          actionPoints:0, movementPoints:0, fallen:false, raiseTurn:null, atBase:false,
           xp:0, level:1, weapon:null, armor:null, dmgUpgrades:0,
           isTinker: !!(ub?.tinker),
         };
@@ -1208,7 +1208,7 @@ export const useGameStore = create(
 
         const ms   = s.ms;
         const unit = ms.units.find(u => u.id === sel);
-        if (!unit || unit.ap <= 0) return;
+        if (!unit || unit.movementPoints <= 0) return;
 
         // Status effect movement blocks
         if (unit?.statusEffects?.length) {
@@ -1240,7 +1240,7 @@ export const useGameStore = create(
           else if (roll < 0.42) { dmg=Math.floor(base/2); logs.push(`💥 Trap! ${unit.name} grazes it — -${dmg}hp.`); }
           else                  { dmg=base;   logs.push(`💥 Trap! ${unit.name} -${dmg}hp.`); }
           nn += 20;
-          units = units.map(u => u.id===sel ? { ...u, hp:u.hp-dmg, x, y, ap:u.ap-1 } : u);
+          units = units.map(u => u.id===sel ? { ...u, hp:u.hp-dmg, x, y, movementPoints:u.movementPoints-1 } : u);
           const af = units.find(u => u.id === sel);
           if (af.hp <= 0) {
             if (sel === 'varek') { over=true; logs.push('Varek falls.'); }
@@ -1255,7 +1255,7 @@ export const useGameStore = create(
           loot.push(iid);
           logs.push(`${unit.emoji} Found ${item(iid)?.emoji} ${item(iid)?.name}!`);
           nn += 5;
-          units = units.map(u => u.id===sel ? { ...u, x, y, ap:u.ap-1 } : u);
+          units = units.map(u => u.id===sel ? { ...u, x, y, movementPoints:u.movementPoints-1 } : u);
           // loot_named objective: opening the marked cache completes it
           if (objective?.type === 'loot_named' && objective.targetX === x && objective.targetY === y && !objective.complete) {
             objective = { ...objective, complete: true };
@@ -1264,7 +1264,7 @@ export const useGameStore = create(
           }
         } else if (t.type === TILE.RUBBLE) {
           nn += 3;
-          units = units.map(u => u.id===sel ? { ...u, x, y, ap:u.ap-1 } : u);
+          units = units.map(u => u.id===sel ? { ...u, x, y, movementPoints:u.movementPoints-1 } : u);
           logs.push(`${unit.name} crunches through rubble...`);
         } else if (t.type === TILE.EXIT) {
           esc = true;
@@ -1287,11 +1287,11 @@ export const useGameStore = create(
         } else if (t.type === TILE.WATER) {
           nn += 5;
           logs.push(`${unit.name} wades through water.`);
-          units = units.map(u => u.id===sel ? { ...u, x, y, ap:u.ap-1 } : u);
+          units = units.map(u => u.id===sel ? { ...u, x, y, movementPoints:u.movementPoints-1 } : u);
         } else if (t.type === TILE.FIRE) {
           logs.push(`🔥 ${unit.name} runs through fire! (-1hp)`);
           nn += 10;
-          units = units.map(u => u.id===sel ? { ...u, hp:u.hp-1, x, y, ap:u.ap-1 } : u);
+          units = units.map(u => u.id===sel ? { ...u, hp:u.hp-1, x, y, movementPoints:u.movementPoints-1 } : u);
           const af = units.find(u => u.id === sel);
           if (af && af.hp <= 0) {
             if (sel === 'varek') { over=true; logs.push('Varek burns!'); }
@@ -1301,12 +1301,12 @@ export const useGameStore = create(
           if (!t.open) {
             tiles[y][x] = { ...t, open: true };
             logs.push(`${unit.name} opens the door.`);
-            units = units.map(u => u.id===sel ? { ...u, ap:u.ap-1 } : u);
+            units = units.map(u => u.id===sel ? { ...u, movementPoints:u.movementPoints-1 } : u);
           } else {
-            units = units.map(u => u.id===sel ? { ...u, x, y, ap:u.ap-1 } : u);
+            units = units.map(u => u.id===sel ? { ...u, x, y, movementPoints:u.movementPoints-1 } : u);
           }
         } else {
-          units = units.map(u => u.id===sel ? { ...u, x, y, ap:u.ap-1 } : u);
+          units = units.map(u => u.id===sel ? { ...u, x, y, movementPoints:u.movementPoints-1 } : u);
         }
 
         if (nn >= 50) {
@@ -1338,7 +1338,7 @@ export const useGameStore = create(
         const s = get();
         if (!sel || s.phase !== 'player') return;
         const att = s.ms.units.find(u => u.id === sel);
-        if (!att || att.ap <= 0) return;
+        if (!att || att.actionPoints <= 0) return;
         const range = att.type === UT.VAREK ? att.drainRange : (att.attackRange||1);
         if (dist(att, enemy) > range) { get().addLog('Too far!'); return; }
 
@@ -1386,7 +1386,7 @@ export const useGameStore = create(
             || (defUnit.bondedAbilities ?? []).includes('incorporeal');
           if (hasIncorporeal && Math.random() < 0.3) {
             logs.push(`👻 ${defUnit.name} phases through the attack!`);
-            units = units.map(u => u.id === sel ? { ...u, ap:u.ap-1 } : u);
+            units = units.map(u => u.id === sel ? { ...u, actionPoints:u.actionPoints-1 } : u);
             return { ms:{ ...prev.ms, units, loot:bonusLoot, keys:newKeys, objective }, luq,
               log:[...logs, ...prev.log].slice(0,14) };
           }
@@ -1403,7 +1403,7 @@ export const useGameStore = create(
                 : u.statusEffects.map(fx => fx.id === 'shielded' ? { ...fx, magnitude: newShield } : fx);
               return { ...u, statusEffects: newFx };
             });
-            units = units.map(u => u.id === sel ? { ...u, ap:u.ap-1 } : u);
+            units = units.map(u => u.id === sel ? { ...u, actionPoints:u.actionPoints-1 } : u);
             return { ms:{ ...prev.ms, units, loot:bonusLoot, keys:newKeys, objective }, luq,
               log:[...logs, ...prev.log].slice(0,14) };
           }
@@ -1446,7 +1446,7 @@ export const useGameStore = create(
                   return {...u,hp:nh};
                 });
               }
-              units = units.map(u => u.id===sel ? {...u,ap:u.ap-1} : u);
+              units = units.map(u => u.id===sel ? {...u,actionPoints:u.actionPoints-1} : u);
               units = units.map(u => u.id===enemy.id ? { ...u, ...disarmPatch } : u);
               return { ms:{...prev.ms,units,loot:bonusLoot,keys:newKeys,objective}, luq,
                 log:[...logs,...prev.log].slice(0,14) };
@@ -1462,7 +1462,7 @@ export const useGameStore = create(
               if (nh <= 0) { logs.push(`${defUnit.name} falls! Raise within 3 turns.`); return { ...u, hp:0, fallen:true, raiseTurn:prev.ms.turn }; }
               return { ...u, hp:nh, alerted:true };
             }
-            if (u.id === sel) return { ...u, ap:u.ap-1 };
+            if (u.id === sel) return { ...u, actionPoints:u.actionPoints-1 };
             return u;
           });
 
@@ -1645,7 +1645,7 @@ export const useGameStore = create(
         if (!sel || s.phase !== 'player') return;
         const ms = s.ms;
         const unit = ms.units.find(u => u.id === sel);
-        if (!unit || unit.fallen || unit.ap <= 0) return;
+        if (!unit || unit.fallen || unit.actionPoints <= 0) return;
         const tile = ms.tiles[y]?.[x];
         if (!tile) return;
         const isCage = tile.type === TILE.CAGE;
@@ -1668,7 +1668,7 @@ export const useGameStore = create(
           if (isCage) return { type: TILE.FLOOR };
           return { ...t, open: true, locked: false };
         }));
-        const newUnits = ms.units.map(u => u.id === sel ? { ...u, ap: u.ap - 1 } : u);
+        const newUnits = ms.units.map(u => u.id === sel ? { ...u, actionPoints: u.actionPoints - 1 } : u);
         const label = isCage ? 'Cage broken open!' : 'Door unlocked!';
         set(prev => ({
           ms: { ...prev.ms, tiles: newTiles, units: newUnits, keys: newKeys },
@@ -1682,7 +1682,7 @@ export const useGameStore = create(
         if (!sel || s.phase !== 'player') return;
         const ms = s.ms;
         const unit = ms.units.find(u => u.id === sel);
-        if (!unit || unit.fallen || unit.ap < 2) return;
+        if (!unit || unit.fallen || unit.actionPoints <= 0 || unit.movementPoints <= 0) return;
         const tile = ms.tiles[y]?.[x];
         if (!tile || tile.type !== TILE.TRAP) return;
         const dx = Math.abs(unit.x - x), dy = Math.abs(unit.y - y);
@@ -1690,7 +1690,7 @@ export const useGameStore = create(
         const newTiles = ms.tiles.map((row, ry) =>
           row.map((t, rx) => (rx === x && ry === y) ? { type: TILE.FLOOR } : t)
         );
-        const newUnits = ms.units.map(u => u.id === sel ? { ...u, ap: u.ap - 2 } : u);
+        const newUnits = ms.units.map(u => u.id === sel ? { ...u, actionPoints: 0, movementPoints: 0 } : u);
         set(prev => ({
           ms: { ...prev.ms, tiles: newTiles, units: newUnits },
           log: [`🔧 ${unit.name} disarms the trap.`, ...prev.log].slice(0, 14),
@@ -1717,7 +1717,7 @@ export const useGameStore = create(
       waitUnit(unitId) {
         set(prev => {
           if (!prev.ms) return prev;
-          return { ms: { ...prev.ms, units: prev.ms.units.map(u => u.id === unitId ? { ...u, ap:0 } : u) } };
+          return { ms: { ...prev.ms, units: prev.ms.units.map(u => u.id === unitId ? { ...u, actionPoints:0, movementPoints:0 } : u) } };
         });
       },
 
@@ -1734,14 +1734,14 @@ export const useGameStore = create(
 
           const actor = units.find(u => u.id === unitId);
           if (!actor || actor.fallen) return prev;
-          if (actor.ap <= 0) return prev;
+          if (actor.actionPoints <= 0) return prev;
 
           const usesLeft = actor.abilityUses?.[abilityId] ?? 0;
           if (usesLeft <= 0) return prev;
 
           // Ambush/superior_ambush are free primes — don't cost AP
           const freeAction = abilityId === 'ambush' || abilityId === 'superior_ambush';
-          if (!freeAction) actor.ap = Math.max(0, actor.ap - 1);
+          if (!freeAction) actor.actionPoints = Math.max(0, actor.actionPoints - 1);
           actor.abilityUses = { ...actor.abilityUses, [abilityId]: usesLeft - 1 };
 
           // spellshield: boss immune to ability effects — log and bail
@@ -1756,7 +1756,7 @@ export const useGameStore = create(
           switch (abilityId) {
             case 'intimidate': {
               const adj = units.filter(u => u.type === UT.ENEMY && !u.fallen && dist(actor, u) <= 1);
-              adj.forEach(u => { u.ap = Math.max(0, u.ap - 1); });
+              adj.forEach(u => { u.actionPoints = Math.max(0, u.actionPoints - 1); });
               logs.push(`💀 ${actor.name} Intimidates — ${adj.length} enemies lose 1 AP`);
               break;
             }
@@ -2044,7 +2044,7 @@ export const useGameStore = create(
         set(prev => {
           const ms       = prev.ms;
           const noiseMod = prev.noise < 30 ? -1 : prev.noise < 60 ? 0 : 1;
-          let units      = ms.units.map(u => ({ ...u, ap:u.fallen?0:2, moveBonusThisTurn:0 }));
+          let units      = ms.units.map(u => ({ ...u, actionPoints:u.fallen?0:1, movementPoints:u.fallen?0:1, moveBonusThisTurn:0 }));
           const logs     = [];
           let luq        = [...prev.luq];
           let objective  = ms.objective ? { ...ms.objective } : null;
@@ -2058,8 +2058,8 @@ export const useGameStore = create(
             // swift: already handled by base AP=3 on spawn; nothing extra needed
             // regeneration: handled by passive regen section below (regenPerTurn check)
             if (b.bossPassive === 'regeneration') b = { ...b, regenPerTurn: 2 };
-            // swift: extra AP
-            if (b.bossPassive === 'swift') b = { ...b, ap: Math.min(b.ap + 1, 3) };
+            // swift: extra movement
+            if (b.bossPassive === 'swift') b = { ...b, movementPoints: Math.min((b.movementPoints ?? 1) + 1, 2) };
             // commanding: one nearby regular enemy gets free move toward nearest friendly
             if (b.bossPassive === 'commanding') {
               const fr = friendlies();
@@ -2103,7 +2103,7 @@ export const useGameStore = create(
           if (bossAlive?.bossPassive === 'terrifying') {
             units = units.map(u => {
               if (u.type === UT.ENEMY || u.fallen) return u;
-              return dist(bossAlive, u) <= 1 ? { ...u, ap: Math.max(0, u.ap - 1) } : u;
+              return dist(bossAlive, u) <= 1 ? { ...u, actionPoints: Math.max(0, u.actionPoints - 1) } : u;
             });
           }
 
@@ -2385,7 +2385,7 @@ export const useGameStore = create(
                 const ex = 1 + Math.floor(Math.random() * (ms.width - 2));
                 const newE = {
                   id:`bs${Date.now()}`, type:UT.ENEMY, name:a.name, emoji:a.emoji,
-                  x:ex, y:1, hp:a.hp, maxHp:a.hp, dmg:a.dmg, def:0, ap:2,
+                  x:ex, y:1, hp:a.hp, maxHp:a.hp, dmg:a.dmg, def:0, actionPoints:1, movementPoints:1,
                   moveRange:a.move, attackRange:a.attackRange||1,
                   fallen:false, raiseTurn:null, alerted:true, placement:'roam',
                   patrol:[{dx:1,dy:0},{dx:-1,dy:0}], pi:0,
@@ -2636,7 +2636,7 @@ export const useGameStore = create(
             units = units.map(u => {
               if (u.type !== UT.ENEMY || u.fallen) return u;
               const inRange = fearSources.some(src => dist(src, u) <= 1);
-              return inRange ? { ...u, ap: Math.max(0, u.ap - 1) } : u;
+              return inRange ? { ...u, actionPoints: Math.max(0, u.actionPoints - 1) } : u;
             });
           }
 
@@ -2678,7 +2678,7 @@ export const useGameStore = create(
             const rx  = 2+Math.floor(Math.random()*12);
             const reinf = {
               id:`r${Date.now()}`, type:UT.ENEMY, name:a.name, emoji:a.emoji,
-              x:rx, y:1, hp:a.hp, maxHp:a.hp, dmg:a.dmg, def:0, ap:2,
+              x:rx, y:1, hp:a.hp, maxHp:a.hp, dmg:a.dmg, def:0, actionPoints:1, movementPoints:1,
               moveRange:a.move, attackRange:a.attackRange||1,
               fallen:false, raiseTurn:null, alerted:true,
               patrol:[{dx:1,dy:0},{dx:-1,dy:0}], pi:0,
@@ -2730,10 +2730,13 @@ export const useGameStore = create(
             }
           }
 
-          const apCost = guaranteed ? gatherer.ap : 1;
           const newUnits = ms.units
             .map(u => {
-              if (u.id === gatherer.id) return { ...u, ap:u.ap-apCost };
+              if (u.id === gatherer.id) {
+                return guaranteed
+                  ? { ...u, actionPoints:0, movementPoints:0 }
+                  : { ...u, actionPoints:u.actionPoints-1 };
+              }
               if (u.id === fe.id) return stripped ? null : { ...u, gatherCount:(u.gatherCount||0)+1 };
               return u;
             })

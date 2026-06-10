@@ -62,7 +62,7 @@ export default function MissionScreen() {
     const { ms: cur, phase: curPhase } = useGameStore.getState();
     if (!cur || curPhase !== 'player') return;
     const friendlies = cur.units.filter(u => u.type !== 'enemy' && !u.fallen);
-    if (friendlies.length > 0 && friendlies.every(u => u.ap <= 0)) endTurn();
+    if (friendlies.length > 0 && friendlies.every(u => u.actionPoints <= 0 && u.movementPoints <= 0)) endTurn();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ms?.units, autoEnd]);
 
@@ -110,7 +110,7 @@ export default function MissionScreen() {
     if (u.fallen) return;
     if (sel === u.id) { clearSel(); return; }
     setSel(u.id);
-    if (u.ap <= 0) { setHL(new Set()); return; }
+    if (u.movementPoints <= 0) { setHL(new Set()); return; }
     // Apply slow: halve move range (rounded down)
     const hasSlow = u.statusEffects?.some(fx => fx.id === 'slow');
     const hasStun = u.statusEffects?.some(fx => fx.id === 'stun');
@@ -173,8 +173,8 @@ export default function MissionScreen() {
   const selUnit = sel ? units.find(u => u.id === sel) : null;
   const keys = ms.keys || [];
 
-  // Find adjacent revealed trap when unit has 2+ AP
-  const adjacentTrapTarget = (selUnit && phase === 'player' && selUnit.ap >= 2) ? (() => {
+  // Find adjacent revealed trap when unit has a full turn (action + movement) available
+  const adjacentTrapTarget = (selUnit && phase === 'player' && selUnit.actionPoints > 0 && selUnit.movementPoints > 0) ? (() => {
     const { x, y } = selUnit;
     for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
       const ax = x + dx, ay = y + dy;
@@ -185,7 +185,7 @@ export default function MissionScreen() {
   })() : null;
 
   // Find adjacent locked door or cage when a unit is selected and has AP
-  const adjacentKeyTarget = (selUnit && phase === 'player' && selUnit.ap > 0 && keys.length > 0) ? (() => {
+  const adjacentKeyTarget = (selUnit && phase === 'player' && selUnit.actionPoints > 0 && keys.length > 0) ? (() => {
     const { x, y } = selUnit;
     for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
       const ax = x + dx, ay = y + dy;
@@ -353,7 +353,7 @@ export default function MissionScreen() {
         <div style={{ flex:1, overflow:'auto', minWidth:0 }}>
           <MissionMap
             tiles={tiles} units={units} W={mapW} fv={fv}
-            hilight={selUnit && selUnit.ap > 0 ? hilight : new Set()} raiseable={raiseable}
+            hilight={selUnit && selUnit.movementPoints > 0 ? hilight : new Set()} raiseable={raiseable}
             onCellClick={handleCellClick} theme={theme}
           />
         </div>
@@ -373,7 +373,7 @@ export default function MissionScreen() {
             const xpNeeded = xpNext(selUnit.level ?? 1);
             const xpPct    = Math.min(100, Math.round(xpCur / xpNeeded * 100));
             const capLabel = selUnit.tier === 3 ? 'T3·Lv10' : selUnit.tier === 2 ? 'T2·Lv5' : '';
-            const canAct   = phase === 'player' && selUnit.ap > 0 && !selUnit.fallen;
+            const canAct   = phase === 'player' && selUnit.actionPoints > 0 && !selUnit.fallen;
             return (
               <div>
                 {/* Name + class */}
@@ -401,8 +401,11 @@ export default function MissionScreen() {
                   <span>⚔️ {selUnit.dmg}</span>
                   <span>🛡 {selUnit.def ?? 0}</span>
                   <span>👟 {selUnit.moveRange}</span>
-                  <span style={{ color: selUnit.ap > 0 ? '#5a9a5a' : '#5a3a3a' }}>
-                    AP {'●'.repeat(Math.max(0,selUnit.ap))}{'○'.repeat(Math.max(0,2-selUnit.ap))}
+                  <span style={{ color: selUnit.movementPoints > 0 ? '#5a9a5a' : '#5a3a3a' }} title="Movement">
+                    👟 {selUnit.movementPoints > 0 ? '●' : '○'}
+                  </span>
+                  <span style={{ color: selUnit.actionPoints > 0 ? '#5a9a5a' : '#5a3a3a' }} title="Action">
+                    ⚔ {selUnit.actionPoints > 0 ? '●' : '○'}
                   </span>
                   {selUnit.type === UT.VAREK && <span style={{ color:'#4a7a7a' }}>⛓ {t.fieldCount}/{t.fieldCap}</span>}
                 </div>
@@ -485,7 +488,7 @@ export default function MissionScreen() {
                       const isArmed  = isBonded ? !!(selUnit.bondedArmed?.[aid]) : selUnit.abilityArmed;
 
                       if (ab.type === 'active') {
-                        const available = usesLeft > 0 && selUnit.ap > 0;
+                        const available = usesLeft > 0 && selUnit.actionPoints > 0;
                         const targeting = abilityMode === aid;
                         return (
                           <button key={aid} title={ab.desc}

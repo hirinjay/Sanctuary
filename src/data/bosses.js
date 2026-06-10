@@ -108,7 +108,7 @@ export function spawnBoss(danger, tiles, spawnX, spawnY, locType) {
     // Stats
     x: bx, y: by,
     hp, maxHp: hp, dmg, def: btype.def,
-    ap: bossPassive === 'swift' ? 3 : 2,
+    actionPoints: 1, movementPoints: bossPassive === 'swift' ? 2 : 1,
     moveRange: btype.move + Math.floor(danger / 2),
     attackRange: btype.attackRange,
     // Territorial: stays in room until player closes within 5 tiles

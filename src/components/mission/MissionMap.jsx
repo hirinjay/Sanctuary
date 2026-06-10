@@ -132,8 +132,8 @@ export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, on
         const clickTarget = liveUnit ?? (tileUnits.find(u => u.fallen) ?? null);
 
         const apGlow = liveUnit && liveUnit.type !== 'enemy'
-          ? liveUnit.ap >= 2 ? '0 0 5px 2px #2a7a2a88'
-          : liveUnit.ap === 1 ? '0 0 5px 2px #7a6a1088'
+          ? (liveUnit.actionPoints > 0 && liveUnit.movementPoints > 0) ? '0 0 5px 2px #2a7a2a88'
+          : (liveUnit.actionPoints > 0 || liveUnit.movementPoints > 0) ? '0 0 5px 2px #7a6a1088'
           : '0 0 5px 2px #7a1a1a88'
           : undefined;
 

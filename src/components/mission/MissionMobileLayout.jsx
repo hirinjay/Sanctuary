@@ -36,7 +36,7 @@ export default function MissionMobileLayout(props) {
   const passiveAbilityIds = selUnit
     ? [selUnit.classAbility, ...(selUnit.bondedAbilities ?? [])].filter(aid => ABILITIES[aid]?.type === 'passive')
     : [];
-  const canAct = selUnit && phase === 'player' && selUnit.ap > 0 && !selUnit.fallen;
+  const canAct = selUnit && phase === 'player' && selUnit.actionPoints > 0 && !selUnit.fallen;
 
   return (
     <div style={mobilePg}>
@@ -65,7 +65,7 @@ export default function MissionMobileLayout(props) {
       <div style={mapWrap}>
         <MissionMap
           tiles={tiles} units={units} W={mapW} fv={fv}
-          hilight={selUnit && selUnit.ap > 0 ? hilight : new Set()} raiseable={raiseable}
+          hilight={selUnit && selUnit.movementPoints > 0 ? hilight : new Set()} raiseable={raiseable}
           onCellClick={handleCellClick} theme={theme} tileSize={42}
         />
       </div>
@@ -80,7 +80,8 @@ export default function MissionMobileLayout(props) {
           }}>
             <span>{u.emoji}</span>
             <span style={{ color:'#d0c0a0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{u.pname ?? u.name}</span>
-            <span style={{ color:u.ap > 0 ? '#5a9a5a' : '#6a3a3a' }}>AP{u.ap}</span>
+            <span style={{ color:u.movementPoints > 0 ? '#5a9a5a' : '#6a3a3a' }}>👟{u.movementPoints>0?1:0}</span>
+            <span style={{ color:u.actionPoints > 0 ? '#5a9a5a' : '#6a3a3a' }}>⚔{u.actionPoints>0?1:0}</span>
           </button>
         ))}
       </div>
@@ -109,7 +110,7 @@ export default function MissionMobileLayout(props) {
             {sheetOpen && (
               <div style={{ overflowY:'auto', paddingBottom:8 }}>
                 <div style={statsGrid}>
-                  <span>⚔ {selUnit.dmg}</span><span>🛡 {selUnit.def ?? 0}</span><span>👟 {selUnit.moveRange}</span><span>AP {selUnit.ap}</span>
+                  <span>⚔ {selUnit.dmg}</span><span>🛡 {selUnit.def ?? 0}</span><span>👟 {selUnit.moveRange}</span><span>👟{selUnit.movementPoints} ⚔{selUnit.actionPoints}</span>
                 </div>
                 {passiveAbilityIds.length > 0 && (
                   <div style={badgeRow}>
@@ -125,7 +126,7 @@ export default function MissionMobileLayout(props) {
                       const targeting = abilityMode === aid;
                       const isBonded = aid !== selUnit.classAbility;
                       const isArmed = isBonded ? !!selUnit.bondedArmed?.[aid] : selUnit.abilityArmed;
-                      const available = ab.type === 'reactive' ? usesLeft > 0 : usesLeft > 0 && selUnit.ap > 0;
+                      const available = ab.type === 'reactive' ? usesLeft > 0 : usesLeft > 0 && selUnit.actionPoints > 0;
                       return (
                         <button key={aid} disabled={!available && !targeting} style={abilityButton(available || targeting, targeting, isArmed)} onClick={() => {
                           if (targeting) { setAbilityMode(null); return; }

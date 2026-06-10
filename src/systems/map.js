@@ -133,7 +133,12 @@ export function revealTraps(tiles, units) {
     for (let x = 0; x < W; x++) {
       if (t[y][x].type !== TILE.TRAP) continue;
       for (const u of friendly) {
-        if (dist(u, { x, y }) <= (u.trapReveal || 1)) {
+        // Scout-lineage units (Grave Stalker dc) detect in a square radius,
+        // catching corner/diagonal tiles at the edge of their range.
+        const d = u.dc === 'Grave Stalker'
+          ? Math.max(Math.abs(u.x - x), Math.abs(u.y - y))
+          : dist(u, { x, y });
+        if (d <= (u.trapReveal || 1)) {
           t[y][x] = { type:TILE.TRAP, revealed:true };
           break;
         }
