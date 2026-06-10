@@ -20,6 +20,9 @@ import { isPlayableWorld } from '../world/worldState';
 import { SCREEN, resolveScreen } from '../state/screens';
 import { spawnBoss } from '../data/bosses';
 
+// Bosses only inhabit the bottom floor of these dungeon-like locations — never wild encounters.
+const BOSS_LOC_TYPES = ['dungeon', 'camp', 'wizard_tower'];
+
 // Throttled save — fires immediately on first call, then coalesces rapid calls (400ms window)
 let _saveTimer = null
 function debouncedSave(get) {
@@ -256,12 +259,12 @@ export const useGameStore = create(
         const newScavengeCount  = md === 'scavenge' ? (existingScavenges[locId] ?? 0) + 1 : (existingScavenges[locId] ?? 0);
         const newLocationScavenges = { ...existingScavenges, [locId]: newScavengeCount };
         const newLocationBosses = { ...(locationBosses ?? {}) };
-        if (md === 'scavenge' && newScavengeCount >= 5 && locType !== 'merchant' && locType !== 'cabin') {
+        if (md === 'scavenge' && newScavengeCount >= 5 && BOSS_LOC_TYPES.includes(locType)) {
           newLocationBosses[locId] = true;
         }
 
         // ── Boss floor spawn (boss present + deepest floor) ────────────
-        const hasBoss    = newLocationBosses[locId] === true;
+        const hasBoss    = newLocationBosses[locId] === true && BOSS_LOC_TYPES.includes(locType);
         const isBossFloor = hasBoss && floor === maxFloor;
 
         // ── Enemy spawn ────────────────────────────────────────────────
@@ -458,7 +461,7 @@ export const useGameStore = create(
         const newLocationBosses = { ...(locationBosses ?? {}) };
         if (killedBoss && locId2) {
           newLocationBosses[locId2] = false;
-        } else if (success && floor === maxFloor && loc?.type !== 'cabin' && locId2) {
+        } else if (success && floor === maxFloor && BOSS_LOC_TYPES.includes(loc?.type) && locId2) {
           newLocationBosses[locId2] = true;
           logs.push(`⚠️ The location falls silent... something powerful has taken notice.`);
         }
