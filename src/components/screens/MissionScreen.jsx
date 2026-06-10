@@ -370,10 +370,10 @@ export default function MissionScreen() {
           />
         </div>
 
-        {/* Right panel — unit details when friendly selected, legend key otherwise */}
-        <div style={{ flexShrink:0, width:168, overflowY:'auto',
-          background:'#04040a', border:'1px solid #0e0e1a', borderRadius:4, padding:'7px 7px 6px',
-          alignSelf:'flex-start', maxHeight:'100%' }}>
+        {/* Right panel — unit details when friendly selected, legend key otherwise; turn actions pinned below */}
+        <div style={{ flexShrink:0, width:168, display:'flex', flexDirection:'column', gap:6, maxHeight:'100%' }}>
+        <div style={{ flex:1, overflowY:'auto', minHeight:0,
+          background:'#04040a', border:'1px solid #0e0e1a', borderRadius:4, padding:'7px 7px 6px' }}>
           {selUnit && selUnit.type !== UT.ENEMY ? (() => {
             const allAbilityIds = [selUnit.classAbility, ...(selUnit.bondedAbilities ?? [])].filter(Boolean);
             const passiveAbils = allAbilityIds.filter(aid => ABILITIES[aid]?.type === 'passive');
@@ -590,9 +590,41 @@ export default function MissionScreen() {
             </>
           )}
         </div>
+
+        {/* Turn action buttons — pinned beside the map so End Turn is always reachable */}
+        <div style={{ flexShrink:0, display:'flex', flexDirection:'column', gap:5 }}>
+          <button onClick={endTurn} disabled={phase!=='player'} style={{ ...btn(phase==='player','#3a7a3a'), width:'100%' }}>
+            ⏭ End Turn
+          </button>
+          {adjacentTrapTarget && (
+            <button onClick={() => { disarmTrap(adjacentTrapTarget.x, adjacentTrapTarget.y, sel); clearSel(); }}
+              style={{ ...btn(true,'#4a8a6a'), width:'100%' }}>
+              🔧 Disarm Trap (2AP)
+            </button>
+          )}
+          {adjacentKeyTarget && (
+            <button onClick={() => { doUseKey(adjacentKeyTarget.x, adjacentKeyTarget.y, sel); clearSel(); }}
+              style={{ ...btn(true,'#aa8833'), width:'100%' }}>
+              🔑 Use Key
+            </button>
+          )}
+          {adjacentDoorTarget && (
+            <button onClick={() => { doOpenDoor(adjacentDoorTarget.x, adjacentDoorTarget.y, sel); clearSel(); }}
+              style={{ ...btn(true,'#7a8a4a'), width:'100%' }}>
+              🚪 Open Door
+            </button>
+          )}
+          <button onClick={handleRetreat} style={{ ...btn(true,'#4a4a8a'), width:'100%' }}>
+            🏃 Retreat
+          </button>
+          <button onClick={() => setAutoEnd(v => !v)} style={{ ...btn(true, autoEnd ? '#2a6a4a' : '#4a4a4a'), width:'100%' }}>
+            {autoEnd ? '⚡ Auto-End: ON' : '○ Auto-End: OFF'}
+          </button>
+        </div>
+        </div>
       </div>
 
-      {/* ── Bottom: unit bar, raise panel, log, buttons ───────────────── */}
+      {/* ── Bottom: unit bar, raise panel, log ───────────────────────── */}
       <div style={{ flexShrink:0, padding:'0 9px 7px' }}>
 
         {/* Unit bar */}
@@ -614,43 +646,6 @@ export default function MissionScreen() {
           {log.map((l, i) => (
             <div key={i} style={{ fontSize:10, color:i===0?'#c4a882':'#333345', lineHeight:1.6 }}>{l}</div>
           ))}
-        </div>
-
-
-        {/* Action buttons */}
-        <div style={{ display:'flex', gap:7, justifyContent:'flex-end' }}>
-        {adjacentTrapTarget && (
-          <button onClick={() => { disarmTrap(adjacentTrapTarget.x, adjacentTrapTarget.y, sel); clearSel(); }}
-            style={btn(true,'#4a8a6a')}>
-            🔧 Disarm Trap (2AP)
-          </button>
-        )}
-        {adjacentKeyTarget && (
-          <button onClick={() => { doUseKey(adjacentKeyTarget.x, adjacentKeyTarget.y, sel); clearSel(); }}
-            style={btn(true,'#aa8833')}>
-            🔑 Use Key
-          </button>
-        )}
-        {adjacentDoorTarget && (
-          <button onClick={() => { doOpenDoor(adjacentDoorTarget.x, adjacentDoorTarget.y, sel); clearSel(); }}
-            style={btn(true,'#7a8a4a')}>
-            🚪 Open Door
-          </button>
-        )}
-        <button onClick={handleRetreat} style={btn(true,'#4a4a8a')}>
-          🏃 Retreat
-        </button>
-        <button
-          onClick={() => setAutoEnd(v => !v)}
-          style={{
-            ...btn(true, autoEnd ? '#2a6a4a' : '#4a4a4a'),
-            marginRight:'auto', order:-1,
-          }}>
-          {autoEnd ? '⚡ Auto-End: ON' : '○ Auto-End: OFF'}
-        </button>
-        <button onClick={endTurn} disabled={phase!=='player'} style={btn(phase==='player','#3a7a3a')}>
-          ⏭ End Turn
-        </button>
         </div>
       </div>
     </div>
