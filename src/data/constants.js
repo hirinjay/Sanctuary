@@ -16,23 +16,28 @@ export const UNAMES = [
   'Thorn','Wren','Greave','Ashe','Cinder','Voss','Nael','Lurk','Bane','Hollow',
 ];
 
+// 'evasion' label/desc are resolved dynamically (see defenseTypeFor) based on
+// the unit's defensive temperament — dodge/counter/defend.
 export const VAREK_LU = [
-  { id:'tether', label:'Tether +2',      desc:'+1 auto per level, +1 bonus if chosen' },
-  { id:'drain',  label:'Drain Range +1', desc:'Drain reaches further' },
-  { id:'hp',     label:'HP +4',          desc:'More health' },
-  { id:'raise',  label:'Raise Range +1', desc:'Raise from further' },
+  { id:'tether',   label:'Tether +2',      desc:'+1 auto per level, +1 bonus if chosen' },
+  { id:'drain',    label:'Drain Range +1', desc:'Drain reaches further' },
+  { id:'hp',       label:'HP +4',          desc:'More health' },
+  { id:'raise',    label:'Raise Range +1', desc:'Raise from further' },
+  { id:'evasion',  label:'<dynamic>',      desc:'Improve your defensive reaction (capped)' },
 ];
 // Verdant Rite variant — drain is melee-only so range is moot; swap for attack power
 export const VERDANT_VAREK_LU = [
-  { id:'tether', label:'Tether +2',      desc:'+1 auto per level, +1 bonus if chosen' },
-  { id:'dmg',    label:'Attack +1',      desc:'Drain hits harder (cap 6, then lifesteal)' },
-  { id:'hp',     label:'HP +4',          desc:'More health' },
-  { id:'raise',  label:'Raise Range +1', desc:'Raise from further' },
+  { id:'tether',   label:'Tether +2',      desc:'+1 auto per level, +1 bonus if chosen' },
+  { id:'dmg',      label:'Attack +1',      desc:'Drain hits harder (cap 6, then lifesteal)' },
+  { id:'hp',       label:'HP +4',          desc:'More health' },
+  { id:'raise',    label:'Raise Range +1', desc:'Raise from further' },
+  { id:'evasion',  label:'<dynamic>',      desc:'Improve your defensive reaction (capped)' },
 ];
 export const UNDEAD_LU = [
-  { id:'hp',   label:'HP +3',     desc:'Sturdier bones' },
-  { id:'dmg',  label:'Damage +1', desc:'Hits harder' },
-  { id:'move', label:'Move +1',   desc:'Faster' },
+  { id:'hp',      label:'HP +3',     desc:'Sturdier bones' },
+  { id:'dmg',     label:'Damage +1', desc:'Hits harder' },
+  { id:'move',    label:'Move +1',   desc:'Faster' },
+  { id:'evasion', label:'<dynamic>', desc:'Improve your defensive reaction (capped)' },
 ];
 
 // Status effect ids — stored as { id, duration, magnitude, sourceId } in unit.statusEffects[]

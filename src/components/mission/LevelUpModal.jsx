@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useGameStore } from '../../store/gameStore';
 import { CLASSES, getAvailablePromotions } from '../../data/classes';
+import { defenseTypeFor } from '../../systems/combat';
 import { ABILITIES } from '../../data/abilities';
 
 export default function LevelUpModal() {
@@ -129,10 +130,16 @@ export default function LevelUpModal() {
   // ── Normal stat boost ──────────────────────────────────────────────────
   const isVerdantVarek = u?.type === 'varek' && book?.id === 'verdant';
   const dmgCap = u?.isTinker ? 2 : 1;
+  const defenseLabels = { dodge:'Dodge', counter:'Counter', defend:'Defend' };
   const filteredOpts = (opts ?? []).filter(o => {
+    if (o.id === 'evasion') return (u?.evasionBonus||0) < 5;
     if (o.id !== 'dmg') return true;
     if (isVerdantVarek) return (u?.dmg || 2) < 6;
     return (u?.dmgUpgrades||0) < dmgCap;
+  }).map(o => {
+    if (o.id !== 'evasion') return o;
+    const dType = defenseTypeFor(u ?? {});
+    return { ...o, label:`${defenseLabels[dType]} +3%`, desc:`Improve your ${dType} chance (cap 35%)` };
   });
 
   return (

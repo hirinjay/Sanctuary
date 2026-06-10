@@ -4,7 +4,7 @@ import { DEFAULT_VP, UT, TILE, UNAMES } from '../data/constants';
 import { item, LOOT, FLOOR_LOOT, BODY_LOOT } from '../data/items';
 import { killXpByTier, xpTierMultiplier } from '../data/enemyDefs';
 import { genMap, genDungeonMap, genCabinMap, genForest, genRuinedTown, genRaiderCamp, genSwamp, genBattlefield, genAbandonedVillage, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath, cullUnreachable, findSpawnSlots } from '../systems/map';
-import { spawnEnemies, applyXpToUnits, calcSacrificeBonus, VERDANT_VAREK_LU } from '../systems/combat';
+import { spawnEnemies, applyXpToUnits, calcSacrificeBonus, VERDANT_VAREK_LU, resolveDefense } from '../systems/combat';
 import { ARCHETYPES, CLASS_STATS } from '../data/archetypes';
 import { generateWorld, revealAround } from '../world/worldGen';
 import { hexesInRange } from '../world/hexMath';
@@ -1109,6 +1109,7 @@ export const useGameStore = create(
             if (choice==='raise')  return { ...base, raiseRange: u.raiseRange + 1 };
             if (choice==='dmg')    return { ...base, dmg: (u.dmg||2) + 1, dmgUpgrades: (u.dmgUpgrades||0) + 1 };
             if (choice==='move')   return { ...base, moveRange: u.moveRange + 1 };
+            if (choice==='evasion') return { ...base, evasionBonus: Math.min(5, (u.evasionBonus||0) + 1) };
             return base;
           };
           const newLuq = s.luq.slice(1);
@@ -1121,10 +1122,10 @@ export const useGameStore = create(
             };
           }
           if (isVarek) {
-            const fake = { tetherCap:s.vp.tetherCap||1, drainRange:s.vp.drainRange||2, raiseRange:s.vp.raiseRange||2, hp:s.vp.hp, maxHp:s.vp.maxHp, moveRange:s.vp.moveRange||3, dmg:s.vp.dmg||2 };
+            const fake = { tetherCap:s.vp.tetherCap||1, drainRange:s.vp.drainRange||2, raiseRange:s.vp.raiseRange||2, hp:s.vp.hp, maxHp:s.vp.maxHp, moveRange:s.vp.moveRange||3, dmg:s.vp.dmg||2, evasionBonus:s.vp.evasionBonus||0 };
             const b = boost(fake);
             return {
-              vp: { ...s.vp, tetherCap:b.tetherCap, drainRange:b.drainRange, raiseRange:b.raiseRange, hp:b.hp, maxHp:b.maxHp, moveRange:b.moveRange, dmg:b.dmg },
+              vp: { ...s.vp, tetherCap:b.tetherCap, drainRange:b.drainRange, raiseRange:b.raiseRange, hp:b.hp, maxHp:b.maxHp, moveRange:b.moveRange, dmg:b.dmg, evasionBonus:b.evasionBonus },
               luq: newLuq,
               log: [logLine, ...s.log].slice(0, 14),
             };
@@ -1454,10 +1455,25 @@ export const useGameStore = create(
           }
           void reactiveHit;
 
+          // ── Defender's reaction: dodge / counter / defend ──────────────
+          const defenseResult = resolveDefense(attUnit, defUnit, dmg);
+          if (defenseResult.outcome === 'dodge') {
+            logs.push(`💨 ${defUnit.name} dodges the attack!`);
+            dmg = 0;
+          } else if (defenseResult.outcome === 'defend') {
+            dmg = defenseResult.dmg;
+            logs.push(`🛡 ${defUnit.name} braces and takes only ${dmg}!`);
+          } else if (defenseResult.outcome === 'counter') {
+            dmg = defenseResult.dmg;
+          }
+
           // Apply hit
-          logs.push(`${attUnit.emoji} ${attUnit.name} → ${defUnit.name} for ${dmg}!`);
+          if (defenseResult.outcome !== 'dodge') {
+            logs.push(`${attUnit.emoji} ${attUnit.name} → ${defUnit.name} for ${dmg}!`);
+          }
           units = units.map(u => {
             if (u.id === enemy.id) {
+              if (dmg <= 0) return { ...u, alerted:true };
               const nh = u.hp - dmg;
               if (nh <= 0) { logs.push(`${defUnit.name} falls! Raise within 3 turns.`); return { ...u, hp:0, fallen:true, raiseTurn:prev.ms.turn }; }
               return { ...u, hp:nh, alerted:true };
@@ -1465,6 +1481,25 @@ export const useGameStore = create(
             if (u.id === sel) return { ...u, actionPoints:u.actionPoints-1 };
             return u;
           });
+
+          // Counter-attack: defender strikes back immediately if it survived
+          if (defenseResult.outcome === 'counter') {
+            const survAfterHit = units.find(u => u.id === enemy.id && !u.fallen);
+            if (survAfterHit) {
+              const cdmg = defenseResult.counterDmg;
+              logs.push(`↩️ ${defUnit.name} counters for ${cdmg}!`);
+              units = units.map(u => {
+                if (u.id !== sel) return u;
+                const nh = u.hp - cdmg;
+                if (nh <= 0) {
+                  if (sel==='varek') { setTimeout(()=>get().setScreen(SCREEN.GAME_OVER),300); return {...u,hp:0}; }
+                  logs.push(`${u.name} falls!`);
+                  return {...u,hp:0,fallen:true,raiseTurn:prev.ms.turn};
+                }
+                return {...u,hp:nh};
+              });
+            }
+          }
 
           // ── Enemy passive reactions to taking damage ──────────────────
           const hitUnit = units.find(u => u.id === enemy.id && !u.fallen);
@@ -2511,6 +2546,18 @@ export const useGameStore = create(
             }
             if (negated) continue;
 
+            // ── Defender's reaction: dodge / counter / defend ──────────────
+            const defenseResult = resolveDefense(attacker, tgt, dmg);
+            if (defenseResult.outcome === 'dodge') {
+              logs.push(`💨 ${tgt.name} dodges ${attacker.name}'s attack!`);
+              continue;
+            } else if (defenseResult.outcome === 'defend') {
+              dmg = defenseResult.dmg;
+              logs.push(`🛡 ${tgt.name} braces and takes only ${dmg}!`);
+            } else if (defenseResult.outcome === 'counter') {
+              dmg = defenseResult.dmg;
+            }
+
             // armored passive: attacker is the target's passive doesn't apply here (it's the enemy attacking player)
             // but when a boss IS the target (player attacks boss in doAttack) it's handled there
             // For enemy attacking player: check if attacker is boss with brutal
@@ -2563,6 +2610,22 @@ export const useGameStore = create(
               }
               return { ...v, hp:nh };
             });
+
+            // Counter-attack: defender strikes back at the enemy attacker
+            if (defenseResult.outcome === 'counter') {
+              const survAfterHit = units.find(u => u.id === tgt.id && !u.fallen);
+              const enemyAlive = units.find(u => u.id === attacker.id && !u.fallen);
+              if (survAfterHit && enemyAlive) {
+                const cdmg = defenseResult.counterDmg;
+                logs.push(`↩️ ${tgt.name} counters for ${cdmg}!`);
+                units = units.map(v => {
+                  if (v.id !== attacker.id) return v;
+                  const nh = v.hp - cdmg;
+                  if (nh <= 0) { logs.push(`${v.name} falls!`); return { ...v, hp:0, fallen:true, raiseTurn:ms.turn }; }
+                  return { ...v, hp:nh };
+                });
+              }
+            }
           }
 
           // Holy ground — damages undead each turn, Varek every 2 turns; living enemies unaffected

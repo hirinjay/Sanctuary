@@ -93,6 +93,43 @@ export function applyXpToUnits(units, uid, amt, luqRef, varekOpts) {
 }
 export { VERDANT_VAREK_LU };
 
+// ── Defense temperament ──────────────────────────────────────────────
+// Maps a unit to its defensive reaction: dodge / counter / defend.
+// Also doubles as the retreat-temperament classification used by enemy AI:
+// dodge & counter units retreat toward allies at low HP, defend units fight on.
+export function defenseTypeFor(unit) {
+  if (unit.type === UT.VAREK) return 'defend';
+  if (unit.type === UT.ENEMY) {
+    if (unit.isBoss) return 'defend';
+    if (['ranged','support','flanker'].includes(unit.aiRole)) return 'dodge';
+    if (['berserker','alpha','territorial'].includes(unit.aiRole)) return 'defend';
+    return 'counter';
+  }
+  // Player/undead units, classified by base-class lineage (dc field)
+  if (unit.dc === 'Grave Stalker') return 'dodge';
+  if (unit.dc === 'Grave Warden')  return 'defend';
+  return 'counter';
+}
+
+// Chance (0-100) that a unit successfully dodges/counters/defends an incoming hit.
+export function evasionChance(unit) {
+  const tier = unit.xpTier ?? unit.tier ?? 1;
+  const base = unit.isBoss ? 25 : tier === 3 ? 20 : tier === 2 ? 15 : 10;
+  const bonus = (unit.evasionBonus ?? 0) * 3;
+  return Math.min(35, base + bonus);
+}
+
+// Resolves an attack against a defender's evasion chance and temperament.
+export function resolveDefense(attacker, defender, dmg) {
+  const chance = evasionChance(defender);
+  if (Math.random() * 100 >= chance) return { outcome:'hit', dmg };
+  const type = defenseTypeFor(defender);
+  if (type === 'dodge')   return { outcome:'dodge', dmg:0 };
+  if (type === 'counter') return { outcome:'counter', dmg, counterDmg: defender.dmg||1 };
+  if (type === 'defend')  return { outcome:'defend', dmg: Math.ceil(dmg/2) };
+  return { outcome:'hit', dmg };
+}
+
 // Pick enemy template: faction pool when locType matches, else archetype pool
 function pickTemplate(locType, requiredTier, threats) {
   if (threats?.length) return threats[Math.floor(Math.random() * threats.length)];
