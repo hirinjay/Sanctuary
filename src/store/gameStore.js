@@ -18,10 +18,10 @@ import { deleteSave } from '../lib/persistence';
 import { ABILITIES } from '../data/abilities';
 import { isPlayableWorld } from '../world/worldState';
 import { SCREEN, resolveScreen } from '../state/screens';
-import { spawnBoss } from '../data/bosses';
+import { spawnBoss, spawnCabinCompanions } from '../data/bosses';
 
 // Bosses only inhabit the bottom floor of these dungeon-like locations — never wild encounters.
-const BOSS_LOC_TYPES = ['dungeon', 'camp', 'wizard_tower'];
+const BOSS_LOC_TYPES = ['dungeon', 'camp', 'wizard_tower', 'cabin'];
 
 // Throttled save — fires immediately on first call, then coalesces rapid calls (400ms window)
 let _saveTimer = null
@@ -270,9 +270,12 @@ export const useGameStore = create(
         // ── Enemy spawn ────────────────────────────────────────────────
         const enemies = locType === 'battlefield' ? [] : spawnEnemies(effectiveDanger, md, tiles, spawnX, spawnY, location.threats ?? null, locType, floor, isBossFloor);
         const boss = isBossFloor ? spawnBoss(effectiveDanger, tiles, spawnX, spawnY, locType || 'dungeon') : null;
-        // Three support units clustered near the boss
+        // Companions clustered near the boss — cabins get a small variable pack
+        // of hunting dogs, other locations get three archetype guards.
         const bossSupport = [];
-        if (boss) {
+        if (boss && locType === 'cabin') {
+          bossSupport.push(...spawnCabinCompanions(effectiveDanger, tiles, boss));
+        } else if (boss) {
           for (let i = 0; i < 3; i++) {
             const a = ARCHETYPES[Math.floor(Math.random() * ARCHETYPES.length)];
             const bsHp  = Math.round(a.hp  * (1 + (effectiveDanger-1) * 0.35));

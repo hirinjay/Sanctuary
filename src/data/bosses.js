@@ -54,7 +54,17 @@ const BOSS_TYPES = {
     { key:'arcane_warden',      name:'Arcane Warden',      emoji:'🔮',  hp:16, dmg:6, def:0, move:3, attackRange:4, boss_loot:'arcane_tome' },
     { key:'void_architect',     name:'Void Architect',     emoji:'👁️',  hp:18, dmg:7, def:0, move:2, attackRange:5, boss_loot:'void_shard' },
   ],
+  cabin: [
+    { key:'angry_hunter',       name:'Angry Hunter',       emoji:'🏹',  hp:14, dmg:5, def:0, move:3, attackRange:3, dc:'Grave Stalker', boss_loot:'hunters_bow' },
+    { key:'vengeful_trapper',   name:'Vengeful Trapper',   emoji:'🪤',  hp:12, dmg:4, def:1, move:2, attackRange:2, dc:'Grave Stalker', boss_loot:'trappers_kit' },
+  ],
 };
+
+// Companion units that flank cabin bosses — hunting dogs from the surrounding wilds.
+const CABIN_COMPANIONS = [
+  { name:'Hunting Dog',  emoji:'🐕', hp:5, dmg:3, move:4, attackRange:1, dc:'Skeleton Warrior', sight:5, spot:0.6, xp:5 },
+  { name:'Tracker Hound',emoji:'🐺', hp:6, dmg:3, move:4, attackRange:1, dc:'Skeleton Warrior', sight:5, spot:0.6, xp:5 },
+];
 
 const BOSS_NAMES = [
   'Grak', 'Mordeth', 'Vaeloth', 'Skarrik', 'Druvash',
@@ -119,11 +129,47 @@ export function spawnBoss(danger, tiles, spawnX, spawnY, locType) {
     ambushTriggered: true,
     patrol: [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }], pi: 0,
     xp: 25 + danger * 6,
-    dc: 'Skeleton Warrior',
+    dc: btype.dc ?? 'Skeleton Warrior',
     sight: 7, spot: 1.0,
     weapon: null, armor: null,
     level: 3 + Math.floor(danger / 2),
     xpVal: 0, chaseTurns: 0, lastKnown: null,
     statusEffects: [],
   };
+}
+
+// ── Spawn companion units alongside a boss ─────────────────────────────
+// Cabin bosses bring a small, variable pack of hunting dogs instead of the
+// usual three-archetype guard squad.
+export function spawnCabinCompanions(danger, tiles, boss) {
+  const mapH = tiles?.length ?? 12;
+  const mapW = tiles?.[0]?.length ?? 16;
+  const count = 1 + Math.floor(Math.random() * 2); // 1-2 dogs, varies each time
+  const companions = [];
+  for (let i = 0; i < count; i++) {
+    const c = pickRandom(CABIN_COMPANIONS);
+    const hp  = Math.round(c.hp  * (1 + (danger - 1) * 0.35));
+    const dmg = Math.max(1, Math.round(c.dmg * (1 + (danger - 1) * 0.25)));
+    let sx = boss.x, sy = boss.y;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const tx = boss.x + Math.floor(Math.random() * 5) - 2;
+      const ty = boss.y + Math.floor(Math.random() * 5) - 2;
+      if (tx >= 1 && tx < mapW - 1 && ty >= 1 && ty < mapH - 1
+          && tiles?.[ty]?.[tx]?.type !== 'wall'
+          && !companions.some(s => s.x === tx && s.y === ty)
+          && (tx !== boss.x || ty !== boss.y)) { sx = tx; sy = ty; break; }
+    }
+    companions.push({
+      id: `comp${i}`, type: UT.ENEMY, name: c.name, emoji: c.emoji,
+      x: sx, y: sy, hp, maxHp: hp, dmg, def: 0,
+      actionPoints: 1, movementPoints: 1, moveRange: c.move, attackRange: c.attackRange,
+      fallen: false, raiseTurn: null, alerted: true, placement: 'guard',
+      waypoints: undefined, wi: 0, ambushTriggered: true, triggerRow: undefined,
+      patrol: [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }], pi: 0,
+      xp: c.xp, dc: c.dc, sight: c.sight, spot: c.spot,
+      weapon: null, armor: null, level: 1, xpVal: 0, chaseTurns: 0, lastKnown: null,
+      statusEffects: [],
+    });
+  }
+  return companions;
 }

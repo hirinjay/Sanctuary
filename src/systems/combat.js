@@ -103,7 +103,9 @@ export function defenseTypeFor(unit) {
     if (unit.isBoss) return 'defend';
     if (['ranged','support','flanker'].includes(unit.aiRole)) return 'dodge';
     if (['berserker','alpha','territorial'].includes(unit.aiRole)) return 'defend';
-    return 'counter';
+    // Only Wanderer-lineage enemies (Skeleton Warrior dc) have a counter-attack passive.
+    if (unit.dc === 'Skeleton Warrior') return 'counter';
+    return 'hit';
   }
   // Player/undead units, classified by base-class lineage (dc field)
   if (unit.dc === 'Grave Stalker') return 'dodge';

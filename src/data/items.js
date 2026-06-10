@@ -34,6 +34,8 @@ export const ITEMS = [
   { id:'arcane_tome',       name:'Arcane Tome',       tier:'r', emoji:'📖', type:'relic',      desc:'Forbidden spells sealed in binding.' },
   { id:'void_shard',        name:'Void Shard',        tier:'r', emoji:'🌑', type:'mat',        desc:'Crystallized void energy.' },
   { id:'warchief_banner',   name:'Warchief Banner',   tier:'r', emoji:'🏴', type:'relic',      desc:'Banner of a defeated Raider Warchief.' },
+  { id:'hunters_bow',       name:"Hunter's Bow",      tier:'r', emoji:'🏹', type:'weapon', dmg:2, attackRange:2, desc:'+2 dmg, strikes from 2 tiles away' },
+  { id:'trappers_kit',      name:"Trapper's Kit",     tier:'r', emoji:'🪤', type:'tool',       desc:'Improves trap detection and disarming' },
 ];
 
 export const item = (id) => ITEMS.find(i => i.id === id);
