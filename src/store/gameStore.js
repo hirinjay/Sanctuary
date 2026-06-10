@@ -1046,11 +1046,9 @@ export const useGameStore = create(
       // ── Auth ──────────────────────────────────────────────────────────
       setCurrentUser(user) {
         set({ currentUser: user });
-        if (user?.id) {
-          loadBestiary(user.id).then(data => {
-            if (data && Object.keys(data).length) set({ bestiary: data });
-          });
-        }
+        loadBestiary(user?.id ?? null).then(data => {
+          if (data && Object.keys(data).length) set({ bestiary: data });
+        });
       },
       setSaveSlots(slots)  { set({ saveSlots: slots }); },
 
