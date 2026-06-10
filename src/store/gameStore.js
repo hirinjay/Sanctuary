@@ -4,7 +4,7 @@ import { DEFAULT_VP, UT, TILE, UNAMES } from '../data/constants';
 import { item, LOOT, FLOOR_LOOT, BODY_LOOT } from '../data/items';
 import { killXpByTier, xpTierMultiplier } from '../data/enemyDefs';
 import { genMap, genDungeonMap, genCabinMap, genForest, genRuinedTown, genRaiderCamp, genSwamp, genBattlefield, genAbandonedVillage, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath, cullUnreachable, findSpawnSlots } from '../systems/map';
-import { spawnEnemies, applyXpToUnits, calcSacrificeBonus, VERDANT_VAREK_LU, resolveDefense } from '../systems/combat';
+import { spawnEnemies, applyXpToUnits, calcSacrificeBonus, VERDANT_VAREK_LU, resolveDefense, defenseTypeFor } from '../systems/combat';
 import { ARCHETYPES, CLASS_STATS } from '../data/archetypes';
 import { generateWorld, revealAround } from '../world/worldGen';
 import { hexesInRange } from '../world/hexMath';
@@ -2248,6 +2248,29 @@ export const useGameStore = create(
               const aRange = u.attackRange || 1;
               const effMove = (u.moveRange || 1) + (u.moveBonusThisTurn || 0);
 
+              // ── Retreat & regroup: low-HP non-brute units flee toward allies ──
+              if (defenseTypeFor(u) !== 'defend' && u.hp / u.maxHp <= 0.3) {
+                const allies = units.filter(a => a.type===UT.ENEMY && !a.fallen && a.id!==u.id);
+                const nearAlly = allies
+                  .map(a => ({ a, path: bfsGridPath(ms.tiles, u.x, u.y, a.x, a.y, units) }))
+                  .filter(({ path }) => path.length && path.length <= effMove)
+                  .sort((x, y) => x.path.length - y.path.length)[0];
+                if (nearAlly) {
+                  let nx = u.x, ny = u.y, steps = 0;
+                  for (const step of nearAlly.path) {
+                    if (steps >= effMove) break;
+                    if (dist({ x:step.x, y:step.y }, nearAlly.a) <= 1) break;
+                    if (!walkable(ms.tiles, step.x, step.y, units)) break;
+                    nx = step.x; ny = step.y; steps++;
+                  }
+                  if (nx !== u.x || ny !== u.y) {
+                    logs.push(`🩸 ${u.name} retreats toward allies!`);
+                    return { ...u, x:nx, y:ny, alerted:true, chaseTurns:0, lastKnown };
+                  }
+                }
+                // No reachable ally: fight as best they can — fall through to normal behavior
+              }
+
               // ── Territorial: boss/captain stays put until player is close ──
               if ((u.territorial || u.isBoss) && !adj) {
                 const trigR = u.triggerRadius ?? 5;
@@ -2277,7 +2300,7 @@ export const useGameStore = create(
               }
 
               // ── Ranged: maintain preferred distance, kite backwards if too close ─
-              if (u.aiRole === 'ranged' && visibleTgt) {
+              if (aRange > 1 && visibleTgt) {
                 const distToTgt = dist(u, visibleTgt);
                 if (distToTgt < aRange && distToTgt > 0) {
                   // Too close: step away
