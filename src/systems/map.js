@@ -722,3 +722,244 @@ export function genAbandonedVillage(danger, mapW, mapH) {
   t[1][W-2] = { type: TILE.EXIT };
   return t;
 }
+
+// Crypt: a long central corridor flanked by symmetric burial alcoves — patterned, like the cabin but linear
+export function genCryptMap(danger, mapW, mapH) {
+  const W = mapW ?? DEF_W, H = mapH ?? DEF_H;
+  const t = Array.from({ length: H }, () =>
+    Array.from({ length: W }, () => ({ type: TILE.WALL }))
+  );
+
+  // Central horizontal corridor
+  const midY = Math.floor(H / 2);
+  for (let x = 1; x < W - 1; x++) t[midY][x] = { type: TILE.FLOOR };
+
+  // Symmetric burial alcoves branching above and below the corridor
+  for (let x = 2; x < W - 2; x += 3) {
+    for (let y = Math.max(1, midY - 2); y < midY; y++)
+      for (let ax = x; ax < x + 2 && ax < W - 1; ax++) t[y][ax] = { type: TILE.FLOOR };
+    for (let y = midY + 1; y <= Math.min(H - 2, midY + 2); y++)
+      for (let ax = x; ax < x + 2 && ax < W - 1; ax++) t[y][ax] = { type: TILE.FLOOR };
+  }
+
+  // Loot tucked into alcoves
+  for (let i = 0; i < 8 + danger * 2; i++) {
+    for (let a = 0; a < 50; a++) {
+      const x = 1 + Math.floor(Math.random() * (W - 2));
+      const y = 1 + Math.floor(Math.random() * (H - 2));
+      if (y !== midY && t[y][x].type === TILE.FLOOR) { t[y][x] = { type: TILE.LOOT }; break; }
+    }
+  }
+  // Traps along the corridor
+  for (let i = 0; i < 2 + danger; i++) {
+    for (let a = 0; a < 40; a++) {
+      const x = 1 + Math.floor(Math.random() * (W - 2));
+      if (t[midY][x].type === TILE.FLOOR) { t[midY][x] = { type: TILE.TRAP }; break; }
+    }
+  }
+  // Holy ground — sanctified resting places
+  for (let i = 0; i < 1 + Math.floor(Math.random() * 2); i++) {
+    for (let a = 0; a < 40; a++) {
+      const x = 1 + Math.floor(Math.random() * (W - 2));
+      const y = 1 + Math.floor(Math.random() * (H - 2));
+      if (y !== midY && t[y][x].type === TILE.FLOOR) { t[y][x] = { type: TILE.HOLY }; break; }
+    }
+  }
+  // Doors at alcove chokepoints along the corridor
+  let doorsPlaced = 0;
+  for (let x = 2; x < W - 2 && doorsPlaced < 2; x += 3) {
+    if (t[midY][x].type === TILE.FLOOR && Math.random() < 0.4) {
+      t[midY][x] = { type: TILE.DOOR, open: false };
+      doorsPlaced++;
+    }
+  }
+
+  // Connect spawn (1, H-2) and exit (W-2, 1) corners up/down to the corridor
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const sx = 1 + dx, sy = H - 2 + dy;
+    if (sx > 0 && sx < W - 1 && sy > 0 && sy < H - 1) t[sy][sx] = { type: TILE.FLOOR };
+    const ex = W - 2 + dx, ey = 1 + dy;
+    if (ex > 0 && ex < W - 1 && ey > 0 && ey < H - 1) t[ey][ex] = { type: TILE.FLOOR };
+  }
+  let x = 1, y = H - 2;
+  while (y !== midY) { t[y][x] = { type: TILE.FLOOR }; y += y < midY ? 1 : -1; }
+  x = W - 2; y = 1;
+  while (y !== midY) { t[y][x] = { type: TILE.FLOOR }; y += y < midY ? 1 : -1; }
+
+  t[1][W - 2] = { type: TILE.EXIT };
+  return t;
+}
+
+// Vault: an outer ring corridor wrapped around a sealed central treasure room — patterned, symmetric
+export function genVaultMap(danger, mapW, mapH) {
+  const W = mapW ?? DEF_W, H = mapH ?? DEF_H;
+  const t = Array.from({ length: H }, () =>
+    Array.from({ length: W }, () => ({ type: TILE.WALL }))
+  );
+
+  // Outer ring corridor, one tile in from the border
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    if (x === 1 || x === W - 2 || y === 1 || y === H - 2) t[y][x] = { type: TILE.FLOOR };
+  }
+
+  // Central vault room, sealed behind a single locked door
+  const vw = Math.max(4, Math.floor(W * 0.4));
+  const vh = Math.max(3, Math.floor(H * 0.4));
+  const vx = Math.floor((W - vw) / 2), vy = Math.floor((H - vh) / 2);
+  for (let y = vy; y < vy + vh; y++) for (let x = vx; x < vx + vw; x++) t[y][x] = { type: TILE.FLOOR };
+  for (let x = vx; x < vx + vw; x++) { t[vy][x] = { type: TILE.WALL }; t[vy + vh - 1][x] = { type: TILE.WALL }; }
+  for (let y = vy; y < vy + vh; y++) { t[y][vx] = { type: TILE.WALL }; t[y][vx + vw - 1] = { type: TILE.WALL }; }
+  const doorX = vx + Math.floor(vw / 2);
+  t[vy + vh - 1][doorX] = { type: TILE.DOOR, open: false, locked: true, keyId: 'key_1' };
+  // Corridor stub connecting the vault door down to the outer ring
+  for (let y = vy + vh; y < H - 1; y++) t[y][doorX] = { type: TILE.FLOOR };
+
+  // Loot concentrated inside the vault
+  for (let i = 0; i < 6 + danger * 3; i++) {
+    for (let a = 0; a < 40; a++) {
+      const x = vx + 1 + Math.floor(Math.random() * (vw - 2));
+      const y = vy + 1 + Math.floor(Math.random() * (vh - 2));
+      if (t[y][x].type === TILE.FLOOR) { t[y][x] = { type: TILE.LOOT }; break; }
+    }
+  }
+  // A few scraps in the outer ring
+  for (let i = 0; i < 2 + danger; i++) {
+    for (let a = 0; a < 40; a++) {
+      const x = 1 + Math.floor(Math.random() * (W - 2));
+      const y = 1 + Math.floor(Math.random() * (H - 2));
+      if (t[y][x].type === TILE.FLOOR) { t[y][x] = { type: TILE.LOOT }; break; }
+    }
+  }
+  // Traps guarding the vault door
+  for (let i = 0; i < 2 + Math.floor(danger / 2); i++) {
+    for (let a = 0; a < 40; a++) {
+      const x = doorX + (Math.random() < 0.5 ? -1 : 1);
+      const y = vy + vh + Math.floor(Math.random() * Math.max(1, H - 1 - (vy + vh)));
+      if (t[y]?.[x]?.type === TILE.FLOOR) { t[y][x] = { type: TILE.TRAP }; break; }
+    }
+  }
+
+  t[1][W - 2] = { type: TILE.EXIT };
+  return t;
+}
+
+// Barracks: two symmetric rows of cells along a central corridor — patterned, grid-like
+export function genBarracksMap(danger, mapW, mapH) {
+  const W = mapW ?? DEF_W, H = mapH ?? DEF_H;
+  const t = Array.from({ length: H }, () =>
+    Array.from({ length: W }, () => ({ type: TILE.WALL }))
+  );
+
+  const midY = Math.floor(H / 2);
+  for (let x = 1; x < W - 1; x++) { t[midY - 1][x] = { type: TILE.FLOOR }; t[midY][x] = { type: TILE.FLOOR }; }
+
+  // Cells along the top and bottom of the corridor
+  for (let x = 2; x < W - 3; x += 4) {
+    for (let y = Math.max(1, midY - 4); y < midY - 1; y++)
+      for (let cx = x; cx < x + 3 && cx < W - 1; cx++) t[y][cx] = { type: TILE.FLOOR };
+    if (Math.random() < 0.5) t[midY - 2][x + 1] = { type: TILE.DOOR, open: false };
+
+    for (let y = midY + 1; y < Math.min(H - 1, midY + 4); y++)
+      for (let cx = x; cx < x + 3 && cx < W - 1; cx++) t[y][cx] = { type: TILE.FLOOR };
+    if (Math.random() < 0.5) t[midY + 1][x + 1] = { type: TILE.DOOR, open: false };
+  }
+
+  // Loot scattered through the cells
+  for (let i = 0; i < 8 + danger * 2; i++) {
+    for (let a = 0; a < 50; a++) {
+      const x = 1 + Math.floor(Math.random() * (W - 2));
+      const y = 1 + Math.floor(Math.random() * (H - 2));
+      if (t[y][x].type === TILE.FLOOR) { t[y][x] = { type: TILE.LOOT }; break; }
+    }
+  }
+  // Traps
+  for (let i = 0; i < 2 + danger; i++) {
+    for (let a = 0; a < 50; a++) {
+      const x = 1 + Math.floor(Math.random() * (W - 2));
+      const y = 1 + Math.floor(Math.random() * (H - 2));
+      if (t[y][x].type === TILE.FLOOR) { t[y][x] = { type: TILE.TRAP }; break; }
+    }
+  }
+  // Campfire near the spawn end of the corridor
+  if (t[midY]?.[2]?.type === TILE.FLOOR) t[midY][2] = { type: TILE.FIRE };
+
+  // Connect spawn (1, H-2) and exit (W-2, 1) to the corridor
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const sx = 1 + dx, sy = H - 2 + dy;
+    if (sx > 0 && sx < W - 1 && sy > 0 && sy < H - 1) t[sy][sx] = { type: TILE.FLOOR };
+    const ex = W - 2 + dx, ey = 1 + dy;
+    if (ex > 0 && ex < W - 1 && ey > 0 && ey < H - 1) t[ey][ex] = { type: TILE.FLOOR };
+  }
+  let x = 1, y = H - 2;
+  while (y !== midY) { t[y][x] = { type: TILE.FLOOR }; y += y < midY ? 1 : -1; }
+  x = W - 2; y = 1;
+  while (y !== midY) { t[y][x] = { type: TILE.FLOOR }; y += y < midY ? 1 : -1; }
+
+  t[1][W - 2] = { type: TILE.EXIT };
+  return t;
+}
+
+// Hunting Lodge: a great hall flanked by side rooms — patterned like the cabin, but bigger (deep-floor variant)
+export function genHuntingLodgeMap(_danger, mapW, mapH) {
+  const W = mapW ?? DEF_W, H = mapH ?? DEF_H;
+  const t = Array.from({ length: H }, () =>
+    Array.from({ length: W }, () => ({ type: TILE.WALL }))
+  );
+
+  // Great hall — large central room
+  const hw = 6, hh = 5, sw = 3;
+  const hx = Math.floor((W - hw) / 2), hy = Math.floor((H - hh) / 2);
+  for (let y = hy; y < hy + hh; y++) for (let x = hx; x < hx + hw; x++) t[y][x] = { type: TILE.FLOOR };
+
+  // Side rooms with doors into the hall, when there's space
+  if (hx - sw - 1 > 0) {
+    for (let y = hy + 1; y < hy + hh - 1; y++) for (let x = hx - sw - 1; x < hx - 1; x++) t[y][x] = { type: TILE.FLOOR };
+    t[hy + Math.floor(hh / 2)][hx - 1] = { type: TILE.DOOR, open: false };
+  }
+  if (hx + hw + sw + 1 < W) {
+    for (let y = hy + 1; y < hy + hh - 1; y++) for (let x = hx + hw + 1; x < hx + hw + sw + 1; x++) t[y][x] = { type: TILE.FLOOR };
+    t[hy + Math.floor(hh / 2)][hx + hw] = { type: TILE.DOOR, open: false };
+  }
+
+  // Hearth at the center of the hall
+  t[hy + Math.floor(hh / 2)][hx + Math.floor(hw / 2)] = { type: TILE.FIRE };
+
+  // Lots of loot — a hunter's stockpile
+  for (let i = 0; i < 10; i++) {
+    for (let a = 0; a < 50; a++) {
+      const x = 1 + Math.floor(Math.random() * (W - 2));
+      const y = 1 + Math.floor(Math.random() * (H - 2));
+      if (t[y][x].type === TILE.FLOOR) { t[y][x] = { type: TILE.LOOT }; break; }
+    }
+  }
+  // Traps — bear traps and snares
+  for (let i = 0; i < 3; i++) {
+    for (let a = 0; a < 40; a++) {
+      const x = 1 + Math.floor(Math.random() * (W - 2));
+      const y = 1 + Math.floor(Math.random() * (H - 2));
+      if (t[y][x].type === TILE.FLOOR) { t[y][x] = { type: TILE.TRAP }; break; }
+    }
+  }
+
+  // Connect spawn (1, H-2) to the hall
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const sx = 1 + dx, sy = H - 2 + dy;
+    if (sx > 0 && sx < W - 1 && sy > 0 && sy < H - 1) t[sy][sx] = { type: TILE.FLOOR };
+  }
+  const cx = hx + Math.floor(hw / 2), cy = hy + Math.floor(hh / 2);
+  let x = 1, y = H - 2;
+  while (x !== cx) { t[y][x] = { type: TILE.FLOOR }; x += x < cx ? 1 : -1; }
+  while (y !== cy) { t[y][x] = { type: TILE.FLOOR }; y += y < cy ? 1 : -1; }
+
+  // Connect exit (W-2, 1) to the hall
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const ex = W - 2 + dx, ey = 1 + dy;
+    if (ex > 0 && ex < W - 1 && ey > 0 && ey < H - 1) t[ey][ex] = { type: TILE.FLOOR };
+  }
+  x = W - 2; y = 1;
+  while (x !== cx) { t[y][x] = { type: TILE.FLOOR }; x += x < cx ? 1 : -1; }
+  while (y !== cy) { t[y][x] = { type: TILE.FLOOR }; y += y < cy ? 1 : -1; }
+
+  t[1][W - 2] = { type: TILE.EXIT };
+  return t;
+}
