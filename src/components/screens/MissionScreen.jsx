@@ -44,7 +44,7 @@ function btn(on, c) {
 
 export default function MissionScreen() {
   const { ms, noise, phase, luq, log, loc, mode, book, ti, travelBag, sanctuaryPos,
-          doMove, doAttack, doUseKey, disarmTrap, doAbility, toggleAbilityArmed,
+          doMove, doAttack, doUseKey, disarmTrap, doOpenDoor, doAbility, toggleAbilityArmed,
           endTurn, endMission, addLog, waitUnit } = useGameStore();
 
   // sel & hilight are local — they don't need persistence and use the hilightRef pattern
@@ -184,6 +184,17 @@ export default function MissionScreen() {
     return null;
   })() : null;
 
+  // Find adjacent closed unlocked door when a unit is selected and has an action available
+  const adjacentDoorTarget = (selUnit && phase === 'player' && selUnit.actionPoints > 0) ? (() => {
+    const { x, y } = selUnit;
+    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const ax = x + dx, ay = y + dy;
+      const t = tiles[ay]?.[ax];
+      if (t?.type === TILE.DOOR && !t.open && !t.locked) return { x: ax, y: ay };
+    }
+    return null;
+  })() : null;
+
   // Find adjacent locked door or cage when a unit is selected and has AP
   const adjacentKeyTarget = (selUnit && phase === 'player' && selUnit.actionPoints > 0 && keys.length > 0) ? (() => {
     const { x, y } = selUnit;
@@ -295,9 +306,10 @@ export default function MissionScreen() {
         noiseColor={noiseColor} sel={sel} selUnit={selUnit} phase={phase} log={log} luq={luq} book={book}
         abilityMode={abilityMode} setAbilityMode={setAbilityMode} handleSelect={handleSelect}
         handleCellClick={handleCellClick} clearSel={clearSel} doUseKey={doUseKey} disarmTrap={disarmTrap}
+        doOpenDoor={doOpenDoor}
         doAbility={doAbility} toggleAbilityArmed={toggleAbilityArmed} waitUnit={waitUnit}
         endTurn={endTurn} autoEnd={autoEnd} setAutoEnd={setAutoEnd}
-        adjacentTrapTarget={adjacentTrapTarget} adjacentKeyTarget={adjacentKeyTarget}
+        adjacentTrapTarget={adjacentTrapTarget} adjacentKeyTarget={adjacentKeyTarget} adjacentDoorTarget={adjacentDoorTarget}
         handleRetreat={handleRetreat}
       />
     );
@@ -617,6 +629,12 @@ export default function MissionScreen() {
           <button onClick={() => { doUseKey(adjacentKeyTarget.x, adjacentKeyTarget.y, sel); clearSel(); }}
             style={btn(true,'#aa8833')}>
             🔑 Use Key
+          </button>
+        )}
+        {adjacentDoorTarget && (
+          <button onClick={() => { doOpenDoor(adjacentDoorTarget.x, adjacentDoorTarget.y, sel); clearSel(); }}
+            style={btn(true,'#7a8a4a')}>
+            🚪 Open Door
           </button>
         )}
         <button onClick={handleRetreat} style={btn(true,'#4a4a8a')}>

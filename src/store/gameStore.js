@@ -1298,14 +1298,6 @@ export const useGameStore = create(
             if (sel === 'varek') { over=true; logs.push('Varek burns!'); }
             else { units=units.map(u => u.id===sel ? { ...u, fallen:true, raiseTurn:ms.turn } : u); logs.push(`${unit.name} burns!`); }
           }
-        } else if (t.type === TILE.DOOR) {
-          if (!t.open) {
-            tiles[y][x] = { ...t, open: true };
-            logs.push(`${unit.name} opens the door.`);
-            units = units.map(u => u.id===sel ? { ...u, movementPoints:u.movementPoints-1 } : u);
-          } else {
-            units = units.map(u => u.id===sel ? { ...u, x, y, movementPoints:u.movementPoints-1 } : u);
-          }
         } else {
           units = units.map(u => u.id===sel ? { ...u, x, y, movementPoints:u.movementPoints-1 } : u);
         }
@@ -1708,6 +1700,27 @@ export const useGameStore = create(
         set(prev => ({
           ms: { ...prev.ms, tiles: newTiles, units: newUnits, keys: newKeys },
           log: [`🔑 ${label}`, ...prev.log].slice(0, 14),
+        }));
+      },
+
+      // ── Open door (1 action, unit must be adjacent) ──────────────────
+      doOpenDoor(x, y, sel) {
+        const s = get();
+        if (!sel || s.phase !== 'player') return;
+        const ms = s.ms;
+        const unit = ms.units.find(u => u.id === sel);
+        if (!unit || unit.fallen || unit.actionPoints <= 0) return;
+        const tile = ms.tiles[y]?.[x];
+        if (!tile || tile.type !== TILE.DOOR || tile.open || tile.locked) return;
+        const dx = Math.abs(unit.x - x), dy = Math.abs(unit.y - y);
+        if (dx + dy !== 1) return;
+        const newTiles = ms.tiles.map((row, ry) =>
+          row.map((t, rx) => (rx === x && ry === y) ? { ...t, open: true } : t)
+        );
+        const newUnits = ms.units.map(u => u.id === sel ? { ...u, actionPoints: u.actionPoints - 1 } : u);
+        set(prev => ({
+          ms: { ...prev.ms, tiles: newTiles, units: newUnits },
+          log: [`🚪 ${unit.name} opens the door.`, ...prev.log].slice(0, 14),
         }));
       },
 

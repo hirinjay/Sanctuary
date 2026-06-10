@@ -78,8 +78,8 @@ export function moveRange(unit, tiles, units) {
       const nx = x+dx, ny = y+dy, k = `${nx},${ny}`;
       const tile = tiles[ny]?.[nx];
       if (!tile) continue;
-      // Closed regular doors: reachable to open them. Locked doors require key — not highlighted.
-      if (tile.type === TILE.DOOR && !tile.open) { if (!tile.locked && !r.has(k)) r.add(k); continue; }
+      // Closed doors block movement — opening is a separate adjacent action, not a move target.
+      if (tile.type === TILE.DOOR && !tile.open) continue;
       if (!walkable(tiles, nx, ny, units)) continue;
       const cost = tile.type === TILE.WATER ? 2 : 1;
       const ns   = s + cost;
