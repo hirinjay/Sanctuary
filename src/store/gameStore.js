@@ -3,7 +3,7 @@ import { persist, subscribeWithSelector } from 'zustand/middleware';
 import { DEFAULT_VP, UT, TILE, UNAMES } from '../data/constants';
 import { item, LOOT, FLOOR_LOOT, BODY_LOOT } from '../data/items';
 import { killXpByTier, xpTierMultiplier } from '../data/enemyDefs';
-import { genMap, genDungeonMap, genCabinMap, genCryptMap, genVaultMap, genBarracksMap, genHuntingLodgeMap, genForest, genRuinedTown, genRaiderCamp, genSwamp, genBattlefield, genAbandonedVillage, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath, cullUnreachable, findSpawnSlots } from '../systems/map';
+import { genMap, genDungeonMap, genCabinMap, genCryptMap, genVaultMap, genBarracksMap, genHuntingLodgeMap, genForest, genRuinedTown, genRaiderCamp, genSwamp, genBattlefield, genAbandonedVillage, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath, cullUnreachable, findSpawnSlots, placeUnitsOnValidTiles } from '../systems/map';
 import { spawnEnemies, applyXpToUnits, calcSacrificeBonus, VERDANT_VAREK_LU, resolveDefense, defenseTypeFor } from '../systems/combat';
 import { ARCHETYPES, CLASS_STATS } from '../data/archetypes';
 import { generateWorld, revealAround } from '../world/worldGen';
@@ -337,7 +337,8 @@ export const useGameStore = create(
           newBestiary[boss.bossType] = { encounters: nb, statsRevealed: nb >= 2, abilitiesSeen: nb >= 3 };
         }
 
-        const initialUnits = [varek, ...activeUndead, ...missionEnemies];
+        const placedUnits = placeUnitsOnValidTiles(missionTiles, [varek, ...activeUndead, ...missionEnemies]);
+        const initialUnits = placedUnits;
         const revealedTiles = revealTraps(missionTiles, initialUnits);
         const bossLog = boss ? [`⚠️ ${boss.name} commands the floor — with ${bossSupport.length} guards at their side!`] : [];
         const floorLog = maxFloor > 1 ? [`📍 Floor ${floor} of ${maxFloor}.`] : [];

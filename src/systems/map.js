@@ -54,6 +54,42 @@ export function findSpawnSlots(tiles, spawnX, spawnY, count) {
   return slots;
 }
 
+// True if a unit cannot stand on this tile (walls, cages, closed doors, out of bounds)
+function isInvalidStand(tiles, x, y) {
+  const t = tiles[y]?.[x];
+  if (!t) return true;
+  if (t.type === TILE.WALL || t.type === TILE.CAGE) return true;
+  if (t.type === TILE.DOOR && !t.open) return true;
+  return false;
+}
+
+// Safety net for map generators: relocate any unit that ended up on a wall/cage/closed
+// door (or off the map) to the nearest valid, unoccupied tile via BFS.
+export function placeUnitsOnValidTiles(tiles, units) {
+  const H = tiles.length, W = tiles[0]?.length ?? 0;
+  const occupied = new Set(units.map(u => `${u.x},${u.y}`));
+  return units.map(u => {
+    if (!isInvalidStand(tiles, u.x, u.y)) return u;
+    occupied.delete(`${u.x},${u.y}`);
+    const visited = new Set([`${u.x},${u.y}`]);
+    const q = [{ x: u.x, y: u.y }];
+    while (q.length) {
+      const { x, y } = q.shift();
+      for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const nx = x+dx, ny = y+dy, k = `${nx},${ny}`;
+        if (visited.has(k) || nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+        visited.add(k);
+        if (!isInvalidStand(tiles, nx, ny) && !occupied.has(k)) {
+          occupied.add(k);
+          return { ...u, x: nx, y: ny };
+        }
+        q.push({ x: nx, y: ny });
+      }
+    }
+    return u;
+  });
+}
+
 export function walkable(tiles, x, y, units) {
   const H = tiles.length, W = tiles[0]?.length ?? 0;
   if (x < 0 || x >= W || y < 0 || y >= H) return false;
