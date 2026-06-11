@@ -1,4 +1,4 @@
-import { TILE, W as DEF_W, H as DEF_H } from '../data/constants';
+import { TILE, UT, W as DEF_W, H as DEF_H } from '../data/constants';
 
 export const dist = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 
@@ -90,14 +90,22 @@ export function placeUnitsOnValidTiles(tiles, units) {
   });
 }
 
-export function walkable(tiles, x, y, units) {
+// Friendly = same side (player/undead/varek vs. enemy)
+const isFriendly = (a, b) => (a.type === UT.ENEMY) === (b.type === UT.ENEMY);
+
+// `mover`, if given, may pass through (but not land on) tiles occupied by friendly units
+export function walkable(tiles, x, y, units, mover) {
   const H = tiles.length, W = tiles[0]?.length ?? 0;
   if (x < 0 || x >= W || y < 0 || y >= H) return false;
   const tile = tiles[y]?.[x];
   if (tile?.type === TILE.WALL) return false;
   if (tile?.type === TILE.CAGE) return false;
   if (tile?.type === TILE.DOOR && !tile?.open) return false;
-  if (units.find(u => u.x === x && u.y === y && !u.fallen)) return false;
+  const occupant = units.find(u => u.x === x && u.y === y && !u.fallen);
+  if (occupant) {
+    if (mover && isFriendly(mover, occupant)) return true;
+    return false;
+  }
   return true;
 }
 
@@ -108,7 +116,8 @@ export function moveRange(unit, tiles, units) {
   while (q.length) {
     q.sort((a,b) => a.s - b.s);
     const { x, y, s } = q.shift();
-    if (s > 0) r.add(`${x},${y}`);
+    // Friendly-occupied tiles can be passed through but not landed on.
+    if (s > 0 && !units.find(u => u.x === x && u.y === y && !u.fallen)) r.add(`${x},${y}`);
     if (s >= unit.moveRange) continue;
     for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
       const nx = x+dx, ny = y+dy, k = `${nx},${ny}`;
@@ -116,7 +125,7 @@ export function moveRange(unit, tiles, units) {
       if (!tile) continue;
       // Closed doors block movement — opening is a separate adjacent action, not a move target.
       if (tile.type === TILE.DOOR && !tile.open) continue;
-      if (!walkable(tiles, nx, ny, units)) continue;
+      if (!walkable(tiles, nx, ny, units, unit)) continue;
       const cost = tile.type === TILE.WATER ? 2 : 1;
       const ns   = s + cost;
       if (ns <= unit.moveRange && ns < (best.get(k) ?? Infinity)) {
