@@ -44,7 +44,7 @@ function btn(on, c) {
 
 export default function MissionScreen() {
   const { ms, noise, phase, luq, log, loc, mode, book, ti, travelBag, sanctuaryPos,
-          doMove, doAttack, doUseKey, disarmTrap, doOpenDoor, doAbility, toggleAbilityArmed,
+          doMove, doAttack, doUseKey, disarmTrap, doOpenDoor, doBashDoor, doAbility, toggleAbilityArmed,
           endTurn, endMission, addLog, waitUnit } = useGameStore();
 
   // sel & hilight are local — they don't need persistence and use the hilightRef pattern
@@ -225,6 +225,22 @@ export default function MissionScreen() {
     return null;
   })() : null;
 
+  // Find adjacent locked door the unit lacks the key for — bashing is a full-turn fallback
+  // restricted to tier 2+ Grave Warden (Brute lineage) units.
+  const canBash = selUnit?.dc === 'Grave Warden' && (selUnit?.tier ?? 1) >= 2;
+  const adjacentLockedDoorTarget = (selUnit && phase === 'player' && canBash && selUnit.actionPoints > 0 && selUnit.movementPoints > 0) ? (() => {
+    const { x, y } = selUnit;
+    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const ax = x + dx, ay = y + dy;
+      const t = tiles[ay]?.[ax];
+      if (t?.type === TILE.DOOR && t.locked && !t.open) {
+        const keyId = t.keyId;
+        if (!keyId || !keys.includes(keyId)) return { x: ax, y: ay };
+      }
+    }
+    return null;
+  })() : null;
+
   const noiseColor = noise < 30 ? '#3a7a3a' : noise < 60 ? '#7a6a2a' : '#7a2a2a';
   const noiseLabel = noise < 30 ? 'Quiet (👁3)' : noise < 60 ? 'Tense (👁4)' : 'Alert! (👁5)';
 
@@ -323,6 +339,7 @@ export default function MissionScreen() {
         doAbility={doAbility} toggleAbilityArmed={toggleAbilityArmed} waitUnit={waitUnit}
         endTurn={endTurn} autoEnd={autoEnd} setAutoEnd={setAutoEnd}
         adjacentTrapTarget={adjacentTrapTarget} adjacentKeyTarget={adjacentKeyTarget} adjacentDoorTarget={adjacentDoorTarget}
+        adjacentLockedDoorTarget={adjacentLockedDoorTarget} doBashDoor={doBashDoor}
         handleRetreat={handleRetreat}
       />
     );
@@ -625,6 +642,12 @@ export default function MissionScreen() {
             <button onClick={() => { doOpenDoor(adjacentDoorTarget.x, adjacentDoorTarget.y, sel); clearSel(); }}
               style={{ ...btn(true,'#7a8a4a'), width:'100%' }}>
               🚪 Open Door
+            </button>
+          )}
+          {adjacentLockedDoorTarget && (
+            <button onClick={() => { doBashDoor(adjacentLockedDoorTarget.x, adjacentLockedDoorTarget.y, sel); clearSel(); }}
+              style={{ ...btn(true,'#8a5a3a'), width:'100%' }}>
+              🔨 Bash Door (full turn)
             </button>
           )}
           <button onClick={handleRetreat} style={{ ...btn(true,'#4a4a8a'), width:'100%' }}>

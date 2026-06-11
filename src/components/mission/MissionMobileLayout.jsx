@@ -18,8 +18,9 @@ export default function MissionMobileLayout(props) {
     ms, units, tiles, mapW, fv, hilight, raiseable, theme, loc, mode, turn,
     varek, t, fieldTether, noiseColor, sel, selUnit, phase, log, luq,
     abilityMode, setAbilityMode, handleSelect, handleCellClick, clearSel,
-    doUseKey, disarmTrap, doOpenDoor, doAbility, toggleAbilityArmed, waitUnit,
+    doUseKey, disarmTrap, doOpenDoor, doBashDoor, doAbility, toggleAbilityArmed, waitUnit,
     endTurn, autoEnd, setAutoEnd, adjacentTrapTarget, adjacentKeyTarget, adjacentDoorTarget,
+    adjacentLockedDoorTarget,
     handleRetreat,
   } = props;
 
@@ -156,6 +157,7 @@ export default function MissionMobileLayout(props) {
               {adjacentTrapTarget && <button onClick={() => { disarmTrap(adjacentTrapTarget.x, adjacentTrapTarget.y, sel); clearSel(); }} style={actionButton(true, '#4a8a6a')}>Disarm</button>}
               {adjacentKeyTarget && <button onClick={() => { doUseKey(adjacentKeyTarget.x, adjacentKeyTarget.y, sel); clearSel(); }} style={actionButton(true, '#aa8833')}>Use Key</button>}
               {adjacentDoorTarget && <button onClick={() => { doOpenDoor(adjacentDoorTarget.x, adjacentDoorTarget.y, sel); clearSel(); }} style={actionButton(true, '#7a8a4a')}>Open Door</button>}
+              {adjacentLockedDoorTarget && <button onClick={() => { doBashDoor(adjacentLockedDoorTarget.x, adjacentLockedDoorTarget.y, sel); clearSel(); }} style={actionButton(true, '#8a5a3a')}>Bash Door</button>}
               <button onClick={() => setAutoEnd(v => !v)} style={actionButton(true, autoEnd ? '#2a8a5a' : '#5a5a5a')}>{autoEnd ? 'Auto-End On' : 'Auto-End Off'}</button>
               <button onClick={handleRetreat} style={actionButton(true, '#5a5a9a')}>Retreat</button>
               <button onClick={endTurn} disabled={phase !== 'player'} style={actionButton(phase === 'player', '#4a8a4a')}>End Turn</button>
