@@ -13,7 +13,7 @@ import { bfsPath } from '../world/hexMath';
 import { BUILDINGS } from '../data/buildings';
 import { generateObjective } from '../systems/objectives';
 import { saveRun, saveBestiary, loadBestiary } from '../lib/persistence';
-import { CLASSES, DC_TO_BASE } from '../data/classes';
+import { CLASSES, DC_TO_BASE, isBruteUnit } from '../data/classes';
 import { deleteSave } from '../lib/persistence';
 import { ABILITIES } from '../data/abilities';
 import { isPlayableWorld } from '../world/worldState';
@@ -1733,14 +1733,15 @@ export const useGameStore = create(
 
       // ── Bash a locked door open (1 action, unit must be adjacent) ────
       // Fallback for locked doors whose key was never recovered/dropped.
-      // Only Grave Warden lineage units at tier 2+ (Brutes) are strong enough to bash.
+      // Only brute-type units at tier 2+ (Grave Warden lineage, plus off-lineage
+      // brutes like Flesh Warden) are strong enough to bash.
       doBashDoor(x, y, sel) {
         const s = get();
         if (!sel || s.phase !== 'player') return;
         const ms = s.ms;
         const unit = ms.units.find(u => u.id === sel);
         if (!unit || unit.fallen || unit.actionPoints <= 0) return;
-        if (unit.dc !== 'Grave Warden' || (unit.tier ?? 1) < 2) return;
+        if (!isBruteUnit(unit)) return;
         const tile = ms.tiles[y]?.[x];
         if (!tile || tile.type !== TILE.DOOR || tile.open || !tile.locked) return;
         const dx = Math.abs(unit.x - x), dy = Math.abs(unit.y - y);

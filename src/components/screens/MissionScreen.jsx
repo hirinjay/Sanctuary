@@ -10,6 +10,7 @@ import UnitBar from '../mission/UnitBar';
 import RaisePanel from '../mission/RaisePanel';
 import LevelUpModal from '../mission/LevelUpModal';
 import { ABILITIES } from '../../data/abilities';
+import { isBruteUnit } from '../../data/classes';
 import useIsMobile from '../../hooks/useIsMobile';
 
 // Abilities that need a target enemy click before firing
@@ -226,9 +227,10 @@ export default function MissionScreen() {
   })() : null;
 
   // Find adjacent locked door the unit lacks the key for — bashing is the fallback,
-  // restricted to tier 2+ Grave Warden (Brute lineage) units. Mirrors adjacentKeyTarget's
-  // gating exactly, just for the inverse "no matching key" case.
-  const canBash = selUnit?.dc === 'Grave Warden' && (selUnit?.tier ?? 1) >= 2;
+  // restricted to tier 2+ brute-type units (Grave Warden lineage, plus off-lineage
+  // brutes like Flesh Warden). Mirrors adjacentKeyTarget's gating exactly, just for
+  // the inverse "no matching key" case.
+  const canBash = isBruteUnit(selUnit);
   const adjacentLockedDoorTarget = (selUnit && phase === 'player' && canBash && selUnit.actionPoints > 0) ? (() => {
     const { x, y } = selUnit;
     for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {

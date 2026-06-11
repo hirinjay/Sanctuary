@@ -13,6 +13,16 @@ export const DC_TO_BASE = {
   'Grave Warden':     'grave_warden',
 };
 
+// Off-lineage classes that are still "brute" (heavy melee tank) types,
+// e.g. Flesh Warden (skeleton_warrior tree, tier 3) hits as hard as a Grave Warden.
+export const BRUTE_CLASS_IDS = new Set(['flesh_warden_sw']);
+
+// True for any tier 2+ unit strong enough to bash open a locked door:
+// the whole Grave Warden lineage, plus off-lineage brutes like Flesh Warden.
+export function isBruteUnit(unit) {
+  return ((unit?.dc === 'Grave Warden') || BRUTE_CLASS_IDS.has(unit?.classId)) && (unit?.tier ?? 1) >= 2;
+}
+
 export const CLASSES = {
 
   // ══════════════════════════════════════════════════════════════
