@@ -731,64 +731,171 @@ export const useGameStore = create(
         debouncedSave(get);
       },
 
-      // Reset a unit to level-1 baseline stats, retaining class and abilities
-      rebirthUnit(unitId, sacrificeId) {
+      // Rebirth: pick a new Tier-1 root class. Stats reset to that class's
+      // Lv1 baseline (plus small level-derived bonuses); everything earned
+      // under the old class (abilities, defense trait, immunities, prior
+      // merge bonuses) is preserved additively in the unit's Legacy layer.
+      rebirthUnit(unitId, newDc) {
+        const base = CLASS_STATS[newDc];
+        if (!base) return;
         set(s => {
           const u = s.roster.find(r => r.id === unitId);
           if (!u || !u.classId) return s;
-          const sac = sacrificeId ? s.roster.find(r => r.id === sacrificeId) : null;
-          const base = CLASS_STATS[u.dc] ?? { hp:6, dmg:3, def:0, moveRange:3, trapReveal:1, attackRange:1 };
-          let reborn;
-          let sacLog = '';
-          if (sac?.tier === 3) {
-            // Tier-3 sacrifice: append classAbility as bonded ability (dedup)
-            const aidToAdd = sac.classAbility;
-            const existing = u.bondedAbilities ?? [];
-            const alreadyHas = aidToAdd && (existing.includes(aidToAdd) || aidToAdd === u.classAbility);
-            const newBonded = aidToAdd && !alreadyHas ? [...existing, aidToAdd] : existing;
-            sacLog = aidToAdd && !alreadyHas
-              ? ` Inherited ${ABILITIES[aidToAdd]?.name ?? aidToAdd}.`
-              : ` (ability already known)`;
-            reborn = {
-              ...u,
-              level:          1,
-              xp:             0,
-              hp:             base.hp,
-              maxHp:          base.hp,
-              dmg:            base.dmg,
-              def:            base.def,
-              moveRange:      base.moveRange,
-              attackRange:    base.attackRange,
-              trapReveal:     base.trapReveal,
-              dmgUpgrades:    0,
-              bondedAbilities: newBonded,
-              bondedArmed:    {},
-              lifetime_levels: (u.lifetime_levels ?? 0) + (u.level ?? 1),
-            };
-          } else {
-            // Tier-1/2 sacrifice: stat bonus + starting XP
-            const bonus = sac ? calcSacrificeBonus(sac) : null;
-            reborn = {
-              ...u,
-              level:       1,
-              xp:          bonus?.startingXp ?? 0,
-              hp:          base.hp  + (bonus?.hp   ?? 0),
-              maxHp:       base.hp  + (bonus?.hp   ?? 0),
-              dmg:         base.dmg + (bonus?.dmg  ?? 0),
-              def:         base.def,
-              moveRange:   base.moveRange + (bonus?.move ?? 0),
-              attackRange: base.attackRange,
-              trapReveal:  base.trapReveal,
-              dmgUpgrades: 0,
-              bondedAbilities: u.bondedAbilities ?? [],
-              bondedArmed: {},
-              lifetime_levels: (u.lifetime_levels ?? 0) + (u.level ?? 1),
-            };
-            if (sac) sacLog = ` (${sac.pname} consumed)`;
-          }
+
+          const dedupe = arr => [...new Set(arr)];
+          const legacyStatBonus = u.legacy_stat_bonus ?? { hp:0, dmg:0, move:0 };
+
+          // Capture the unit's current defense temperament before it changes.
+          const oldTrait = defenseTypeFor(u);
+          const newTrait = defenseTypeFor({ ...u, dc: newDc });
+          const legacyTraits = oldTrait !== newTrait
+            ? dedupe([...(u.legacy_traits ?? []), oldTrait])
+            : (u.legacy_traits ?? []);
+
+          const legacyImmunities = dedupe([
+            ...(u.legacy_immunities ?? []),
+            ...(CLASSES[u.classId]?.immunities ?? []),
+          ]);
+
+          const oldAbilities = dedupe([u.classAbility, ...(u.bondedAbilities ?? [])].filter(Boolean));
+          const legacyAbilities = dedupe([...(u.legacy_abilities ?? []), ...oldAbilities]);
+
+          // All previously-known abilities carry forward mechanically as bonded abilities.
+          const newBonded = oldAbilities;
+          const abilityUses = {};
+          const bondedArmed = {};
+          newBonded.forEach(aid => {
+            abilityUses[aid] = ABILITIES[aid]?.usesPerEncounter ?? 0;
+            bondedArmed[aid] = ABILITIES[aid]?.type === 'reactive';
+          });
+
+          const reborn = {
+            ...u,
+            tier: 1,
+            level: 1,
+            xp: 0,
+            classId: null,
+            cls: null,
+            classAbility: null,
+            dc: newDc,
+            baseClass: DC_TO_BASE[newDc],
+            name: u.pname,
+            hp:          base.hp + Math.floor((u.level ?? 1)/2) + (legacyStatBonus.hp ?? 0),
+            maxHp:       base.hp + Math.floor((u.level ?? 1)/2) + (legacyStatBonus.hp ?? 0),
+            dmg:         base.dmg + 1 + (legacyStatBonus.dmg ?? 0),
+            def:         base.def,
+            moveRange:   base.moveRange + (legacyStatBonus.move ?? 0),
+            attackRange: base.attackRange,
+            trapReveal:  base.trapReveal,
+            dmgUpgrades: 0,
+            silentAttacks: false,
+            untargetableInShadow: false,
+            cannotInteract: false,
+            forestCostZero: false,
+            fullMapRevealOnEntry: false,
+            boneExplosion: false,
+            surviveOnce: false,
+            regenPerTurn: 0,
+            immunities: [],
+            bondedAbilities: newBonded,
+            abilityUses,
+            bondedArmed,
+            legacy_abilities: legacyAbilities,
+            legacy_traits: legacyTraits,
+            legacy_immunities: legacyImmunities,
+            legacy_stat_bonus: legacyStatBonus,
+            encounterKills: 0, encounterBonusDmg: 0, encounterBonusMove: 0,
+            surviveUsed: false,
+            lifetime_levels: (u.lifetime_levels ?? 0) + (u.level ?? 1),
+          };
           return {
-            roster: s.roster.filter(r => r.id !== sacrificeId).map(r => r.id === unitId ? reborn : r),
-            log: [`🔄 ${u.pname} reborn — stats reset, class retained.${sacLog}`, ...s.log].slice(0, 14),
+            roster: s.roster.map(r => r.id === unitId ? reborn : r),
+            log: [`🔄 ${u.pname} is reborn as a ${newDc}!`, ...s.log].slice(0, 14),
+          };
+        });
+        debouncedSave(get);
+      },
+
+      // Permanently merge a Donor (T3) into a Base (T3, Lv8+) to create a T4
+      // unit. Donor is removed from the roster entirely. `selections` is a
+      // set of up to 3 boolean toggles spending the unit's merge points.
+      mergeUnits(baseId, donorId, selections, newName) {
+        set(s => {
+          const base = s.roster.find(r => r.id === baseId);
+          const donor = s.roster.find(r => r.id === donorId);
+          if (!base || !donor || base.id === donor.id) return s;
+          if (base.tier !== 3 || (base.level ?? 1) < 8 || base.classId === 'pale_warden') return s;
+          if (donor.tier !== 3 || donor.classId === 'pale_warden') return s;
+          const sel = selections ?? {};
+          const cost = ['hp','dmg','move','takeActive','takePassive','takeTrait','takeImmunities']
+            .filter(k => sel[k]).length;
+          if (cost > 3) return s;
+
+          const dedupe = arr => [...new Set(arr)];
+          const legacyStatBonus = { ...(base.legacy_stat_bonus ?? { hp:0, dmg:0, move:0 }) };
+          let { hp, maxHp, dmg, moveRange } = base;
+
+          if (sel.hp) {
+            const b = Math.floor((donor.maxHp ?? 0) / 3);
+            maxHp += b; hp += b; legacyStatBonus.hp = (legacyStatBonus.hp ?? 0) + b;
+          }
+          if (sel.dmg) {
+            const b = Math.floor((donor.dmg ?? 0) / 3);
+            dmg += b; legacyStatBonus.dmg = (legacyStatBonus.dmg ?? 0) + b;
+          }
+          if (sel.move) {
+            const b = Math.floor((donor.moveRange ?? 0) / 3);
+            moveRange += b; legacyStatBonus.move = (legacyStatBonus.move ?? 0) + b;
+          }
+
+          let bondedAbilities = [...(base.bondedAbilities ?? [])];
+          let abilityUses = { ...(base.abilityUses ?? {}) };
+          let bondedArmed = { ...(base.bondedArmed ?? {}) };
+          let legacyAbilities = [...(base.legacy_abilities ?? [])];
+          const baseAbilityIds = dedupe([base.classAbility, ...bondedAbilities].filter(Boolean));
+          const donorAbilityIds = dedupe([donor.classAbility, ...(donor.bondedAbilities ?? [])].filter(Boolean));
+
+          function takeAbilitiesOfType(types) {
+            donorAbilityIds.forEach(aid => {
+              const ab = ABILITIES[aid];
+              if (!ab || !types.includes(ab.type) || baseAbilityIds.includes(aid)) return;
+              if (!bondedAbilities.includes(aid)) bondedAbilities.push(aid);
+              abilityUses[aid] = ab.usesPerEncounter ?? 0;
+              bondedArmed[aid] = ab.type === 'reactive';
+              legacyAbilities = dedupe([...legacyAbilities, aid]);
+              baseAbilityIds.push(aid);
+            });
+          }
+          if (sel.takeActive)  takeAbilitiesOfType(['active','reactive']);
+          if (sel.takePassive) takeAbilitiesOfType(['passive']);
+
+          let legacyTraits = [...(base.legacy_traits ?? [])];
+          if (sel.takeTrait && legacyTraits.length === 0) {
+            const donorTrait = defenseTypeFor(donor);
+            if (donorTrait !== defenseTypeFor(base)) legacyTraits = dedupe([...legacyTraits, donorTrait]);
+          }
+
+          let legacyImmunities = dedupe([
+            ...(base.legacy_immunities ?? []),
+            ...(sel.takeImmunities ? (CLASSES[donor.classId]?.immunities ?? []) : []),
+          ]);
+
+          const merged = {
+            ...base,
+            hp, maxHp, dmg, moveRange,
+            bondedAbilities, abilityUses, bondedArmed,
+            legacy_abilities: legacyAbilities,
+            legacy_traits: legacyTraits,
+            legacy_immunities: legacyImmunities,
+            legacy_stat_bonus: legacyStatBonus,
+            t4: true,
+            pname: newName,
+            name: `${newName} the ${base.cls}`,
+          };
+
+          return {
+            roster: s.roster.filter(r => r.id !== donorId).map(r => r.id === baseId ? merged : r),
+            log: [`✨ ${donor.pname} merges into ${merged.name} — Tier 4!`, ...s.log].slice(0, 14),
           };
         });
         debouncedSave(get);

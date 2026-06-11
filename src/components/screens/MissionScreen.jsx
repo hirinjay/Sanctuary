@@ -464,6 +464,16 @@ export default function MissionScreen() {
                     🛡 {selUnit.armor ? item(selUnit.armor)?.name : 'No armor'}
                   </div>
                 </div>
+                {/* Legacy */}
+                {(selUnit.t4 || (selUnit.legacy_abilities??[]).length || (selUnit.legacy_traits??[]).length || (selUnit.legacy_immunities??[]).length) ? (
+                  <div style={{ fontSize:9, color:'#9a8aba', marginBottom:6, borderTop:'1px solid #0e1220',
+                    paddingTop:5, maxHeight:70, overflowY:'auto' }}>
+                    <div style={{ fontWeight:'bold', color:'#bda8e8', marginBottom:2 }}>📜 Legacy{selUnit.t4 ? ' · T4' : ''}</div>
+                    {(selUnit.legacy_abilities??[]).map(aid => <div key={aid}>✦ {ABILITIES[aid]?.name ?? aid}</div>)}
+                    {(selUnit.legacy_traits??[]).map(tr => <div key={tr}>◆ {tr.charAt(0).toUpperCase()+tr.slice(1)} (legacy)</div>)}
+                    {(selUnit.legacy_immunities??[]).map(im => <div key={im}>⛨ Immune: {im.charAt(0).toUpperCase()+im.slice(1)}</div>)}
+                  </div>
+                ) : null}
                 {/* Passive ability badges */}
                 {passiveAbils.length > 0 && (
                   <div style={{ borderTop:'1px solid #0e1220', paddingTop:5, marginBottom:6 }}>

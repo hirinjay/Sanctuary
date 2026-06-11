@@ -1,14 +1,48 @@
 import { useState } from 'react';
 import { useGameStore } from '../../store/gameStore';
 import { item, RECIPES } from '../../data/items';
-import { xpNext, calcSacrificeBonus } from '../../systems/combat';
+import { xpNext, calcSacrificeBonus, defenseTypeFor } from '../../systems/combat';
 import { getTier3Class, CLASSES } from '../../data/classes';
 import { ABILITIES } from '../../data/abilities';
-import { CLASS_STATS } from '../../data/archetypes';
+import { CLASS_STATS, ARCHETYPES } from '../../data/archetypes';
 import EquipModal from '../sanctuary/EquipModal';
 
 const pg = { background:'#040810', minHeight:'100vh', fontFamily:'Georgia,serif', color:'#c4a882', padding:14 };
 const card = { background:'#090e1a', border:'1px solid #1a1a2a', borderRadius:8, padding:13, marginBottom:11 };
+
+function hasLegacy(u) {
+  return !!u.t4 || (u.legacy_abilities ?? []).length > 0 || (u.legacy_traits ?? []).length > 0 || (u.legacy_immunities ?? []).length > 0;
+}
+
+const TRAIT_LABEL = { dodge:'Dodge', counter:'Counter', defend:'Defend' };
+function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+function LegacySection(u) {
+  if (!hasLegacy(u)) return null;
+  return (
+    <div style={{ background:'#0a0e16', border:'1px solid #2a2438', borderRadius:5, padding:'6px 8px',
+      marginTop:4, marginBottom:6, fontSize:10, color:'#9a8aba', maxHeight:120, overflowY:'auto' }}>
+      <div style={{ fontWeight:'bold', marginBottom:3, color:'#bda8e8' }}>📜 Legacy{u.t4 ? ' · T4' : ''}</div>
+      {(u.legacy_abilities ?? []).map(aid => (
+        <div key={aid}>✦ {ABILITIES[aid]?.name ?? aid}</div>
+      ))}
+      {(u.legacy_traits ?? []).map(tr => (
+        <div key={tr}>◆ {TRAIT_LABEL[tr] ?? cap(tr)} (legacy trait)</div>
+      ))}
+      {(u.legacy_immunities ?? []).map(im => (
+        <div key={im}>⛨ Immune: {cap(im)}</div>
+      ))}
+    </div>
+  );
+}
+
+function mergeRow(checked, atCap) {
+  return {
+    display:'flex', alignItems:'center', gap:7, fontSize:10,
+    color: checked ? '#e8d5b0' : atCap ? '#3a3a3a' : '#8a9a8a',
+    cursor: atCap && !checked ? 'default' : 'pointer',
+  };
+}
 
 function btn(on, c) {
   return {
@@ -22,13 +56,19 @@ function btn(on, c) {
 
 export default function SanctuaryScreen() {
   const { vp, roster, inv, nodes, travelBag, sanctuaryPos, book,
-          setEquipTgt, ti, depositLoot, ascendUnit, rebirthUnit, ascendVarek, returnToWorld, openSanctuaryMap, openBestiary, goHome } = useGameStore();
+          setEquipTgt, ti, depositLoot, ascendUnit, rebirthUnit, mergeUnits, ascendVarek, returnToWorld, openSanctuaryMap, openBestiary, goHome } = useGameStore();
   const set = useGameStore.setState;
   const t = ti(null);
   const [ascendingId, setAscendingId] = useState(null);
   const [ascendSacId, setAscendSacId] = useState(null);
   const [rebirthConfirmId, setRebirthConfirmId] = useState(null);
-  const [rebirthSacId, setRebirthSacId] = useState(null);
+  const [rebirthDc, setRebirthDc] = useState(null);
+  const [mergeBaseId, setMergeBaseId] = useState(null);
+  const [mergeDonorId, setMergeDonorId] = useState(null);
+  const [mergeSel, setMergeSel] = useState({});
+  const [mergeStep, setMergeStep] = useState(null); // null | 'confirm' | 'rename'
+  const [mergeName, setMergeName] = useState('');
+  const [legacyOpenIds, setLegacyOpenIds] = useState(new Set());
   const [varekAscendOpen, setVarekAscendOpen] = useState(false);
   const [varekAscendChoices, setVarekAscendChoices] = useState(null);
   const baseCount  = t.baseCount;
@@ -103,31 +143,40 @@ export default function SanctuaryScreen() {
               💀 Undead Roster ({roster.length}/{t.cap})
             </div>
             {roster.map(u => (
-              <div key={u.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-                padding:'5px 0', borderBottom:'1px solid #0f1220', fontSize:11 }}>
-                <div>
-                  {u.emoji} {u.name}
-                  <span style={{ color:'#4a5a4a' }}> Lv{u.level} ❤️{u.hp}/{u.maxHp} ⚔️{u.dmg}</span>
-                </div>
-                <div style={{ display:'flex', gap:5 }}>
-                  <button onClick={() => setEquipTgt(u.id)} style={btn(true,'#6a6aaa')}>Equip</button>
-                  {(() => {
-                    const canSendToBase  = !u.atBase  && baseCount  < t.baseCap;
-                    const canSendToField = u.atBase   && fieldCount < t.fieldCap;
-                    const canToggle      = established && (u.atBase ? canSendToField : canSendToBase);
-                    const title = !established ? 'Establish Sanctuary first'
-                      : (!u.atBase && !canSendToBase)  ? `Base full (${t.baseCap})`
-                      : (u.atBase  && !canSendToField) ? `Field full (${t.fieldCap})`
-                      : undefined;
-                    return (
-                      <button disabled={!canToggle} title={title}
-                        onClick={() => canToggle && setRost(r => r.map(r2 => r2.id===u.id ? { ...r2, atBase:!r2.atBase } : r2))}
-                        style={btn(canToggle, u.atBase ? '#8a6a3a' : '#3a6a3a')}>
-                        {u.atBase ? '🏠 Base' : '⚔️ Mission'}
+              <div key={u.id} style={{ padding:'5px 0', borderBottom:'1px solid #0f1220', fontSize:11 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                  <div>
+                    {u.emoji} {u.name}
+                    <span style={{ color:'#4a5a4a' }}> Lv{u.level} ❤️{u.hp}/{u.maxHp} ⚔️{u.dmg}</span>
+                  </div>
+                  <div style={{ display:'flex', gap:5 }}>
+                    {hasLegacy(u) && (
+                      <button onClick={() => setLegacyOpenIds(s => {
+                        const n = new Set(s); n.has(u.id) ? n.delete(u.id) : n.add(u.id); return n;
+                      })} style={btn(true, '#7a5aaa')}>
+                        📜 {legacyOpenIds.has(u.id) ? 'Hide' : 'Legacy'}
                       </button>
-                    );
-                  })()}
+                    )}
+                    <button onClick={() => setEquipTgt(u.id)} style={btn(true,'#6a6aaa')}>Equip</button>
+                    {(() => {
+                      const canSendToBase  = !u.atBase  && baseCount  < t.baseCap;
+                      const canSendToField = u.atBase   && fieldCount < t.fieldCap;
+                      const canToggle      = established && (u.atBase ? canSendToField : canSendToBase);
+                      const title = !established ? 'Establish Sanctuary first'
+                        : (!u.atBase && !canSendToBase)  ? `Base full (${t.baseCap})`
+                        : (u.atBase  && !canSendToField) ? `Field full (${t.fieldCap})`
+                        : undefined;
+                      return (
+                        <button disabled={!canToggle} title={title}
+                          onClick={() => canToggle && setRost(r => r.map(r2 => r2.id===u.id ? { ...r2, atBase:!r2.atBase } : r2))}
+                          style={btn(canToggle, u.atBase ? '#8a6a3a' : '#3a6a3a')}>
+                          {u.atBase ? '🏠 Base' : '⚔️ Mission'}
+                        </button>
+                      );
+                    })()}
+                  </div>
                 </div>
+                {legacyOpenIds.has(u.id) && LegacySection(u)}
               </div>
             ))}
           </div>
@@ -439,23 +488,171 @@ export default function SanctuaryScreen() {
           );
         })()}
 
+        {/* T4 Merge */}
+        {nodes.includes('ascension_forge') && (() => {
+          const baseEligible = roster.filter(u => u.tier === 3 && (u.level ?? 1) >= 8 && u.classId !== 'pale_warden');
+          const base = mergeBaseId ? roster.find(r => r.id === mergeBaseId) : null;
+          const donor = mergeDonorId ? roster.find(r => r.id === mergeDonorId) : null;
+          const donorPool = base ? roster.filter(u => u.id !== base.id && u.tier === 3 && u.classId !== 'pale_warden') : [];
+          const cost = ['hp','dmg','move','takeActive','takePassive','takeTrait','takeImmunities']
+            .filter(k => mergeSel[k]).length;
+
+          function reset() {
+            setMergeBaseId(null); setMergeDonorId(null); setMergeSel({}); setMergeStep(null); setMergeName('');
+          }
+          function toggle(key) {
+            setMergeSel(s => {
+              if (s[key]) { const n = { ...s }; delete n[key]; return n; }
+              if (cost >= 3) return s;
+              return { ...s, [key]: true };
+            });
+          }
+
+          let donorActive = [], donorPassive = [], baseAbilityIds = [];
+          if (base && donor) {
+            baseAbilityIds = [base.classAbility, ...(base.bondedAbilities ?? [])].filter(Boolean);
+            const donorAbilityIds = [...new Set([donor.classAbility, ...(donor.bondedAbilities ?? [])].filter(Boolean))];
+            donorActive = donorAbilityIds.filter(aid => ['active','reactive'].includes(ABILITIES[aid]?.type) && !baseAbilityIds.includes(aid));
+            donorPassive = donorAbilityIds.filter(aid => ABILITIES[aid]?.type === 'passive' && !baseAbilityIds.includes(aid));
+          }
+          const baseTrait = base ? defenseTypeFor(base) : null;
+          const donorTrait = donor ? defenseTypeFor(donor) : null;
+          const traitAvailable = base && donor && (base.legacy_traits ?? []).length === 0 && baseTrait !== donorTrait;
+          const donorImmunities = donor ? (CLASSES[donor.classId]?.immunities ?? []) : [];
+
+          return (
+            <div style={card}>
+              <div style={{ fontWeight:'bold', color:'#c4a882', marginBottom:5, fontSize:12 }}>🔮 T4 Merge</div>
+              <div style={{ fontSize:10, color:'#3a4a3a', marginBottom:8 }}>
+                Permanently merge a Donor into a Base unit, creating a Tier 4 unit. The Donor is consumed.
+              </div>
+              {baseEligible.length === 0 ? (
+                <div style={{ fontSize:11, color:'#3a3a2a' }}>No units ready — reach Tier 3 Lv8 to merge.</div>
+              ) : !base ? (
+                <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
+                  {baseEligible.map(u => (
+                    <button key={u.id} onClick={() => setMergeBaseId(u.id)} style={{ ...btn(true,'#3a3a4a'), fontSize:10, padding:'4px 8px' }}>
+                      {u.emoji} {u.pname} T{u.tier}L{u.level}
+                    </button>
+                  ))}
+                </div>
+              ) : !donor ? (
+                <div>
+                  <div style={{ fontSize:11, marginBottom:6 }}>Base: {base.emoji} {base.pname}</div>
+                  <div style={{ fontSize:10, color:'#5a5a3a', marginBottom:5 }}>Choose a Donor:</div>
+                  <div style={{ display:'flex', gap:5, flexWrap:'wrap', marginBottom:8 }}>
+                    {donorPool.length === 0 && <span style={{ fontSize:10, color:'#4a3a2a' }}>No eligible donors.</span>}
+                    {donorPool.map(u => (
+                      <button key={u.id} onClick={() => setMergeDonorId(u.id)} style={{ ...btn(true,'#3a3a4a'), fontSize:10, padding:'4px 8px' }}>
+                        {u.emoji} {u.pname} T{u.tier}L{u.level}
+                      </button>
+                    ))}
+                  </div>
+                  <button onClick={reset} style={btn(true,'#4a4a6a')}>Cancel</button>
+                </div>
+              ) : mergeStep === 'rename' ? (
+                <div>
+                  <div style={{ fontSize:11, color:'#9a6a2a', marginBottom:8 }}>
+                    Name the merged unit:
+                  </div>
+                  <input value={mergeName} onChange={e => setMergeName(e.target.value)}
+                    placeholder={base.pname}
+                    style={{ background:'#0b0f1c', border:'1px solid #3a3a5a', borderRadius:5, color:'#c4a882', padding:'6px 8px', fontSize:11, marginBottom:8, width:'100%', boxSizing:'border-box' }} />
+                  <div style={{ display:'flex', gap:6 }}>
+                    <button onClick={() => setMergeStep('confirm')} style={btn(true,'#4a4a6a')}>Back</button>
+                    <button onClick={() => { mergeUnits(base.id, donor.id, mergeSel, mergeName.trim() || base.pname); reset(); }}
+                      style={{ ...btn(true,'#8a3a3a'), padding:'5px 14px', fontSize:11 }}>
+                      Finalize Merge
+                    </button>
+                  </div>
+                </div>
+              ) : mergeStep === 'confirm' ? (
+                <div>
+                  <div style={{ fontSize:11, color:'#8a3a3a', marginBottom:8, fontWeight:'bold' }}>
+                    ⚠ This cannot be undone. {donor.pname} will be permanently removed from your roster.
+                  </div>
+                  <div style={{ display:'flex', gap:6 }}>
+                    <button onClick={() => setMergeStep(null)} style={btn(true,'#4a4a6a')}>Back</button>
+                    <button onClick={() => setMergeStep('rename')} style={{ ...btn(true,'#8a3a3a'), padding:'5px 14px', fontSize:11 }}>
+                      Yes, Merge
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize:11, marginBottom:6 }}>
+                    {base.emoji} {base.pname} ⟵ {donor.emoji} {donor.pname}
+                  </div>
+                  <div style={{ fontSize:10, color:'#5a5a3a', marginBottom:6 }}>
+                    Spend up to 3 merge points (used: {cost}/3):
+                  </div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:5, marginBottom:8 }}>
+                    <label style={mergeRow(mergeSel.hp, cost>=3)}>
+                      <input type="checkbox" checked={!!mergeSel.hp} disabled={!mergeSel.hp && cost>=3} onChange={() => toggle('hp')} />
+                      +{Math.floor((donor.maxHp ?? 0)/3)} Max HP (from {donor.pname})
+                    </label>
+                    <label style={mergeRow(mergeSel.dmg, cost>=3)}>
+                      <input type="checkbox" checked={!!mergeSel.dmg} disabled={!mergeSel.dmg && cost>=3} onChange={() => toggle('dmg')} />
+                      +{Math.floor((donor.dmg ?? 0)/3)} Damage (from {donor.pname})
+                    </label>
+                    <label style={mergeRow(mergeSel.move, cost>=3)}>
+                      <input type="checkbox" checked={!!mergeSel.move} disabled={!mergeSel.move && cost>=3} onChange={() => toggle('move')} />
+                      +{Math.floor((donor.moveRange ?? 0)/3)} Move (from {donor.pname})
+                    </label>
+                    {donorActive.map(aid => (
+                      <label key={aid} style={mergeRow(mergeSel.takeActive, cost>=3)}>
+                        <input type="checkbox" checked={!!mergeSel.takeActive} disabled={!mergeSel.takeActive && cost>=3} onChange={() => toggle('takeActive')} />
+                        Learn active: {ABILITIES[aid]?.name ?? aid}
+                      </label>
+                    ))}
+                    {donorPassive.map(aid => (
+                      <label key={aid} style={mergeRow(mergeSel.takePassive, cost>=3)}>
+                        <input type="checkbox" checked={!!mergeSel.takePassive} disabled={!mergeSel.takePassive && cost>=3} onChange={() => toggle('takePassive')} />
+                        Learn passive: {ABILITIES[aid]?.name ?? aid}
+                      </label>
+                    ))}
+                    {traitAvailable && (
+                      <label style={mergeRow(mergeSel.takeTrait, cost>=3)}>
+                        <input type="checkbox" checked={!!mergeSel.takeTrait} disabled={!mergeSel.takeTrait && cost>=3} onChange={() => toggle('takeTrait')} />
+                        Gain {donor.pname}'s {donorTrait} trait (in addition to {baseTrait})
+                      </label>
+                    )}
+                    {donorImmunities.length > 0 && (
+                      <label style={mergeRow(mergeSel.takeImmunities, cost>=3)}>
+                        <input type="checkbox" checked={!!mergeSel.takeImmunities} disabled={!mergeSel.takeImmunities && cost>=3} onChange={() => toggle('takeImmunities')} />
+                        Gain {donor.pname}'s class immunities ({donorImmunities.join(', ')})
+                      </label>
+                    )}
+                  </div>
+                  <div style={{ display:'flex', gap:6 }}>
+                    <button onClick={reset} style={btn(true,'#4a4a6a')}>Cancel</button>
+                    <button onClick={() => setMergeStep('confirm')} style={{ ...btn(true,'#9a6a2a'), padding:'5px 14px', fontSize:11 }}>
+                      Finalize…
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Rebirth Table */}
         {nodes.includes('rebirth_table') && (() => {
           const promoted = roster.filter(u => u.classId);
-          const rebSacPool = roster.filter(u => u.id !== rebirthConfirmId);
-          const rebSac = rebirthSacId ? roster.find(r => r.id === rebirthSacId) : null;
-          const rebBonus = rebSac && rebSac.tier !== 3 ? calcSacrificeBonus(rebSac) : null;
           return (
             <div style={card}>
               <div style={{ fontWeight:'bold', color:'#c4a882', marginBottom:5, fontSize:12 }}>🔄 Rebirth Table</div>
               <div style={{ fontSize:10, color:'#3a4a3a', marginBottom:8 }}>
-                Resets stats to Lv1 baseline. Class, abilities, and special features are retained.
+                Choose a new root class. Stats reset to its Lv1 baseline (plus a small bonus from this unit's history),
+                and everything earned so far is preserved in this unit's Legacy.
               </div>
               {promoted.length === 0 ? (
                 <div style={{ fontSize:11, color:'#3a3a2a' }}>No promoted units available for rebirth.</div>
               ) : promoted.map(u => {
-                const base = CLASS_STATS[u.dc] ?? { hp:6, dmg:3 };
                 const isExpanded = rebirthConfirmId === u.id;
+                const legacyBonus = u.legacy_stat_bonus ?? { hp:0, dmg:0, move:0 };
+                const oldTrait = defenseTypeFor(u);
+                const previewBase = rebirthDc ? CLASS_STATS[rebirthDc] : null;
                 return (
                   <div key={u.id} style={{ borderBottom:'1px solid #0f1220', paddingBottom:8, marginBottom:8 }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: isExpanded ? 6 : 0 }}>
@@ -466,58 +663,48 @@ export default function SanctuaryScreen() {
                           <span style={{ color:'#5a4a7a', fontSize:9 }}> +{u.bondedAbilities.length} bonded</span>
                         )}
                       </div>
-                      <button onClick={() => { setRebirthConfirmId(isExpanded ? null : u.id); setRebirthSacId(null); }}
+                      <button onClick={() => { setRebirthConfirmId(isExpanded ? null : u.id); setRebirthDc(null); }}
                         style={btn(true, isExpanded ? '#4a4a6a' : '#5a3a2a')}>
                         {isExpanded ? 'Cancel' : 'Rebirth'}
                       </button>
                     </div>
                     {isExpanded && (
                       <div>
-                        {/* Sacrifice picker */}
+                        {/* Root class picker */}
                         <div style={{ fontSize:10, color:'#5a5a3a', marginBottom:5 }}>
-                          Sacrifice a unit <span style={{ color:'#3a3a2a' }}>(Tier 3 → inherits their ability)</span>:
+                          Choose new root class:
                         </div>
                         <div style={{ display:'flex', gap:5, flexWrap:'wrap', marginBottom:8 }}>
-                          {rebSacPool.length === 0 && (
-                            <span style={{ fontSize:10, color:'#4a3a2a' }}>No other units available.</span>
-                          )}
-                          {rebSacPool.map(s => {
-                            const score = (s.tier ?? 1) * (s.level ?? 1);
-                            const selected = rebirthSacId === s.id;
-                            const isTier3 = s.tier === 3;
+                          {ARCHETYPES.map(a => {
+                            const selected = rebirthDc === a.dc;
                             return (
-                              <button key={s.id} onClick={() => setRebirthSacId(selected ? null : s.id)} style={{
-                                ...btn(true, selected ? (isTier3 ? '#7a3a9a' : '#9a6a2a') : '#3a3a4a'),
+                              <button key={a.dc} onClick={() => setRebirthDc(selected ? null : a.dc)} style={{
+                                ...btn(true, selected ? '#9a6a2a' : '#3a3a4a'),
                                 fontSize:10, padding:'4px 8px',
                               }}>
-                                {s.emoji} {s.pname} T{s.tier ?? 1}L{s.level}
-                                {isTier3 ? ' ✨' : ` (${score})`}
+                                {a.emoji} {a.dc}
                               </button>
                             );
                           })}
                         </div>
                         {/* Preview */}
-                        {rebSac?.tier === 3 ? (
-                          <div style={{ fontSize:10, color:'#9a6a2a', marginBottom:8 }}>
-                            ✨ Inherits <strong>{ABILITIES[rebSac.classAbility]?.name ?? rebSac.classAbility}</strong> as bonded ability
-                            {(u.bondedAbilities ?? []).includes(rebSac.classAbility) || rebSac.classAbility === u.classAbility
-                              ? <span style={{ color:'#5a3a2a' }}> (already known — no effect)</span> : ''}
+                        {previewBase && (
+                          <div style={{ fontSize:10, color:'#4a5a4a', marginBottom:6 }}>
+                            → Lv1 ❤️{previewBase.hp + Math.floor((u.level ?? 1)/2) + (legacyBonus.hp ?? 0)}
+                            {' '}⚔️{previewBase.dmg + 1 + (legacyBonus.dmg ?? 0)}
+                            {' '}👟{previewBase.moveRange + (legacyBonus.move ?? 0)}
                           </div>
-                        ) : rebBonus ? (
-                          <div style={{ fontSize:10, color:'#7a6a3a', marginBottom:8 }}>
-                            Bonus: {rebBonus.hp > 0 ? `+${rebBonus.hp} HP ` : ''}{rebBonus.dmg > 0 ? `+${rebBonus.dmg} DMG ` : ''}
-                            {rebBonus.move > 0 ? `+${rebBonus.move} MOV ` : ''}+{rebBonus.startingXp} starting XP
-                          </div>
-                        ) : (
-                          <div style={{ fontSize:10, color:'#4a4a3a', marginBottom:8 }}>No sacrifice — no bonus.</div>
                         )}
-                        <div style={{ fontSize:10, color:'#4a5a4a', marginBottom:8 }}>
-                          → Lv1 ❤️{base.hp + (rebBonus?.hp ?? 0)} ⚔️{base.dmg + (rebBonus?.dmg ?? 0)} 👟{base.moveRange + (rebBonus?.move ?? 0)}
+                        <div style={{ fontSize:10, color:'#7a6a3a', marginBottom:8 }}>
+                          📜 Moves to Legacy: {u.cls ?? u.classId}'s ability
+                          {(u.bondedAbilities ?? []).length > 0 ? ` + ${u.bondedAbilities.length} bonded` : ''}
+                          {(CLASSES[u.classId]?.immunities ?? []).length > 0 ? `, ${u.cls} immunities` : ''}
+                          {previewBase && oldTrait !== defenseTypeFor({ ...u, dc: rebirthDc }) ? `, ${oldTrait} trait` : ''}
                         </div>
-                        <button onClick={() => {
-                          rebirthUnit(u.id, rebirthSacId ?? undefined);
-                          setRebirthConfirmId(null); setRebirthSacId(null);
-                        }} style={{ ...btn(true,'#8a3a3a'), padding:'5px 14px', fontSize:11 }}>
+                        <button disabled={!rebirthDc} onClick={() => {
+                          rebirthUnit(u.id, rebirthDc);
+                          setRebirthConfirmId(null); setRebirthDc(null);
+                        }} style={{ ...btn(!!rebirthDc,'#8a3a3a'), padding:'5px 14px', fontSize:11 }}>
                           Confirm Rebirth
                         </button>
                       </div>

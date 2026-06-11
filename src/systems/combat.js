@@ -122,13 +122,18 @@ export function evasionChance(unit) {
 }
 
 // Resolves an attack against a defender's evasion chance and temperament.
+// Legacy traits (acquired via rebirth/merge) roll independently alongside the
+// defender's primary temperament — first success wins.
 export function resolveDefense(attacker, defender, dmg) {
   const chance = evasionChance(defender);
-  if (Math.random() * 100 >= chance) return { outcome:'hit', dmg };
-  const type = defenseTypeFor(defender);
-  if (type === 'dodge')   return { outcome:'dodge', dmg:0 };
-  if (type === 'counter') return { outcome:'counter', dmg, counterDmg: defender.dmg||1 };
-  if (type === 'defend')  return { outcome:'defend', dmg: Math.ceil(dmg/2) };
+  const types = [...new Set([defenseTypeFor(defender), ...(defender.legacy_traits ?? [])])];
+  for (const type of types) {
+    if (type === 'hit') continue;
+    if (Math.random() * 100 >= chance) continue;
+    if (type === 'dodge')   return { outcome:'dodge', dmg:0 };
+    if (type === 'counter') return { outcome:'counter', dmg, counterDmg: defender.dmg||1 };
+    if (type === 'defend')  return { outcome:'defend', dmg: Math.ceil(dmg/2) };
+  }
   return { outcome:'hit', dmg };
 }
 
