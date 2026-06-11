@@ -56,6 +56,19 @@ export default function MissionScreen() {
   const [autoEnd, setAutoEnd]       = useState(true);
   const isMobile = useIsMobile();
 
+  // Keybind: spacebar ends the player's turn (ignored mid level-up or enemy phase)
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (e.code !== 'Space') return;
+      const { phase: curPhase, luq: curLuq } = useGameStore.getState();
+      if (curPhase !== 'player' || (curLuq ?? []).length > 0) return;
+      e.preventDefault();
+      endTurn();
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [endTurn]);
+
   // Auto-end: fire when units or toggle change — if all friendlies are out of AP, end the turn
   useEffect(() => {
     if (!autoEnd) return;
