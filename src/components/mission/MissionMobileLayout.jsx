@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { UT } from '../../data/constants';
 import { xpNext } from '../../systems/combat';
 import MissionMap from './MissionMap';
@@ -26,6 +26,17 @@ export default function MissionMobileLayout(props) {
 
   const [sheetOpen, setSheetOpen] = useState(true);
   const [logOpen, setLogOpen] = useState(false);
+  const [portrait, setPortrait] = useState(
+    typeof window !== 'undefined' ? window.matchMedia('(orientation: portrait)').matches : true
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const mq = window.matchMedia('(orientation: portrait)');
+    const update = () => setPortrait(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
   const friendly = units.filter(u => u.type !== UT.ENEMY);
   const objective = ms.objective;
   const activeAbilityIds = selUnit
@@ -63,13 +74,19 @@ export default function MissionMobileLayout(props) {
         </div>
       )}
 
-      <div style={mapWrap}>
+      <div style={portrait ? mapWrapPortrait : mapWrap}>
         <MissionMap
           tiles={tiles} units={units} W={mapW} fv={fv}
           hilight={selUnit && selUnit.movementPoints > 0 ? hilight : new Set()} raiseable={raiseable}
           onCellClick={handleCellClick} theme={theme} tileSize={42}
         />
       </div>
+
+      {portrait && (
+        <div style={logStripPortrait}>
+          {log.map((l, i) => <div key={i} style={{ color:i === 0 ? '#c4a882' : '#586070', fontSize:11, lineHeight:1.5 }}>{l}</div>)}
+        </div>
+      )}
 
       <div style={unitRail}>
         {friendly.map(u => (
@@ -87,13 +104,17 @@ export default function MissionMobileLayout(props) {
         ))}
       </div>
 
-      <button onClick={() => setLogOpen(v => !v)} style={logToggle}>
-        {logOpen ? 'Hide Log' : log[0] ?? 'Show Log'}
-      </button>
-      {logOpen && (
-        <div style={logPanel}>
-          {log.map((l, i) => <div key={i} style={{ color:i === 0 ? '#c4a882' : '#586070', fontSize:11, lineHeight:1.5 }}>{l}</div>)}
-        </div>
+      {!portrait && (
+        <>
+          <button onClick={() => setLogOpen(v => !v)} style={logToggle}>
+            {logOpen ? 'Hide Log' : log[0] ?? 'Show Log'}
+          </button>
+          {logOpen && (
+            <div style={logPanel}>
+              {log.map((l, i) => <div key={i} style={{ color:i === 0 ? '#c4a882' : '#586070', fontSize:11, lineHeight:1.5 }}>{l}</div>)}
+            </div>
+          )}
+        </>
       )}
 
       <div style={{ ...sheet, maxHeight:sheetOpen ? '58vh' : 64 }}>
@@ -173,6 +194,9 @@ const mobilePg = { background:'#040810', height:'100dvh', overflow:'hidden', pos
 const topBar = { position:'absolute', top:0, left:0, right:0, zIndex:5, minHeight:50, display:'flex', justifyContent:'space-between', gap:10, alignItems:'center', padding:'7px 10px', background:'#040810ee', borderBottom:'1px solid #141422', boxSizing:'border-box' };
 const objectiveBar = { position:'absolute', top:51, left:8, right:8, zIndex:5, display:'flex', alignItems:'center', gap:6, padding:'6px 8px', background:'#080d18dd', border:'1px solid #26354c', borderRadius:5, fontSize:11, boxSizing:'border-box' };
 const mapWrap = { position:'absolute', inset:'86px 0 184px 0', overflow:'auto', padding:'8px 8px 16px', boxSizing:'border-box' };
+// Portrait: leave room below the map for an always-visible log strip above the unit rail.
+const mapWrapPortrait = { ...mapWrap, inset:'86px 0 296px 0' };
+const logStripPortrait = { position:'absolute', left:0, right:0, bottom:232, zIndex:6, height:64, overflowY:'auto', background:'#04040add', borderTop:'1px solid #182038', borderBottom:'1px solid #101828', padding:'5px 8px', boxSizing:'border-box' };
 const unitRail = { position:'absolute', left:0, right:0, bottom:176, zIndex:6, display:'flex', gap:6, overflowX:'auto', padding:'6px 8px', background:'#040810dd', borderTop:'1px solid #101828', boxSizing:'border-box' };
 const railButton = { minWidth:116, height:44, display:'grid', gridTemplateColumns:'18px 1fr auto', alignItems:'center', gap:5, border:'1px solid #1a1a2a', borderRadius:5, padding:'0 8px', color:'#c4a882', fontSize:10 };
 const sheet = { position:'absolute', left:0, right:0, bottom:0, zIndex:7, minHeight:64, background:'#06090fee', borderTop:'1px solid #252545', borderRadius:'10px 10px 0 0', padding:'8px 10px 10px', boxSizing:'border-box', transition:'max-height 160ms ease', overflow:'hidden', boxShadow:'0 -8px 30px #0009' };
