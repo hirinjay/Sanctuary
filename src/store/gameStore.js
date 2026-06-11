@@ -1731,7 +1731,7 @@ export const useGameStore = create(
         }));
       },
 
-      // ── Bash a locked door open (full turn, unit must be adjacent) ───
+      // ── Bash a locked door open (1 action, unit must be adjacent) ────
       // Fallback for locked doors whose key was never recovered/dropped.
       // Only Grave Warden lineage units at tier 2+ (Brutes) are strong enough to bash.
       doBashDoor(x, y, sel) {
@@ -1739,7 +1739,7 @@ export const useGameStore = create(
         if (!sel || s.phase !== 'player') return;
         const ms = s.ms;
         const unit = ms.units.find(u => u.id === sel);
-        if (!unit || unit.fallen || unit.actionPoints <= 0 || unit.movementPoints <= 0) return;
+        if (!unit || unit.fallen || unit.actionPoints <= 0) return;
         if (unit.dc !== 'Grave Warden' || (unit.tier ?? 1) < 2) return;
         const tile = ms.tiles[y]?.[x];
         if (!tile || tile.type !== TILE.DOOR || tile.open || !tile.locked) return;
@@ -1748,7 +1748,7 @@ export const useGameStore = create(
         const newTiles = ms.tiles.map((row, ry) =>
           row.map((t, rx) => (rx === x && ry === y) ? { ...t, open: true, locked: false } : t)
         );
-        const newUnits = ms.units.map(u => u.id === sel ? { ...u, actionPoints: 0, movementPoints: 0 } : u);
+        const newUnits = ms.units.map(u => u.id === sel ? { ...u, actionPoints: u.actionPoints - 1 } : u);
         set(prev => ({
           ms: { ...prev.ms, tiles: newTiles, units: newUnits },
           log: [`🔨 ${unit.name} bashes the locked door open!`, ...prev.log].slice(0, 14),

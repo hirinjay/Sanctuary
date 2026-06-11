@@ -225,17 +225,18 @@ export default function MissionScreen() {
     return null;
   })() : null;
 
-  // Find adjacent locked door the unit lacks the key for — bashing is a full-turn fallback
-  // restricted to tier 2+ Grave Warden (Brute lineage) units.
+  // Find adjacent locked door the unit lacks the key for — bashing is the fallback,
+  // restricted to tier 2+ Grave Warden (Brute lineage) units. Mirrors adjacentKeyTarget's
+  // gating exactly, just for the inverse "no matching key" case.
   const canBash = selUnit?.dc === 'Grave Warden' && (selUnit?.tier ?? 1) >= 2;
-  const adjacentLockedDoorTarget = (selUnit && phase === 'player' && canBash && selUnit.actionPoints > 0 && selUnit.movementPoints > 0) ? (() => {
+  const adjacentLockedDoorTarget = (selUnit && phase === 'player' && canBash && selUnit.actionPoints > 0) ? (() => {
     const { x, y } = selUnit;
     for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
       const ax = x + dx, ay = y + dy;
       const t = tiles[ay]?.[ax];
       if (t?.type === TILE.DOOR && t.locked && !t.open) {
         const keyId = t.keyId;
-        if (!keyId || !keys.includes(keyId)) return { x: ax, y: ay };
+        if (keyId && !keys.includes(keyId)) return { x: ax, y: ay };
       }
     }
     return null;
@@ -647,7 +648,7 @@ export default function MissionScreen() {
           {adjacentLockedDoorTarget && (
             <button onClick={() => { doBashDoor(adjacentLockedDoorTarget.x, adjacentLockedDoorTarget.y, sel); clearSel(); }}
               style={{ ...btn(true,'#8a5a3a'), width:'100%' }}>
-              🔨 Bash Door (full turn)
+              🔨 Bash Door
             </button>
           )}
           <button onClick={handleRetreat} style={{ ...btn(true,'#4a4a8a'), width:'100%' }}>
