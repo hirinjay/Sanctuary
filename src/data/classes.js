@@ -23,6 +23,12 @@ export function isBruteUnit(unit) {
   return ((unit?.dc === 'Grave Warden') || BRUTE_CLASS_IDS.has(unit?.classId)) && (unit?.tier ?? 1) >= 2;
 }
 
+// True for any tier 2+ unit in the Grave Stalker (scout) lineage — these units
+// can spend their action point for a Run: a second move action.
+export function isScoutUnit(unit) {
+  return unit?.dc === 'Grave Stalker' && (unit?.tier ?? 1) >= 2;
+}
+
 export const CLASSES = {
 
   // ══════════════════════════════════════════════════════════════

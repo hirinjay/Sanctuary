@@ -13,7 +13,7 @@ import { bfsPath } from '../world/hexMath';
 import { BUILDINGS } from '../data/buildings';
 import { generateObjective } from '../systems/objectives';
 import { saveRun, saveBestiary, loadBestiary } from '../lib/persistence';
-import { CLASSES, DC_TO_BASE, isBruteUnit } from '../data/classes';
+import { CLASSES, DC_TO_BASE, isBruteUnit, isScoutUnit } from '../data/classes';
 import { deleteSave } from '../lib/persistence';
 import { ABILITIES } from '../data/abilities';
 import { isPlayableWorld } from '../world/worldState';
@@ -1884,6 +1884,23 @@ export const useGameStore = create(
         set(prev => {
           if (!prev.ms) return prev;
           return { ms: { ...prev.ms, units: prev.ms.units.map(u => u.id === unitId ? { ...u, actionPoints:0, movementPoints:0 } : u) } };
+        });
+      },
+
+      // ── Run: T2+ scouts spend their action point for a second move ─────
+      doRun(unitId) {
+        if (get().phase !== 'player') return;
+        set(prev => {
+          if (!prev.ms) return prev;
+          const unit = prev.ms.units.find(u => u.id === unitId);
+          if (!unit || unit.fallen || !isScoutUnit(unit) || unit.actionPoints <= 0) return prev;
+          const units = prev.ms.units.map(u => u.id === unitId
+            ? { ...u, actionPoints: u.actionPoints - 1, movementPoints: u.movementPoints + (u.moveRange||3) }
+            : u);
+          return {
+            ms: { ...prev.ms, units },
+            log: [`🏃 ${unit.name} sprints for another move!`, ...prev.log].slice(0, 14),
+          };
         });
       },
 

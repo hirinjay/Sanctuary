@@ -10,7 +10,7 @@ import UnitBar from '../mission/UnitBar';
 import RaisePanel from '../mission/RaisePanel';
 import LevelUpModal from '../mission/LevelUpModal';
 import { ABILITIES } from '../../data/abilities';
-import { isBruteUnit } from '../../data/classes';
+import { isBruteUnit, isScoutUnit } from '../../data/classes';
 import useIsMobile from '../../hooks/useIsMobile';
 
 // Abilities that need a target enemy click before firing
@@ -46,7 +46,7 @@ function btn(on, c) {
 export default function MissionScreen() {
   const { ms, noise, phase, luq, log, loc, mode, book, ti, travelBag, sanctuaryPos,
           doMove, doAttack, doUseKey, disarmTrap, doOpenDoor, doBashDoor, doAbility, toggleAbilityArmed,
-          endTurn, endMission, addLog, waitUnit } = useGameStore();
+          endTurn, endMission, addLog, waitUnit, doRun } = useGameStore();
 
   // sel & hilight are local — they don't need persistence and use the hilightRef pattern
   // to avoid stale closures on grid click
@@ -158,6 +158,13 @@ export default function MissionScreen() {
   function cancelPhaseTargeting() {
     setPhaseMoveTiles(new Set());
     setPhaseWallTiles(new Set());
+  }
+
+  // Run: scouts spend their action point for a second move — re-extend the move highlight
+  function doRunForUnit(unit) {
+    doRun(unit.id);
+    const after = { ...unit, movementPoints: unit.movementPoints + (unit.moveRange||3) };
+    setHL(moveRange(effectiveUnit(after), tiles, units));
   }
 
   function handleCellClick(x, y, u, vis, hi) {
@@ -372,7 +379,7 @@ export default function MissionScreen() {
         activatePhaseTargeting={activatePhaseTargeting} cancelPhaseTargeting={cancelPhaseTargeting}
         handleCellClick={handleCellClick} clearSel={clearSel} doUseKey={doUseKey} disarmTrap={disarmTrap}
         doOpenDoor={doOpenDoor}
-        doAbility={doAbility} toggleAbilityArmed={toggleAbilityArmed} waitUnit={waitUnit}
+        doAbility={doAbility} toggleAbilityArmed={toggleAbilityArmed} waitUnit={waitUnit} doRunForUnit={doRunForUnit}
         endTurn={endTurn} autoEnd={autoEnd} setAutoEnd={setAutoEnd}
         adjacentTrapTarget={adjacentTrapTarget} adjacentKeyTarget={adjacentKeyTarget} adjacentDoorTarget={adjacentDoorTarget}
         adjacentLockedDoorTarget={adjacentLockedDoorTarget} doBashDoor={doBashDoor}
@@ -566,6 +573,22 @@ export default function MissionScreen() {
                     <span style={{ fontSize:13, fontWeight:'bold', lineHeight:1.1 }}>○</span>
                   </button>
                 </div>
+                {/* Run: scouts (T2+ Grave Stalker line) spend their action for a second move */}
+                {isScoutUnit(selUnit) && (
+                  <button
+                    onClick={() => doRunForUnit(selUnit)}
+                    disabled={!canAct}
+                    style={{
+                      width:'100%', height:36, marginBottom:5, borderRadius:4, border:'none',
+                      cursor: canAct ? 'pointer' : 'default',
+                      background: canAct ? '#0d1a14' : '#080808',
+                      outline: `1px solid ${canAct ? '#2a5a3a' : '#141414'}`,
+                      color: canAct ? '#5a9a6a' : '#2a2a2a',
+                      fontSize:11, letterSpacing:0.5,
+                    }}>
+                    🏃 RUN — move again
+                  </button>
+                )}
                 {/* Action Row 2: Active + Reactive ability buttons */}
                 {activeReactiveAbils.length > 0 && phase === 'player' && (
                   <div style={{ display:'flex', flexDirection:'column', gap:4 }}>

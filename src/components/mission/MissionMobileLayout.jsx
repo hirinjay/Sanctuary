@@ -5,6 +5,7 @@ import MissionMap from './MissionMap';
 import RaisePanel from './RaisePanel';
 import LevelUpModal from './LevelUpModal';
 import { ABILITIES } from '../../data/abilities';
+import { isScoutUnit } from '../../data/classes';
 
 const SELF_ABILITIES = new Set([
   'intimidate','entangle','mass_entangle','mass_entangle_warden',
@@ -19,7 +20,7 @@ export default function MissionMobileLayout(props) {
     varek, t, fieldTether, noiseColor, sel, selUnit, phase, log, luq,
     abilityMode, setAbilityMode, handleSelect, handleCellClick, clearSel,
     activatePhaseTargeting, cancelPhaseTargeting,
-    doUseKey, disarmTrap, doOpenDoor, doBashDoor, doAbility, toggleAbilityArmed, waitUnit,
+    doUseKey, disarmTrap, doOpenDoor, doBashDoor, doAbility, toggleAbilityArmed, waitUnit, doRunForUnit,
     endTurn, autoEnd, setAutoEnd, adjacentTrapTarget, adjacentKeyTarget, adjacentDoorTarget,
     adjacentLockedDoorTarget,
     handleRetreat,
@@ -128,7 +129,12 @@ export default function MissionMobileLayout(props) {
                 <div style={{ color:'#e8d5b0', fontWeight:'bold', fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{selUnit.emoji} {selUnit.name}</div>
                 <div style={{ color:'#4a5a4a', fontSize:10 }}>Lv{selUnit.level} · XP {selUnit.xp ?? 0}/{xpNext(selUnit.level ?? 1)} · HP {selUnit.hp}/{selUnit.maxHp}</div>
               </div>
-              <button onClick={() => { waitUnit(selUnit.id); clearSel(); }} disabled={!canAct} style={actionButton(canAct, '#6a6a9a')}>Wait</button>
+              <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+                {isScoutUnit(selUnit) && (
+                  <button onClick={() => doRunForUnit(selUnit)} disabled={!canAct} style={actionButton(canAct, '#5a9a6a')}>🏃 Run</button>
+                )}
+                <button onClick={() => { waitUnit(selUnit.id); clearSel(); }} disabled={!canAct} style={actionButton(canAct, '#6a6a9a')}>Wait</button>
+              </div>
             </div>
 
             {sheetOpen && (
