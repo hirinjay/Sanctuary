@@ -137,6 +137,40 @@ export function moveRange(unit, tiles, units) {
   return r;
 }
 
+// Like moveRange, but wall tiles can be traversed (not landed on) — used by the
+// Phantom's Phase ability, which lets the unit walk straight through walls.
+export function phaseRange(unit, tiles, units) {
+  const r    = new Set();
+  const best = new Map([[ `${unit.x},${unit.y}`, 0 ]]);
+  const q    = [{ x:unit.x, y:unit.y, s:0 }];
+  while (q.length) {
+    q.sort((a,b) => a.s - b.s);
+    const { x, y, s } = q.shift();
+    const tile = tiles[y]?.[x];
+    const occupied = units.find(u => u.x === x && u.y === y && !u.fallen);
+    // Can't land on a wall or on any occupied tile, but may pass through both.
+    if (s > 0 && tile?.type !== TILE.WALL && !occupied) r.add(`${x},${y}`);
+    if (s >= unit.moveRange) continue;
+    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const nx = x+dx, ny = y+dy, k = `${nx},${ny}`;
+      const ntile = tiles[ny]?.[nx];
+      if (!ntile) continue;
+      if (ntile.type === TILE.CAGE) continue;
+      if (ntile.type === TILE.DOOR && !ntile.open) continue;
+      const noccupant = units.find(u => u.x === nx && u.y === ny && !u.fallen);
+      // May pass through friendly-occupied tiles, but not enemy-occupied ones.
+      if (noccupant && !isFriendly(unit, noccupant)) continue;
+      const cost = ntile.type === TILE.WATER ? 2 : 1;
+      const ns   = s + cost;
+      if (ns <= unit.moveRange && ns < (best.get(k) ?? Infinity)) {
+        best.set(k, ns);
+        q.push({ x:nx, y:ny, s:ns });
+      }
+    }
+  }
+  return r;
+}
+
 export function hasLOS(tiles, ax, ay, bx, by) {
   let x = ax, y = ay;
   const dx = Math.abs(bx-ax), dy = Math.abs(by-ay);

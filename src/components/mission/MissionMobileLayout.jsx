@@ -15,9 +15,10 @@ const SELF_ABILITIES = new Set([
 
 export default function MissionMobileLayout(props) {
   const {
-    ms, units, tiles, mapW, fv, hilight, raiseable, theme, loc, mode, turn,
+    ms, units, tiles, mapW, fv, hilight, phaseMoveTiles, phaseWallTiles, raiseable, theme, loc, mode, turn,
     varek, t, fieldTether, noiseColor, sel, selUnit, phase, log, luq,
     abilityMode, setAbilityMode, handleSelect, handleCellClick, clearSel,
+    activatePhaseTargeting, cancelPhaseTargeting,
     doUseKey, disarmTrap, doOpenDoor, doBashDoor, doAbility, toggleAbilityArmed, waitUnit,
     endTurn, autoEnd, setAutoEnd, adjacentTrapTarget, adjacentKeyTarget, adjacentDoorTarget,
     adjacentLockedDoorTarget,
@@ -77,7 +78,8 @@ export default function MissionMobileLayout(props) {
       <div style={portrait ? mapWrapPortrait : mapWrap}>
         <MissionMap
           tiles={tiles} units={units} W={mapW} fv={fv}
-          hilight={selUnit && selUnit.movementPoints > 0 ? hilight : new Set()} raiseable={raiseable}
+          hilight={abilityMode!=='phase' && selUnit && selUnit.movementPoints > 0 ? hilight : new Set()} raiseable={raiseable}
+          phaseMoveTiles={phaseMoveTiles} phaseWallTiles={phaseWallTiles}
           onCellClick={handleCellClick} theme={theme} tileSize={42}
         />
       </div>
@@ -151,11 +153,14 @@ export default function MissionMobileLayout(props) {
                       const available = ab.type === 'reactive' ? usesLeft > 0 : usesLeft > 0 && selUnit.actionPoints > 0;
                       return (
                         <button key={aid} disabled={!available && !targeting} style={abilityButton(available || targeting, targeting, isArmed)} onClick={() => {
-                          if (targeting) { setAbilityMode(null); return; }
+                          if (targeting) { setAbilityMode(null); cancelPhaseTargeting?.(); return; }
                           if (!available) return;
                           if (ab.type === 'reactive') toggleAbilityArmed(selUnit.id, isBonded ? aid : undefined);
                           else if (SELF_ABILITIES.has(aid)) doAbility(selUnit.id, aid, null, null, null);
-                          else setAbilityMode(aid);
+                          else {
+                            setAbilityMode(aid);
+                            if (aid === 'phase') activatePhaseTargeting?.(selUnit);
+                          }
                         }}>
                           <span style={{ fontSize:9, color:targeting ? '#d99a55' : ab.type === 'reactive' ? '#b9a45a' : '#8f79bd', textTransform:'uppercase' }}>{targeting ? 'Targeting' : ab.type}{usesLeft > 0 ? ' · ' + usesLeft + '×' : ''}</span>
                           <span style={{ color:available || targeting ? '#e8d5b0' : '#3a3a3a', fontWeight:'bold' }}>{targeting ? 'Cancel' : ab.name}{isArmed ? ' · armed' : ''}</span>

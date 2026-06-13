@@ -99,7 +99,7 @@ function tileContent(tile, visible, theme, x, y) {
 
 const STATUS_ICONS = { root:'🌿', slow:'🐢', bind:'⛓', stun:'💫', poison:'☠', burning:'🔥', marked:'🎯', shielded:'🛡' };
 
-export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, onCellClick, theme = 'dungeon', tileSize = 46 }) {
+export default function MissionMap({ tiles, units, W, fv, hilight, phaseMoveTiles, phaseWallTiles, raiseable, onCellClick, theme = 'dungeon', tileSize = 46 }) {
   const spriteSize = Math.round(tileSize * 0.58);
   const sFont      = Math.round(tileSize * 0.17);
   const wFont      = Math.round(tileSize * 0.28);
@@ -116,9 +116,12 @@ export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, on
         const k      = `${x},${y}`;
         const vis    = fv.has(k);
         const hi     = hilight.has(k);
+        // Phase targeting: blue = reachable normally, green = only by phasing through a wall
+        const phMove = phaseMoveTiles?.has(k);
+        const phWall = phaseWallTiles?.has(k);
         const isR    = raiseable.some(r => r.x===x && r.y===y);
         const marked = tile.marked && tile.type === TILE.LOOT && vis;
-        const bg     = hi ? '#0f2a0f' : isR ? '#0f0f2a' : tileBg(tile, vis, theme);
+        const bg     = phWall ? '#0f2a0f' : phMove ? '#0a1a3a' : hi ? '#0f2a0f' : isR ? '#0f0f2a' : tileBg(tile, vis, theme);
         const content = tileContent(tile, vis, theme, x, y);
 
         // All units at this tile, sorted: living first (z-order top), fallen last (z-order bottom)
@@ -147,10 +150,10 @@ export default function MissionMap({ tiles, units, W, fv, hilight, raiseable, on
             style={{
               width:tileSize, height:tileSize,
               background: bg,
-              border: hi ? '1px solid #2a5a2a' : isR ? '1px solid #4a4a8a' : marked ? '1px solid #c4a882' : '1px solid transparent',
+              border: phWall ? '1px solid #2a5a2a' : phMove ? '1px solid #2a4a7a' : hi ? '1px solid #2a5a2a' : isR ? '1px solid #4a4a8a' : marked ? '1px solid #c4a882' : '1px solid transparent',
               boxShadow: marked ? '0 0 5px 1px #c4a88288' : apGlow,
               display:'flex', alignItems:'center', justifyContent:'center',
-              cursor: vis ? 'pointer' : 'default', borderRadius:1,
+              cursor: (vis || phMove || phWall) ? 'pointer' : 'default', borderRadius:1,
               position:'relative', flexShrink:0,
             }}>
             {vis && (

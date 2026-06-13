@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useGameStore } from '../../store/gameStore';
 import { UT, TILE } from '../../data/constants';
 import { item } from '../../data/items';
-import { moveRange, fog, dist } from '../../systems/map';
+import { moveRange, phaseRange, fog, dist } from '../../systems/map';
 import { xpNext } from '../../systems/combat';
 import MissionMap from '../mission/MissionMap';
 import MissionMobileLayout from '../mission/MissionMobileLayout';
@@ -54,6 +54,9 @@ export default function MissionScreen() {
   const [hilight, setHilight]       = useState(new Set());
   const hilightRef                  = useRef(new Set());
   const [abilityMode, setAbilityMode] = useState(null);
+  // Phase targeting: tiles reachable normally (blue) vs only by passing through walls (green)
+  const [phaseMoveTiles, setPhaseMoveTiles] = useState(new Set());
+  const [phaseWallTiles, setPhaseWallTiles] = useState(new Set());
   const [autoEnd, setAutoEnd]       = useState(true);
   const isMobile = useIsMobile();
 
@@ -86,6 +89,8 @@ export default function MissionScreen() {
     setHilight(new Set());
     hilightRef.current = new Set();
     setAbilityMode(null);
+    setPhaseMoveTiles(new Set());
+    setPhaseWallTiles(new Set());
   }, []);
 
   function setHL(s) { setHilight(s); hilightRef.current = s; }
@@ -120,25 +125,45 @@ export default function MissionScreen() {
 
   const pendingLevelUp = (luq ?? []).length > 0;
 
+  // Applies slow/bind/root/stun status effects to a unit's move range,
+  // shared by normal movement highlighting and the Phase ability.
+  function effectiveUnit(u) {
+    const hasSlow = u.statusEffects?.some(fx => fx.id === 'slow');
+    const hasStun = u.statusEffects?.some(fx => fx.id === 'stun');
+    const hasBind = u.statusEffects?.some(fx => fx.id === 'bind');
+    const hasRoot = u.statusEffects?.some(fx => fx.id === 'root');
+    if (hasBind || hasRoot || hasStun) return { ...u, moveRange:0 };
+    const effectiveMoveRange = hasSlow
+      ? Math.max(1, Math.floor((u.moveRange||3) / 2))
+      : (u.moveRange||3);
+    return { ...u, moveRange:effectiveMoveRange };
+  }
+
   function handleSelect(u) {
     if (u.fallen) return;
     if (sel === u.id) { clearSel(); return; }
     setSel(u.id);
     if (u.movementPoints <= 0) { setHL(new Set()); return; }
-    // Apply slow: halve move range (rounded down)
-    const hasSlow = u.statusEffects?.some(fx => fx.id === 'slow');
-    const hasStun = u.statusEffects?.some(fx => fx.id === 'stun');
-    const hasBind = u.statusEffects?.some(fx => fx.id === 'bind');
-    const hasRoot = u.statusEffects?.some(fx => fx.id === 'root');
-    const effectiveMoveRange = (hasSlow && !(hasBind||hasRoot||hasStun))
-      ? Math.max(1, Math.floor((u.moveRange||3) / 2))
-      : (u.moveRange||3);
-    const uEff = (hasBind||hasRoot||hasStun) ? { ...u, moveRange:0 } : { ...u, moveRange:effectiveMoveRange };
-    setHL(moveRange(uEff, tiles, units));
+    setHL(moveRange(effectiveUnit(u), tiles, units));
+  }
+
+  // Phase targeting: tiles reachable normally (blue) vs only by passing through walls (green)
+  function activatePhaseTargeting(u) {
+    const uEff  = effectiveUnit(u);
+    const normal = moveRange(uEff, tiles, units);
+    const wide   = phaseRange(uEff, tiles, units);
+    setPhaseMoveTiles(normal);
+    setPhaseWallTiles(new Set([...wide].filter(k => !normal.has(k))));
+  }
+  function cancelPhaseTargeting() {
+    setPhaseMoveTiles(new Set());
+    setPhaseWallTiles(new Set());
   }
 
   function handleCellClick(x, y, u, vis, hi) {
-    if (!vis) return;
+    const k = `${x},${y}`;
+    const phaseTarget = abilityMode === 'phase' && (phaseMoveTiles.has(k) || phaseWallTiles.has(k));
+    if (!vis && !phaseTarget) return;
     const live = u && !u.fallen ? u : null;
 
     // Ability targeting mode
@@ -163,8 +188,13 @@ export default function MissionScreen() {
         return;
       }
       if (CELL_TARGET_ABILITIES.has(abilityMode)) {
+        if (abilityMode === 'phase' && !phaseTarget) {
+          setAbilityMode(null); // clicked outside phase range — cancel
+          cancelPhaseTargeting();
+          return;
+        }
         doAbility(sel, abilityMode, x, y, null);
-        setAbilityMode(null);
+        clearSel();
         return;
       }
       setAbilityMode(null);
@@ -333,10 +363,13 @@ export default function MissionScreen() {
   if (isMobile) {
     return (
       <MissionMobileLayout
-        ms={ms} units={units} tiles={tiles} mapW={mapW} fv={fv} hilight={hilight} raiseable={raiseable}
+        ms={ms} units={units} tiles={tiles} mapW={mapW} fv={fv}
+        hilight={abilityMode!=='phase' ? hilight : new Set()}
+        phaseMoveTiles={phaseMoveTiles} phaseWallTiles={phaseWallTiles} raiseable={raiseable}
         theme={theme} loc={loc} mode={mode} turn={turn} varek={varek} t={t} fieldTether={fieldTether}
         noiseColor={noiseColor} sel={sel} selUnit={selUnit} phase={phase} log={log} luq={luq} book={book}
         abilityMode={abilityMode} setAbilityMode={setAbilityMode} handleSelect={handleSelect}
+        activatePhaseTargeting={activatePhaseTargeting} cancelPhaseTargeting={cancelPhaseTargeting}
         handleCellClick={handleCellClick} clearSel={clearSel} doUseKey={doUseKey} disarmTrap={disarmTrap}
         doOpenDoor={doOpenDoor}
         doAbility={doAbility} toggleAbilityArmed={toggleAbilityArmed} waitUnit={waitUnit}
@@ -398,7 +431,8 @@ export default function MissionScreen() {
         <div style={{ flex:1, overflow:'auto', minWidth:0 }}>
           <MissionMap
             tiles={tiles} units={units} W={mapW} fv={fv}
-            hilight={selUnit && selUnit.movementPoints > 0 ? hilight : new Set()} raiseable={raiseable}
+            hilight={abilityMode!=='phase' && selUnit && selUnit.movementPoints > 0 ? hilight : new Set()} raiseable={raiseable}
+            phaseMoveTiles={phaseMoveTiles} phaseWallTiles={phaseWallTiles}
             onCellClick={handleCellClick} theme={theme}
           />
         </div>
@@ -555,10 +589,17 @@ export default function MissionScreen() {
                               alignItems:'flex-start', padding:'4px 9px', textAlign:'left',
                             }}
                             onClick={() => {
-                              if (targeting) { setAbilityMode(null); return; }
+                              if (targeting) {
+                                setAbilityMode(null);
+                                cancelPhaseTargeting();
+                                return;
+                              }
                               if (!available) return;
                               if (SELF_ABILITIES.has(aid)) { doAbility(selUnit.id, aid, null, null, null); }
-                              else { setAbilityMode(aid); }
+                              else {
+                                setAbilityMode(aid);
+                                if (aid === 'phase') activatePhaseTargeting(selUnit);
+                              }
                             }}>
                             <div style={{ fontSize:8, letterSpacing:0.5, marginBottom:1,
                               color: targeting ? '#9a6a3a' : available ? '#6a4a9a' : '#2a2a2a',

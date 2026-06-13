@@ -2114,8 +2114,12 @@ export const useGameStore = create(
               break;
             }
             case 'phase': {
-              if (tx !== undefined && ty !== undefined) { actor.x = tx; actor.y = ty; }
-              logs.push(`👻 ${actor.name} phases through!`);
+              if (tx !== undefined && ty !== undefined) {
+                actor.x = tx; actor.y = ty;
+                // Phase spends the unit's entire movement for the turn.
+                actor.movementPoints = 0;
+                logs.push(`👻 ${actor.name} phases through!`);
+              }
               break;
             }
             case 'ambush': case 'superior_ambush': {
