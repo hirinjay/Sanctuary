@@ -5,13 +5,14 @@ import { xpNext, calcSacrificeBonus, defenseTypeFor } from '../../systems/combat
 import { getTier3Class, CLASSES } from '../../data/classes';
 import { ABILITIES } from '../../data/abilities';
 import { CLASS_STATS, ARCHETYPES } from '../../data/archetypes';
+import { BOSS_PASSIVES } from '../../data/bosses';
 import EquipModal from '../sanctuary/EquipModal';
 
 const pg = { background:'#040810', minHeight:'100vh', fontFamily:'Georgia,serif', color:'#c4a882', padding:14 };
 const card = { background:'#090e1a', border:'1px solid #1a1a2a', borderRadius:8, padding:13, marginBottom:11 };
 
 function hasLegacy(u) {
-  return !!u.t4 || (u.legacy_abilities ?? []).length > 0 || (u.legacy_traits ?? []).length > 0 || (u.legacy_immunities ?? []).length > 0;
+  return !!u.t4 || !!u.bossPassive || (u.legacy_abilities ?? []).length > 0 || (u.legacy_traits ?? []).length > 0 || (u.legacy_immunities ?? []).length > 0;
 }
 
 const TRAIT_LABEL = { dodge:'Dodge', counter:'Counter', defend:'Defend' };
@@ -23,6 +24,11 @@ function LegacySection(u) {
     <div style={{ background:'#0a0e16', border:'1px solid #2a2438', borderRadius:5, padding:'6px 8px',
       marginTop:4, marginBottom:6, fontSize:10, color:'#9a8aba', maxHeight:120, overflowY:'auto' }}>
       <div style={{ fontWeight:'bold', marginBottom:3, color:'#bda8e8' }}>📜 Legacy{u.t4 ? ' · T4' : ''}</div>
+      {u.bossPassive && (
+        <div title={BOSS_PASSIVES[u.bossPassive]?.desc}>
+          👑 {BOSS_PASSIVES[u.bossPassive]?.name ?? u.bossPassive} (boss ability)
+        </div>
+      )}
       {(u.legacy_abilities ?? []).map(aid => (
         <div key={aid}>✦ {ABILITIES[aid]?.name ?? aid}</div>
       ))}
@@ -63,6 +69,8 @@ export default function SanctuaryScreen() {
   const [ascendSacId, setAscendSacId] = useState(null);
   const [rebirthConfirmId, setRebirthConfirmId] = useState(null);
   const [rebirthDc, setRebirthDc] = useState(null);
+  const [rebirthSacId, setRebirthSacId] = useState(null);
+  const [rebirthKeepAbility, setRebirthKeepAbility] = useState(null);
   const [mergeBaseId, setMergeBaseId] = useState(null);
   const [mergeDonorId, setMergeDonorId] = useState(null);
   const [mergeSel, setMergeSel] = useState({});
@@ -644,7 +652,9 @@ export default function SanctuaryScreen() {
               <div style={{ fontWeight:'bold', color:'#c4a882', marginBottom:5, fontSize:12 }}>🔄 Rebirth Table</div>
               <div style={{ fontSize:10, color:'#3a4a3a', marginBottom:8 }}>
                 Choose a new root class. Stats reset to its Lv1 baseline (plus a small bonus from this unit's history),
-                and everything earned so far is preserved in this unit's Legacy.
+                and everything earned so far is preserved in this unit's Legacy. Ability carryover is limited:
+                Tier 2 units keep their old defense trait, Tier 3 units can sacrifice a Tier 2 unit to keep one
+                ability, and only a Tier 4 (merged) unit keeps all its abilities on rebirth.
               </div>
               {promoted.length === 0 ? (
                 <div style={{ fontSize:11, color:'#3a3a2a' }}>No promoted units available for rebirth.</div>
@@ -653,6 +663,32 @@ export default function SanctuaryScreen() {
                 const legacyBonus = u.legacy_stat_bonus ?? { hp:0, dmg:0, move:0 };
                 const oldTrait = defenseTypeFor(u);
                 const previewBase = rebirthDc ? CLASS_STATS[rebirthDc] : null;
+                const isT4 = !!u.t4;
+                const isT3 = u.tier === 3 && !isT4;
+                const isT2 = u.tier === 2;
+                const oldAbilities = [...new Set([u.classAbility, ...(u.bondedAbilities ?? [])].filter(Boolean))];
+                const sacCandidates = isT3 ? roster.filter(r => r.id !== u.id && r.tier === 2 && r.classId) : [];
+                const sacUnit = rebirthSacId ? sacCandidates.find(r => r.id === rebirthSacId) : null;
+
+                // Stat bonus preview for confirm
+                let previewBonus = { hp:0, dmg:0, move:0 };
+                if (isT2) {
+                  const b = calcSacrificeBonus(u);
+                  if (b) previewBonus = { hp:b.hp ?? 0, dmg:b.dmg ?? 0, move:b.move ?? 0 };
+                }
+                if (sacUnit) {
+                  const b = calcSacrificeBonus(sacUnit);
+                  if (b) previewBonus = { hp:previewBonus.hp+(b.hp??0), dmg:previewBonus.dmg+(b.dmg??0), move:previewBonus.move+(b.move??0) };
+                }
+
+                // Which ability keeps moving to Legacy?
+                let keptDesc = 'none';
+                if (isT4) keptDesc = oldAbilities.length ? `all ${oldAbilities.length} abilities` : 'none';
+                else if (isT3 && sacUnit && rebirthKeepAbility) keptDesc = `${ABILITIES[rebirthKeepAbility]?.name ?? rebirthKeepAbility} (1 of ${oldAbilities.length})`;
+                else if (isT3) keptDesc = sacCandidates.length ? 'none — sacrifice a Tier 2 unit to pick one' : 'none — no Tier 2 units to sacrifice';
+
+                const canConfirm = !!rebirthDc && (!isT3 || !rebirthSacId || !!rebirthKeepAbility);
+
                 return (
                   <div key={u.id} style={{ borderBottom:'1px solid #0f1220', paddingBottom:8, marginBottom:8 }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: isExpanded ? 6 : 0 }}>
@@ -663,13 +699,62 @@ export default function SanctuaryScreen() {
                           <span style={{ color:'#5a4a7a', fontSize:9 }}> +{u.bondedAbilities.length} bonded</span>
                         )}
                       </div>
-                      <button onClick={() => { setRebirthConfirmId(isExpanded ? null : u.id); setRebirthDc(null); }}
-                        style={btn(true, isExpanded ? '#4a4a6a' : '#5a3a2a')}>
+                      <button onClick={() => {
+                        setRebirthConfirmId(isExpanded ? null : u.id);
+                        setRebirthDc(null); setRebirthSacId(null); setRebirthKeepAbility(null);
+                      }} style={btn(true, isExpanded ? '#4a4a6a' : '#5a3a2a')}>
                         {isExpanded ? 'Cancel' : 'Rebirth'}
                       </button>
                     </div>
                     {isExpanded && (
                       <div>
+                        {/* Tier 3: sacrifice a Tier 2 to unlock keeping one ability */}
+                        {isT3 && (
+                          <div style={{ marginBottom:8 }}>
+                            <div style={{ fontSize:10, color:'#5a5a3a', marginBottom:5 }}>
+                              Sacrifice a Tier 2 unit to keep one ability (optional):
+                            </div>
+                            <div style={{ display:'flex', gap:5, flexWrap:'wrap', marginBottom:6 }}>
+                              {sacCandidates.length === 0 && (
+                                <div style={{ fontSize:10, color:'#3a3a2a' }}>No Tier 2 units available.</div>
+                              )}
+                              {sacCandidates.map(c => {
+                                const selected = rebirthSacId === c.id;
+                                return (
+                                  <button key={c.id} onClick={() => {
+                                    setRebirthSacId(selected ? null : c.id);
+                                    setRebirthKeepAbility(null);
+                                  }} style={{
+                                    ...btn(true, selected ? '#9a3a3a' : '#3a3a4a'),
+                                    fontSize:10, padding:'4px 8px',
+                                  }}>
+                                    {c.emoji} {c.name}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {sacUnit && (
+                              <>
+                                <div style={{ fontSize:10, color:'#5a5a3a', marginBottom:5 }}>
+                                  Choose the ability to keep:
+                                </div>
+                                <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
+                                  {oldAbilities.map(aid => {
+                                    const selected = rebirthKeepAbility === aid;
+                                    return (
+                                      <button key={aid} onClick={() => setRebirthKeepAbility(selected ? null : aid)} style={{
+                                        ...btn(true, selected ? '#9a6a2a' : '#3a3a4a'),
+                                        fontSize:10, padding:'4px 8px',
+                                      }}>
+                                        {ABILITIES[aid]?.name ?? aid}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
                         {/* Root class picker */}
                         <div style={{ fontSize:10, color:'#5a5a3a', marginBottom:5 }}>
                           Choose new root class:
@@ -690,21 +775,20 @@ export default function SanctuaryScreen() {
                         {/* Preview */}
                         {previewBase && (
                           <div style={{ fontSize:10, color:'#4a5a4a', marginBottom:6 }}>
-                            → Lv1 ❤️{previewBase.hp + Math.floor((u.level ?? 1)/2) + (legacyBonus.hp ?? 0)}
-                            {' '}⚔️{previewBase.dmg + 1 + (legacyBonus.dmg ?? 0)}
-                            {' '}👟{previewBase.moveRange + (legacyBonus.move ?? 0)}
+                            → Lv1 ❤️{previewBase.hp + Math.floor((u.level ?? 1)/2) + (legacyBonus.hp ?? 0) + previewBonus.hp}
+                            {' '}⚔️{previewBase.dmg + 1 + (legacyBonus.dmg ?? 0) + previewBonus.dmg}
+                            {' '}👟{previewBase.moveRange + (legacyBonus.move ?? 0) + previewBonus.move}
                           </div>
                         )}
                         <div style={{ fontSize:10, color:'#7a6a3a', marginBottom:8 }}>
-                          📜 Moves to Legacy: {u.cls ?? u.classId}'s ability
-                          {(u.bondedAbilities ?? []).length > 0 ? ` + ${u.bondedAbilities.length} bonded` : ''}
+                          📜 Moves to Legacy: {keptDesc}
                           {(CLASSES[u.classId]?.immunities ?? []).length > 0 ? `, ${u.cls} immunities` : ''}
                           {previewBase && oldTrait !== defenseTypeFor({ ...u, dc: rebirthDc }) ? `, ${oldTrait} trait` : ''}
                         </div>
-                        <button disabled={!rebirthDc} onClick={() => {
-                          rebirthUnit(u.id, rebirthDc);
-                          setRebirthConfirmId(null); setRebirthDc(null);
-                        }} style={{ ...btn(!!rebirthDc,'#8a3a3a'), padding:'5px 14px', fontSize:11 }}>
+                        <button disabled={!canConfirm} onClick={() => {
+                          rebirthUnit(u.id, rebirthDc, rebirthSacId, rebirthKeepAbility);
+                          setRebirthConfirmId(null); setRebirthDc(null); setRebirthSacId(null); setRebirthKeepAbility(null);
+                        }} style={{ ...btn(canConfirm,'#8a3a3a'), padding:'5px 14px', fontSize:11 }}>
                           Confirm Rebirth
                         </button>
                       </div>

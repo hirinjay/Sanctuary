@@ -18,7 +18,7 @@ import { deleteSave } from '../lib/persistence';
 import { ABILITIES } from '../data/abilities';
 import { isPlayableWorld } from '../world/worldState';
 import { SCREEN, resolveScreen } from '../state/screens';
-import { spawnBoss, spawnCabinCompanions } from '../data/bosses';
+import { spawnBoss, spawnCabinCompanions, BOSS_PASSIVES, RAISED_BOSS_BONUS } from '../data/bosses';
 
 // Bosses only inhabit the bottom floor of these dungeon-like locations — never wild encounters.
 const BOSS_LOC_TYPES = ['dungeon', 'camp', 'wizard_tower', 'cabin'];
@@ -734,9 +734,19 @@ export const useGameStore = create(
 
       // Rebirth: pick a new Tier-1 root class. Stats reset to that class's
       // Lv1 baseline (plus small level-derived bonuses); everything earned
-      // under the old class (abilities, defense trait, immunities, prior
-      // merge bonuses) is preserved additively in the unit's Legacy layer.
-      rebirthUnit(unitId, newDc) {
+      // under the old class (defense trait, immunities, prior merge bonuses)
+      // is preserved additively in the unit's Legacy layer.
+      //
+      // Ability carryover is intentionally limited so rebirth can't be used to
+      // rapid-fire multiclass and stack abilities:
+      //  - T2 units: no ability carryover, but get a stat boost (from their own
+      //    history) and their old defense trait ("T1 ability" — dodge/counter/
+      //    defend) follows them into the new class as a legacy trait.
+      //  - T3 units: keep abilities ONLY if a Tier-2 unit is sacrificed in the
+      //    process, and even then only ONE chosen ability moves to Legacy.
+      //  - T4 units (merged): rebirth keeps ALL existing abilities, no
+      //    sacrifice required — the only way to truly stack abilities.
+      rebirthUnit(unitId, newDc, sacrificeId, keepAbilityId) {
         const base = CLASS_STATS[newDc];
         if (!base) return;
         set(s => {
@@ -744,9 +754,47 @@ export const useGameStore = create(
           if (!u || !u.classId) return s;
 
           const dedupe = arr => [...new Set(arr)];
-          const legacyStatBonus = u.legacy_stat_bonus ?? { hp:0, dmg:0, move:0 };
+          let legacyStatBonus = { ...(u.legacy_stat_bonus ?? { hp:0, dmg:0, move:0 }) };
 
-          // Capture the unit's current defense temperament before it changes.
+          const isT4 = !!u.t4;
+          const sac = (!isT4 && u.tier === 3 && sacrificeId)
+            ? s.roster.find(r => r.id === sacrificeId && r.id !== u.id && r.tier === 2 && r.classId)
+            : null;
+
+          const oldAbilities = dedupe([u.classAbility, ...(u.bondedAbilities ?? [])].filter(Boolean));
+          let keptAbilities = [];
+          if (isT4) {
+            keptAbilities = oldAbilities; // T4 rebirth keeps everything, period.
+          } else if (u.tier === 3 && sac && keepAbilityId && oldAbilities.includes(keepAbilityId)) {
+            keptAbilities = [keepAbilityId]; // T3 rebirth (with T2 sacrifice) keeps just one.
+          }
+
+          // T2 rebirth: stat boost drawn from the unit's own tier/level history.
+          if (u.tier === 2) {
+            const selfBonus = calcSacrificeBonus(u);
+            if (selfBonus) {
+              legacyStatBonus = {
+                hp:   (legacyStatBonus.hp   ?? 0) + (selfBonus.hp   ?? 0),
+                dmg:  (legacyStatBonus.dmg  ?? 0) + (selfBonus.dmg  ?? 0),
+                move: (legacyStatBonus.move ?? 0) + (selfBonus.move ?? 0),
+              };
+            }
+          }
+          // T3 rebirth with a sacrificed T2: that unit's stats fuel a bonus too.
+          if (sac) {
+            const sacBonus = calcSacrificeBonus(sac);
+            if (sacBonus) {
+              legacyStatBonus = {
+                hp:   (legacyStatBonus.hp   ?? 0) + (sacBonus.hp   ?? 0),
+                dmg:  (legacyStatBonus.dmg  ?? 0) + (sacBonus.dmg  ?? 0),
+                move: (legacyStatBonus.move ?? 0) + (sacBonus.move ?? 0),
+              };
+            }
+          }
+
+          // Capture the unit's current defense temperament before it changes —
+          // this is the unit's "T1 ability" (dodge/counter/defend) and always
+          // carries forward as a legacy trait if the new class differs.
           const oldTrait = defenseTypeFor(u);
           const newTrait = defenseTypeFor({ ...u, dc: newDc });
           const legacyTraits = oldTrait !== newTrait
@@ -758,11 +806,9 @@ export const useGameStore = create(
             ...(CLASSES[u.classId]?.immunities ?? []),
           ]);
 
-          const oldAbilities = dedupe([u.classAbility, ...(u.bondedAbilities ?? [])].filter(Boolean));
-          const legacyAbilities = dedupe([...(u.legacy_abilities ?? []), ...oldAbilities]);
+          const legacyAbilities = dedupe([...(u.legacy_abilities ?? []), ...keptAbilities]);
 
-          // All previously-known abilities carry forward mechanically as bonded abilities.
-          const newBonded = oldAbilities;
+          const newBonded = keptAbilities;
           const abilityUses = {};
           const bondedArmed = {};
           newBonded.forEach(aid => {
@@ -781,6 +827,7 @@ export const useGameStore = create(
             dc: newDc,
             baseClass: DC_TO_BASE[newDc],
             name: u.pname,
+            t4: false,
             hp:          base.hp + Math.floor((u.level ?? 1)/2) + (legacyStatBonus.hp ?? 0),
             maxHp:       base.hp + Math.floor((u.level ?? 1)/2) + (legacyStatBonus.hp ?? 0),
             dmg:         base.dmg + 1 + (legacyStatBonus.dmg ?? 0),
@@ -809,9 +856,10 @@ export const useGameStore = create(
             surviveUsed: false,
             lifetime_levels: (u.lifetime_levels ?? 0) + (u.level ?? 1),
           };
+          const sacLog = sac ? ` (${sac.pname} sacrificed — keeps ${ABILITIES[keptAbilities[0]]?.name ?? 'an ability'})` : '';
           return {
-            roster: s.roster.map(r => r.id === unitId ? reborn : r),
-            log: [`🔄 ${u.pname} is reborn as a ${newDc}!`, ...s.log].slice(0, 14),
+            roster: (sac ? s.roster.filter(r => r.id !== sac.id) : s.roster).map(r => r.id === unitId ? reborn : r),
+            log: [`🔄 ${u.pname} is reborn as a ${newDc}!${sacLog}`, ...s.log].slice(0, 14),
           };
         });
         debouncedSave(get);
@@ -1294,19 +1342,24 @@ export const useGameStore = create(
         const pname  = avail.length ? avail[Math.floor(Math.random()*avail.length)] : `Shade${Math.floor(Math.random()*99)}`;
         const ub     = book?.ub || null;
         const hpBase = Math.ceil(fallen.maxHp * (fresh ? 1.0 : 0.6));
+        const isBossRaise = !!fallen.isBoss;
+        const bonus  = isBossRaise ? (RAISED_BOSS_BONUS[fallen.bossPassive] ?? {}) : {};
         const stats  = {
-          hp:          hpBase + (ub?.hp||0),
-          maxHp:       hpBase + (ub?.hp||0),
-          dmg:         (fresh ? fallen.dmg : Math.max(1, fallen.dmg-1)) + (ub?.dmg||0),
-          def:         0,
-          moveRange:   fallen.moveRange || 3,
+          hp:          hpBase + (ub?.hp||0) + (bonus.hp||0),
+          maxHp:       hpBase + (ub?.hp||0) + (bonus.hp||0),
+          dmg:         (fresh ? fallen.dmg : Math.max(1, fallen.dmg-1)) + (ub?.dmg||0) + (bonus.dmg||0),
+          def:         bonus.def||0,
+          moveRange:   (fallen.moveRange || 3) + (bonus.move||0),
           trapReveal:  1,
           attackRange: fallen.attackRange || 1,
         };
         const cls    = fresh ? `Risen ${fallen.name}` : `Broken ${fallen.name}`;
         const raised = {
           id:`u${Date.now()}`, type:UT.UNDEAD,
-          name:`${pname} the ${cls}`, pname, cls,
+          // A raised boss keeps its own name; regular fallen get a new undead name/class tag.
+          name:  isBossRaise ? fallen.name : `${pname} the ${cls}`,
+          pname: isBossRaise ? (fallen.pname ?? pname) : pname,
+          cls:   isBossRaise ? (fallen.bossType ?? cls) : cls,
           emoji: fresh ? '💀' : '🪦',
           dc: fallen.dc,
           baseClass: DC_TO_BASE[fallen.dc] ?? null,
@@ -1314,10 +1367,19 @@ export const useGameStore = create(
           actionPoints:0, movementPoints:0, fallen:false, raiseTurn:null, atBase:false,
           xp:0, level:1, weapon:null, armor:null, dmgUpgrades:0,
           isTinker: !!(ub?.tinker),
+          ...(isBossRaise ? {
+            bossPassive: fallen.bossPassive,
+            regenPerTurn: bonus.regenPerTurn ?? 0,
+            surviveOnce: !!bonus.surviveOnce,
+            surviveUsed: false,
+          } : {}),
         };
+        const bossAbilityLog = isBossRaise
+          ? ` — retains ${BOSS_PASSIVES[fallen.bossPassive]?.name ?? 'its former power'}!`
+          : '';
         set(s => ({
           ms: { ...s.ms, units:[...s.ms.units.filter(u => u.id!==fallen.id), raised] },
-          log: [`${varek.name} raises ${raised.name}!${!fresh?' (degraded)':''}`, ...s.log].slice(0, 14),
+          log: [`${varek.name} raises ${raised.name}!${!fresh?' (degraded)':''}${bossAbilityLog}`, ...s.log].slice(0, 14),
         }));
       },
 
@@ -1472,9 +1534,11 @@ export const useGameStore = create(
           const isMelee = dist(attUnit, defUnit) <= 1;
 
           // Ghost Arrow / True Aim: ignore DEF (class or bonded)
+          // Brutal: a raised boss's retained passive also ignores DEF.
           const ignoreDef = attUnit.classAbility === 'ghost_arrow' || attUnit.classAbility === 'true_aim'
             || (attUnit.bondedAbilities ?? []).includes('ghost_arrow')
-            || (attUnit.bondedAbilities ?? []).includes('true_aim');
+            || (attUnit.bondedAbilities ?? []).includes('true_aim')
+            || attUnit.bossPassive === 'brutal';
           const defVal    = ignoreDef ? 0 : (defUnit.def||0);
 
           // Bonus DMG from bloodlust/carnage accumulation
@@ -1487,8 +1551,8 @@ export const useGameStore = create(
           // Ambush / Superior Ambush primed bonus (set by doAbility)
           const ambushBonus = attUnit.ambushBonus ?? 0;
 
-          // Boss passive: armored reduces all incoming damage by 2
-          const armoredReduction = defUnit.isBoss && defUnit.bossPassive === 'armored' ? 2 : 0;
+          // Boss passive: armored reduces all incoming damage by 2 (also applies to a raised boss's retained passive)
+          const armoredReduction = defUnit.bossPassive === 'armored' ? 2 : 0;
           // e_battle_hardened: enemy takes -1 dmg (passive)
           const battleHardenedReduction = (defUnit.abilities ?? []).includes('e_battle_hardened') ? 1 : 0;
           // e_pack_tactics attacker bonus (player units don't have it, so always 0 here)
@@ -2294,6 +2358,30 @@ export const useGameStore = create(
             });
           }
 
+          // ── Raised boss passive: pack_leader — nearby allies +1 dmg while this unit lives ─
+          const packUndead = units.find(u => u.type===UT.UNDEAD && !u.fallen && u.bossPassive === 'pack_leader');
+          if (packUndead) {
+            units = units.map(u => {
+              if (u.type === UT.ENEMY || u.fallen || u.id === packUndead.id) return u;
+              return dist(packUndead, u) <= 3 ? { ...u, dmg: u.dmg + 1 } : u;
+            });
+          }
+
+          // ── Raised boss passive: terrifying — adjacent enemies lose 1 AP ──
+          const terrifyUndead = units.find(u => u.type===UT.UNDEAD && !u.fallen && u.bossPassive === 'terrifying');
+          if (terrifyUndead) {
+            units = units.map(u => {
+              if (u.type !== UT.ENEMY || u.fallen) return u;
+              return dist(terrifyUndead, u) <= 1 ? { ...u, actionPoints: Math.max(0, u.actionPoints - 1) } : u;
+            });
+          }
+
+          // ── Raised boss passive: unstoppable — strip bind/root/slow at turn start ──
+          units = units.map(u => {
+            if (u.type !== UT.UNDEAD || u.fallen || u.bossPassive !== 'unstoppable' || !u.statusEffects?.length) return u;
+            return { ...u, statusEffects: u.statusEffects.filter(fx => !['bind','root','slow'].includes(fx.id)) };
+          });
+
           // ── Enemy start-of-turn passives ──────────────────────────────────
           // e_battle_cry: one Veteran per encounter grants all raiders within 3 tiles +1 move
           const battleCrySource = units.find(u => u.type===UT.ENEMY && !u.fallen && (u.abilities??[]).includes('e_battle_cry') && !u.battleCryUsed);
@@ -2742,15 +2830,30 @@ export const useGameStore = create(
               else if (guardians.length) dmg = Math.max(0, dmg-1);
             }
 
-            // armored passive: attacker is the target's passive doesn't apply here (it's the enemy attacking player)
-            // but when a boss IS the target (player attacks boss in doAttack) it's handled there
-            // For enemy attacking player: check if attacker is boss with brutal
+            // armored: a raised boss's retained passive reduces incoming dmg by 2
+            if (dmg > 0 && tgt.bossPassive === 'armored') dmg = Math.max(0, dmg - 2);
+
             logs.push(`⚔️ ${attacker.name} hits ${tgt.name} for ${dmg}!`);
             units = units.map(v => {
               if (v.id !== tgt.id) return v;
               const nh = v.hp - dmg;
               if (nh <= 0) {
                 if (v.id==='varek') { setTimeout(() => get().setScreen(SCREEN.GAME_OVER), 300); return { ...v, hp:0 }; }
+                // undying passive: survive once at 1hp (a raised boss's retained passive too)
+                if (v.bossPassive === 'undying' && !v.bossCondTriggered) {
+                  logs.push(`☠ ${v.name}'s Undying — survives at 1 HP!`);
+                  return { ...v, hp:1, bossCondTriggered:true };
+                }
+                // phase_shift conditional: teleport to random tile at 1hp instead of dying (once)
+                if (v.isBoss && v.bossConditional === 'phase_shift' && !v.bossCondTriggered) {
+                  let px=v.x,py=v.y;
+                  for (let a=0;a<40;a++) {
+                    const tx=1+Math.floor(Math.random()*(ms.width-2)),ty=1+Math.floor(Math.random()*(ms.tiles.length-2));
+                    if (ms.tiles[ty]?.[tx]?.type!=='wall'&&!units.some(u2=>u2.x===tx&&u2.y===ty&&!u2.fallen)){px=tx;py=ty;break;}
+                  }
+                  logs.push(`👻 ${v.name} Phase Shifts away!`);
+                  return { ...v, hp:1, x:px, y:py, bossCondTriggered:true };
+                }
                 logs.push(`${v.name} falls!`);
                 // death_burst conditional: boss deals 2 dmg to all adjacent on death
                 if (v.isBoss && v.bossConditional === 'death_burst') {
@@ -2776,21 +2879,6 @@ export const useGameStore = create(
                   if (adj.length) logs.push(`💀 ${v.name} Bone Explosion — ${beDmg} dmg to ${adj.length} adjacent!`);
                 }
                 return { ...v, hp:0, fallen:true, raiseTurn:ms.turn };
-              }
-              // undying passive: survive once at 1hp
-              if (v.isBoss && v.bossPassive === 'undying' && !v.bossCondTriggered && nh <= 0) {
-                logs.push(`☠ ${v.name}'s Undying — survives at 1 HP!`);
-                return { ...v, hp:1, bossCondTriggered:true };
-              }
-              // phase_shift conditional: teleport to random tile at 1hp instead of dying (once)
-              if (v.isBoss && v.bossConditional === 'phase_shift' && !v.bossCondTriggered && nh <= 0) {
-                let px=v.x,py=v.y;
-                for (let a=0;a<40;a++) {
-                  const tx=1+Math.floor(Math.random()*(ms.width-2)),ty=1+Math.floor(Math.random()*(ms.tiles.length-2));
-                  if (ms.tiles[ty]?.[tx]?.type!=='wall'&&!units.some(u2=>u2.x===tx&&u2.y===ty&&!u2.fallen)){px=tx;py=ty;break;}
-                }
-                logs.push(`👻 ${v.name} Phase Shifts away!`);
-                return { ...v, hp:1, x:px, y:py, bossCondTriggered:true };
               }
               return { ...v, hp:nh };
             });

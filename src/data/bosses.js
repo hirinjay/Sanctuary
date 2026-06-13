@@ -36,6 +36,24 @@ export const BOSS_CONDITIONALS = {
   phase_shift: { id:'phase_shift', name:'Phase Shift',  desc:'Once per mission: when a lethal hit would land, teleport to a random tile at 1 HP.' },
 };
 
+// ── Raised-boss legacy bonus ─────────────────────────────────────────
+// When a boss is raised, it keeps its bossPassive as a unique ability.
+// Each passive grants a small permanent bonus on the risen unit — most map
+// directly onto existing mechanics (regen tick, def reduction, ignore-def,
+// survive-once), a few are simplified to a flat stat bump.
+export const RAISED_BOSS_BONUS = {
+  regeneration: { regenPerTurn: 2 },
+  armored:      { def: 2 },
+  swift:        { move: 1 },
+  brutal:       {},
+  undying:      { surviveOnce: true },
+  terrifying:   {},
+  pack_leader:  { dmg: 1 },
+  unstoppable:  { move: 1 },
+  spellshield:  { def: 1 },
+  commanding:   { dmg: 1 },
+};
+
 // ── Boss unit templates ───────────────────────────────────────────────
 
 const BOSS_TYPES = {
