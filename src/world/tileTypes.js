@@ -17,6 +17,7 @@ export const LOC_TYPE = {
   cabin:       { id:'cabin',       label:'Abandoned Cabin',emoji:'🛖', danger:1, lq:'common',   tint:0x8a6a3a, noEnemies:false },
   battlefield:  { id:'battlefield',  label:'Battlefield',    emoji:'🗡', danger:1, lq:'uncommon', tint:0x6a5a3a, noEnemies:true  },
   wizard_tower: { id:'wizard_tower', label:'Wizard Tower',   emoji:'🗼', danger:3, lq:'rare',     tint:0x4a2a8a, noEnemies:false },
+  crypt:        { id:'crypt',        label:'Ancient Crypt',  emoji:'⚰',  danger:2, lq:'uncommon', tint:0x3a3a4a, noEnemies:false },
 }
 
 // Per-terrain forage loot pools and hidden-find chance

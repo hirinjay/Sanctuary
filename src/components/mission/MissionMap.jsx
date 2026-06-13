@@ -10,6 +10,8 @@ const THEME_WALL_BG = {
   dungeon:     '#070710',
   cabin:       '#0a0604',
   battlefield: '#080604',
+  wizard_tower:'#0a0418',
+  crypt:       '#06080c',
   default:     '#070710',
 };
 const THEME_FLOOR_BG = {
@@ -20,6 +22,8 @@ const THEME_FLOOR_BG = {
   dungeon:     '#141a2e',
   cabin:       '#1c1610',
   battlefield: '#1c1a0e',
+  wizard_tower:'#201640',
+  crypt:       '#161a22',
   default:     '#141a2e',
 };
 
@@ -75,6 +79,16 @@ function wallIcon(theme, x, y) {
   }
   if (theme === 'battlefield') {
     if (r < 4) return '🪨';
+    return '';
+  }
+  if (theme === 'wizard_tower') {
+    if (r < 5) return '📚';
+    if (r < 8) return '🔮';
+    return '';
+  }
+  if (theme === 'crypt') {
+    if (r < 4) return '⚰';
+    if (r < 6) return '🦴';
     return '';
   }
   return ''; // dungeon/default: no icon, just dark stone

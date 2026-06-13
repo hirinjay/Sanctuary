@@ -1042,3 +1042,124 @@ export function genHuntingLodgeMap(_danger, mapW, mapH) {
   t[1][W - 2] = { type: TILE.EXIT };
   return t;
 }
+
+// Wizard Tower: floors radiate outward from a circular stairwell hub via spoke
+// corridors to peripheral study/workshop chambers. Climbing floors narrow the
+// hub and scatter bookshelf rubble for a maze-like "stacks" feel, while the
+// top floors open into a wide ring-walled sanctum around the hub.
+export function genWizardTowerMap(danger, mapW, mapH, floor = 1) {
+  const W = mapW ?? 18, H = mapH ?? 16;
+  const t = Array.from({ length: H }, () =>
+    Array.from({ length: W }, () => ({ type: TILE.WALL }))
+  );
+  const cx = Math.floor(W / 2), cy = Math.floor(H / 2);
+  const isSanctum = floor >= 4;
+  const minDim = Math.min(W, H);
+
+  // Central hub — the stairwell landing. Sanctum floors keep it large and open;
+  // lower "stacks" floors shrink it as shelving crowds in.
+  const hubR = isSanctum
+    ? Math.max(3, Math.floor(minDim * 0.32))
+    : Math.max(2, Math.floor(minDim * 0.24) - Math.floor((floor - 1) / 2));
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (Math.hypot(x - cx, y - cy) <= hubR) t[y][x] = { type: TILE.FLOOR };
+  }
+
+  // Peripheral chambers connected to the hub by spoke corridors
+  const spokeCount = 4 + Math.floor(Math.random() * 2); // 4-5
+  const rooms = [];
+  for (let i = 0; i < spokeCount; i++) {
+    const ang = (i / spokeCount) * Math.PI * 2 + Math.random() * 0.4;
+    const rw = 3 + Math.floor(Math.random() * 2);
+    const rh = 2 + Math.floor(Math.random() * 2);
+    const radius = Math.max(hubR + Math.max(rw, rh), minDim / 2 - Math.max(rw, rh));
+    const rx = Math.max(1, Math.min(W - rw - 1, Math.round(cx + Math.cos(ang) * radius) - Math.floor(rw / 2)));
+    const ry = Math.max(1, Math.min(H - rh - 1, Math.round(cy + Math.sin(ang) * radius) - Math.floor(rh / 2)));
+    for (let y = ry; y < ry + rh; y++) for (let x = rx; x < rx + rw; x++) {
+      if (x > 0 && x < W - 1 && y > 0 && y < H - 1) t[y][x] = { type: TILE.FLOOR };
+    }
+    const room = { cx: rx + Math.floor(rw / 2), cy: ry + Math.floor(rh / 2) };
+    rooms.push(room);
+    // Spoke corridor from hub center out to the room
+    let x = cx, y = cy;
+    while (x !== room.cx) { if (x > 0 && x < W - 1 && y > 0 && y < H - 1) t[y][x] = { type: TILE.FLOOR }; x += x < room.cx ? 1 : -1; }
+    while (y !== room.cy) { if (x > 0 && x < W - 1 && y > 0 && y < H - 1) t[y][x] = { type: TILE.FLOOR }; y += y < room.cy ? 1 : -1; }
+  }
+
+  // Sanctum floors: a wide ring corridor wraps the hub for open boss-arena maneuvering
+  if (isSanctum) {
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const d = Math.hypot(x - cx, y - cy);
+      if (d > hubR && d <= hubR + 2 && x > 0 && x < W - 1 && y > 0 && y < H - 1) t[y][x] = { type: TILE.FLOOR };
+    }
+  }
+
+  // Stacks floors: bookshelf rubble crowds the hub, narrowing the open paths
+  if (!isSanctum && floor >= 2) {
+    for (let i = 0; i < 6 + danger * 2; i++) {
+      for (let a = 0; a < 40; a++) {
+        const x = 1 + Math.floor(Math.random() * (W - 2));
+        const y = 1 + Math.floor(Math.random() * (H - 2));
+        if (t[y][x].type === TILE.FLOOR && Math.hypot(x - cx, y - cy) > 1) { t[y][x] = { type: TILE.RUBBLE }; break; }
+      }
+    }
+  }
+
+  // Connect spawn (1, H-2) and exit (W-2, 1) to the nearest hub/room
+  const targets = [{ cx, cy }, ...rooms];
+  const nearest = (fx, fy) => targets.reduce((best, r) =>
+    Math.abs(r.cx - fx) + Math.abs(r.cy - fy) < Math.abs(best.cx - fx) + Math.abs(best.cy - fy) ? r : best
+  );
+  const connect = (fx, fy) => {
+    const r = nearest(fx, fy);
+    let x = fx, y = fy;
+    while (x !== r.cx) { if (x >= 0 && x < W && y >= 0 && y < H) t[y][x] = { type: TILE.FLOOR }; x += x < r.cx ? 1 : -1; }
+    while (y !== r.cy) { if (x >= 0 && x < W && y >= 0 && y < H) t[y][x] = { type: TILE.FLOOR }; y += y < r.cy ? 1 : -1; }
+  };
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const sx = 1 + dx, sy = H - 2 + dy;
+    if (sx > 0 && sx < W - 1 && sy > 0 && sy < H - 1) t[sy][sx] = { type: TILE.FLOOR };
+    const ex = W - 2 + dx, ey = 1 + dy;
+    if (ex > 0 && ex < W - 1 && ey > 0 && ey < H - 1) t[ey][ex] = { type: TILE.FLOOR };
+  }
+  connect(1, H - 2);
+  connect(W - 2, 1);
+
+  // Arcane tomes and components — loot scales with floor height
+  for (let i = 0; i < 6 + danger * 2 + floor; i++) {
+    for (let a = 0; a < 50; a++) {
+      const x = 1 + Math.floor(Math.random() * (W - 2));
+      const y = 1 + Math.floor(Math.random() * (H - 2));
+      if (t[y][x].type === TILE.FLOOR) { t[y][x] = { type: TILE.LOOT }; break; }
+    }
+  }
+  // Arcane wards — traps guarding the stacks
+  for (let i = 0; i < 2 + danger + Math.floor(floor / 2); i++) {
+    for (let a = 0; a < 40; a++) {
+      const x = 1 + Math.floor(Math.random() * (W - 2));
+      const y = 1 + Math.floor(Math.random() * (H - 2));
+      if (t[y][x].type === TILE.FLOOR) { t[y][x] = { type: TILE.TRAP }; break; }
+    }
+  }
+  // Rune circles around the stairwell hub
+  for (let i = 0; i < 1 + Math.floor(Math.random() * 2); i++) {
+    for (let a = 0; a < 40; a++) {
+      const x = 1 + Math.floor(Math.random() * (W - 2));
+      const y = 1 + Math.floor(Math.random() * (H - 2));
+      if (t[y][x].type === TILE.FLOOR && Math.hypot(x - cx, y - cy) <= hubR) { t[y][x] = { type: TILE.HOLY }; break; }
+    }
+  }
+
+  // Mid floors (2-3) gate a side chamber behind a locked archive door
+  if (!isSanctum && floor >= 2 && rooms.length > 0) {
+    const archive = rooms[rooms.length - 1];
+    let x = cx, y = cy;
+    while (x !== archive.cx && t[y][x + (x < archive.cx ? 1 : -1)]?.type === TILE.FLOOR) x += x < archive.cx ? 1 : -1;
+    while (y !== archive.cy && t[y + (y < archive.cy ? 1 : -1)]?.[x]?.type === TILE.FLOOR) y += y < archive.cy ? 1 : -1;
+    if (t[y]?.[x]?.type === TILE.FLOOR) t[y][x] = { type: TILE.DOOR, open: false, locked: true, keyId: 'key_1' };
+  }
+
+  // Exit: the spiral stairwell up, at the hub's center — not a corner door
+  t[cy][cx] = { type: TILE.EXIT };
+  return t;
+}

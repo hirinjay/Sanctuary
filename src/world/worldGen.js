@@ -92,6 +92,7 @@ function placeLocations(tiles, rng, W, H) {
   place('dungeon',      10, null,     4)
   place('camp',          5, null,     4)
   place('wizard_tower',  3, null,     5)
+  place('crypt',         4, 'ruins',  4)
   place('village',       4, 'plains', 4)
   place('merchant',      3, 'plains', 3)
 }

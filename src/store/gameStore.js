@@ -3,7 +3,7 @@ import { persist, subscribeWithSelector } from 'zustand/middleware';
 import { DEFAULT_VP, UT, TILE, UNAMES } from '../data/constants';
 import { item, LOOT, FLOOR_LOOT, BODY_LOOT } from '../data/items';
 import { killXpByTier, xpTierMultiplier } from '../data/enemyDefs';
-import { genMap, genDungeonMap, genCabinMap, genCryptMap, genVaultMap, genBarracksMap, genHuntingLodgeMap, genForest, genRuinedTown, genRaiderCamp, genSwamp, genBattlefield, genAbandonedVillage, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath, cullUnreachable, findSpawnSlots, placeUnitsOnValidTiles } from '../systems/map';
+import { genMap, genDungeonMap, genCabinMap, genCryptMap, genVaultMap, genBarracksMap, genHuntingLodgeMap, genForest, genRuinedTown, genRaiderCamp, genSwamp, genBattlefield, genAbandonedVillage, genWizardTowerMap, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath, cullUnreachable, findSpawnSlots, placeUnitsOnValidTiles } from '../systems/map';
 import { spawnEnemies, applyXpToUnits, calcSacrificeBonus, VERDANT_VAREK_LU, resolveDefense, defenseTypeFor } from '../systems/combat';
 import { ARCHETYPES, CLASS_STATS } from '../data/archetypes';
 import { generateWorld, revealAround } from '../world/worldGen';
@@ -21,7 +21,7 @@ import { SCREEN, resolveScreen } from '../state/screens';
 import { spawnBoss, spawnCabinCompanions, BOSS_PASSIVES, RAISED_BOSS_BONUS } from '../data/bosses';
 
 // Bosses only inhabit the bottom floor of these dungeon-like locations — never wild encounters.
-const BOSS_LOC_TYPES = ['dungeon', 'camp', 'wizard_tower', 'cabin'];
+const BOSS_LOC_TYPES = ['dungeon', 'camp', 'wizard_tower', 'cabin', 'crypt'];
 
 // Throttled save — fires immediately on first call, then coalesces rapid calls (400ms window)
 let _saveTimer = null
@@ -183,14 +183,15 @@ export const useGameStore = create(
         const danger  = location.danger ?? 1;
         const locId   = location.id ?? '';
         const locType = location.type ?? '';
-        const FLOOR_MAX_MAP = { dungeon:5, camp:3, wizard_tower:4, cabin:2 };
+        const FLOOR_MAX_MAP = { dungeon:5, camp:3, wizard_tower:5, cabin:2, crypt:3 };
         const maxFloor = FLOOR_MAX_MAP[locType] ?? 1;
         const effectiveDanger = Math.min(3, danger + Math.floor((floor - 1) / 2));
         // Pick generator + map size by location type / id prefix
         const pick = arr => arr[Math.floor(Math.random() * arr.length)];
         let mapFn, mapW, mapH;
         if      (locType==='dungeon'||locId.startsWith('dungeon_'))  { mapFn=pick([genDungeonMap, genDungeonMap, genCryptMap, genVaultMap]); mapW=18+Math.floor(Math.random()*9);  mapH=12+Math.floor(Math.random()*7); }
-        else if (locType==='wizard_tower')                            { mapFn=pick([genDungeonMap, genDungeonMap, genCryptMap, genVaultMap]); mapW=16+Math.floor(Math.random()*6);  mapH=14+Math.floor(Math.random()*5); }
+        else if (locType==='wizard_tower')                            { mapFn=(d, w, h) => genWizardTowerMap(d, w, h, floor); mapW=16+Math.floor(Math.random()*6)+(floor>=4?2:0); mapH=14+Math.floor(Math.random()*5)+(floor>=4?2:0); }
+        else if (locType==='crypt')                                   { mapFn=pick([genCryptMap, genCryptMap, genVaultMap]); mapW=16+Math.floor(Math.random()*5)+floor; mapH=12+Math.floor(Math.random()*4)+floor; }
         else if (locType==='cabin')                                   { mapFn=floor>=2 ? genHuntingLodgeMap : genCabinMap; mapW=16; mapH=12; }
         else if (locId.startsWith('wild_forest'))                     { mapFn=genForest;           mapW=22; mapH=18; }
         else if (locId.startsWith('wild_ruins')||locId.startsWith('ruined_')) { mapFn=genRuinedTown; mapW=20; mapH=16; }

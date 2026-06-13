@@ -10,6 +10,8 @@ const PLACEMENT_WEIGHTS = {
   wild_swamp:  ['roam','roam','roam','ambush','ambush'],
   camp:        ['guard','guard','patrol','sleep','sleep'],
   village:     ['patrol','roam','sleep','guard'],
+  wizard_tower:['guard','guard','sleep','patrol','ambush'],
+  crypt:       ['guard','sleep','sleep','patrol','ambush'],
   default:     ['patrol','patrol','roam'],
 };
 

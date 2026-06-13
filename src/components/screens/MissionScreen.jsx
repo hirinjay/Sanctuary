@@ -104,6 +104,8 @@ export default function MissionScreen() {
   const locId = loc?.id ?? '';
   const theme = loc?.type === 'cabin'       ? 'cabin'
     : loc?.type === 'dungeon' || locId.startsWith('dungeon') ? 'dungeon'
+    : loc?.type === 'wizard_tower'          ? 'wizard_tower'
+    : loc?.type === 'crypt'                 ? 'crypt'
     : loc?.type === 'battlefield'           ? 'battlefield'
     : locId.startsWith('wild_forest')       ? 'forest'
     : locId.startsWith('wild_swamp')        ? 'swamp'

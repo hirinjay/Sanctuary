@@ -76,6 +76,11 @@ const BOSS_TYPES = {
     { key:'angry_hunter',       name:'Angry Hunter',       emoji:'🏹',  hp:14, dmg:5, def:0, move:3, attackRange:3, dc:'Grave Stalker', boss_loot:'hunters_bow' },
     { key:'vengeful_trapper',   name:'Vengeful Trapper',   emoji:'🪤',  hp:12, dmg:4, def:1, move:2, attackRange:2, dc:'Grave Stalker', boss_loot:'trappers_kit' },
   ],
+  crypt: [
+    { key:'tomb_warden',        name:'Tomb Warden',        emoji:'⚰',  hp:20, dmg:4, def:2, move:2, attackRange:1, boss_loot:'warden_seal' },
+    { key:'ossuary_sentinel',   name:'Ossuary Sentinel',   emoji:'🦴',  hp:18, dmg:5, def:1, move:2, attackRange:1, boss_loot:'bone_crown' },
+    { key:'grave_architect',    name:'Grave Architect',    emoji:'🕯',  hp:15, dmg:5, def:0, move:2, attackRange:3, boss_loot:'architects_key' },
+  ],
 };
 
 // Companion units that flank cabin bosses — hunting dogs from the surrounding wilds.
