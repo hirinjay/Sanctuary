@@ -139,12 +139,31 @@ export function resolveDefense(attacker, defender, dmg) {
   return { outcome:'hit', dmg };
 }
 
+// Weighted faction pools per location type — 'dungeon' means the plain
+// ARCHETYPES fallback (skeleton-ish guardians). Mixing in adventurer/raider
+// factions gives dungeons, towers, and villages more varied threats than a
+// uniform 3-archetype pool.
+const LOC_FACTION_WEIGHTS = {
+  camp:         ['raider'],
+  village:      ['adventurer','adventurer','dungeon'],
+  wizard_tower: ['dungeon','dungeon','adventurer','adventurer'],
+  crypt:        ['dungeon','dungeon','dungeon','adventurer'],
+  dungeon:      ['dungeon','dungeon','dungeon','adventurer'],
+  default:      ['dungeon'],
+};
+
+function pickFaction(locType) {
+  const key = Object.keys(LOC_FACTION_WEIGHTS).find(k => locType?.startsWith(k)) ?? 'default';
+  const tbl = LOC_FACTION_WEIGHTS[key];
+  return tbl[Math.floor(Math.random() * tbl.length)];
+}
+
 // Pick enemy template: faction pool when locType matches, else archetype pool
 function pickTemplate(locType, requiredTier, threats) {
   if (threats?.length) return threats[Math.floor(Math.random() * threats.length)];
 
-  const faction = locType === 'camp' ? 'raider' : null;
-  if (faction) {
+  const faction = pickFaction(locType);
+  if (faction !== 'dungeon') {
     const pool = FACTION_POOLS[faction] ?? [];
     const eligible = pool.filter(e => e.tier <= requiredTier);
     // Weight toward higher tiers within limit
@@ -170,34 +189,72 @@ export function spawnEnemies(danger, mode, tiles, spawnX = 1, spawnY = 10, threa
   const dmgMult = 1 + (danger-1) * 0.25;
   const mapH = tiles?.length ?? 12;
   const mapW = tiles?.[0]?.length ?? 16;
+  const baseCount = 1 + danger;
 
-  return Array.from({ length: 1+danger }, (_, i) => {
-    const a   = pickTemplate(locType, requiredTier, threats);
-    const hp  = Math.round(a.hp * hpMult);
-    const dmg = Math.max(1, Math.round(a.dmg * dmgMult));
+  // Occasionally a guard room: a tight cluster of 3-4 enemies led by an
+  // elite mini-boss, planted somewhere the player must fight through.
+  const eliteChance = Math.min(0.5, 0.22 + 0.08 * (danger - 1) + (floor - 1) * 0.05);
+  const hasElitePack = !isBossFloor && mode !== 'raid' && Math.random() < eliteChance;
+  const clusterSize = hasElitePack ? 3 + Math.floor(Math.random() * 2) : 0; // 3-4
+  const count = Math.max(baseCount, clusterSize);
+
+  // Anchor point for the guard room — far from spawn, on open ground
+  let anchorX = Math.floor(mapW / 2), anchorY = Math.floor(mapH / 3);
+  if (hasElitePack) {
+    for (let a = 0; a < 60; a++) {
+      const tx = 1 + Math.floor(Math.random() * (mapW - 2));
+      const ty = 1 + Math.floor(Math.random() * (mapH - 2));
+      if (Math.abs(tx - spawnX) + Math.abs(ty - spawnY) > 6 && tiles?.[ty]?.[tx]?.type !== 'wall') {
+        anchorX = tx; anchorY = ty; break;
+      }
+    }
+  }
+
+  const placed = [];
+  return Array.from({ length: count }, (_, i) => {
+    const inCluster = i < clusterSize;
+    const isElite   = inCluster && i === 0;
+    const tier      = isElite ? Math.min(3, requiredTier + 1) : requiredTier;
+    const a   = pickTemplate(locType, tier, threats);
+    const hp  = Math.round(a.hp * hpMult * (isElite ? 1.5 : 1));
+    const dmg = Math.max(1, Math.round(a.dmg * dmgMult * (isElite ? 1.3 : 1)));
     // Faction enemies in raids use roam; dungeon enemies use placement weights
     const factionRaid = mode === 'raid' && (a.faction === 'raider' || a.faction === 'animal');
-    const placement   = factionRaid ? 'roam' : (mode === 'raid' ? 'roam' : pickPlacement(locType));
+    const placement   = inCluster ? 'guard' : factionRaid ? 'roam' : (mode === 'raid' ? 'roam' : pickPlacement(locType));
     const sleeping    = placement === 'sleep';
     const waypoints   = placement === 'patrol' ? genWaypoints(tiles, mapW, mapH, spawnX, spawnY, 2+Math.floor(Math.random()*2)) : undefined;
     const triggerRow  = placement === 'ambush' ? Math.floor(mapH * 0.5) : undefined;
 
-    let ex = Math.floor(mapW / 2), ey = Math.floor(mapH / 3);
-    const maxEnemyY = placement === 'ambush' ? Math.floor(mapH * 0.5) - 1 : mapH - 2;
-    for (let attempt = 0; attempt < 60; attempt++) {
-      const tx = 1 + Math.floor(Math.random() * (mapW - 2));
-      const ty = 1 + Math.floor(Math.random() * Math.max(1, maxEnemyY - 1));
-      const tooClose = Math.abs(tx - spawnX) + Math.abs(ty - spawnY) <= 5;
-      const passable = tiles?.[ty]?.[tx]?.type !== 'wall';
-      if (!tooClose && passable) { ex = tx; ey = ty; break; }
+    let ex, ey;
+    if (inCluster) {
+      // Cluster around the guard-room anchor, spreading within a small radius
+      ex = anchorX; ey = anchorY;
+      for (let attempt = 0; attempt < 40; attempt++) {
+        const tx = anchorX + Math.floor(Math.random() * 5) - 2;
+        const ty = anchorY + Math.floor(Math.random() * 5) - 2;
+        if (tx >= 1 && tx < mapW - 1 && ty >= 1 && ty < mapH - 1
+          && tiles?.[ty]?.[tx]?.type !== 'wall'
+          && !placed.some(p => p.x === tx && p.y === ty)) { ex = tx; ey = ty; break; }
+      }
+    } else {
+      ex = Math.floor(mapW / 2); ey = Math.floor(mapH / 3);
+      const maxEnemyY = placement === 'ambush' ? Math.floor(mapH * 0.5) - 1 : mapH - 2;
+      for (let attempt = 0; attempt < 60; attempt++) {
+        const tx = 1 + Math.floor(Math.random() * (mapW - 2));
+        const ty = 1 + Math.floor(Math.random() * Math.max(1, maxEnemyY - 1));
+        const tooClose = Math.abs(tx - spawnX) + Math.abs(ty - spawnY) <= 5;
+        const passable = tiles?.[ty]?.[tx]?.type !== 'wall';
+        if (!tooClose && passable) { ex = tx; ey = ty; break; }
+      }
     }
+    placed.push({ x: ex, y: ey });
 
     // xp computed by tier formula at spawn (scaled by danger via hp)
     const xpVal = killXpByTier(hp, a.tier ?? 1, false);
 
     return {
       id: `e${i}`, type: UT.ENEMY,
-      name: a.name, emoji: a.emoji,
+      name: isElite ? `Elite ${a.name}` : a.name, emoji: a.emoji,
       x: ex, y: ey,
       hp, maxHp: hp, dmg, def: a.def ?? 0,
       actionPoints: 1, movementPoints: 1, moveRange: a.move, attackRange: a.attackRange || 1,
@@ -214,6 +271,7 @@ export function spawnEnemies(danger, mode, tiles, spawnX = 1, spawnY = 10, threa
       faction: a.faction ?? 'dungeon',
       abilities: a.abilities ?? [],
       triggerRadius: a.triggerRadius,
+      isElite,
       weapon: null, armor: null, level: 1, xpVal: 0,
       chaseTurns: 0, lastKnown: null,
       statusEffects: [],

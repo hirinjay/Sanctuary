@@ -68,9 +68,9 @@ export default function UnitSprite({ unit, size = 28, fallen = false }) {
   const staffW = 2;
   const staffH = Math.round(size * 0.68);
 
-  // Boss gets a slightly larger head + crown-like top
+  // Boss gets a slightly larger head + crown-like top; elites get a smaller bump
   const isBoss = unit.isBoss;
-  const bossScale = isBoss ? 1.22 : 1;
+  const bossScale = isBoss ? 1.22 : unit.isElite ? 1.12 : 1;
 
   const headRadius =
     shape === 'skull' ? `30% 30% 40% 40%` :  // flat-bottom skull
@@ -87,6 +87,7 @@ export default function UnitSprite({ unit, size = 28, fallen = false }) {
     2;
 
   const glowColor = isBoss ? `0 0 5px 2px ${pal.headBrd}88` :
+    unit.isElite        ? `0 0 4px 2px #ffaa3388` :
     unit.tier === 3     ? `0 0 4px 1px ${pal.accent}66` : undefined;
 
   return (
