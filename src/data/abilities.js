@@ -155,7 +155,7 @@ export const ABILITIES = {
   },
   ambush: {
     id:'ambush', name:'Ambush', type:'active',
-    desc:'+1 dmg and no retaliation on next attack.',
+    desc:'+1 dmg on next attack.',
     usesPerEncounter:1,
   },
   tracker: {
@@ -179,7 +179,7 @@ export const ABILITIES = {
   // ── GRAVE STALKER — Tier 3: Pathfinder ──────────────────────────────
   superior_ambush: {
     id:'superior_ambush', name:'Superior Ambush', type:'active',
-    desc:'+2 dmg and no retaliation on next attack.',
+    desc:'+2 dmg on next attack.',
     usesPerEncounter:1,
   },
   wayfinder: {

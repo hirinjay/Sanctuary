@@ -358,6 +358,7 @@ export const useGameStore = create(
         });
         const { currentUser: cu2 } = get();
         if (Object.keys(newBestiary).length) saveBestiary(newBestiary, cu2?.id ?? null);
+        debouncedSave(get);
       },
 
       endMission(units, loot, success = false) {
@@ -398,7 +399,7 @@ export const useGameStore = create(
           .map(id => units.find(u => u.id === id) ?? roster.find(u => u.id === id))
           .filter(u => u && (u.fallen || !surv.some(su => su.id === u.id)));
         const gainedUnits = surv.filter(u => !rosterIds.has(u.id));
-        const survivalUnits = surv.filter(u => deployedIdSet.has(u.id));
+        const survivalUnits = success ? surv.filter(u => deployedIdSet.has(u.id)) : [];
         survivalUnits.forEach(u => {
           surv = applyXpToUnits(surv, u.id, 1, luqExtra);
         });
@@ -1172,6 +1173,7 @@ export const useGameStore = create(
         const world = data.world ?? null;
         const worldPos = data.world_pos ?? null;
         const canResumeWorld = isPlayableWorld(world, worldPos);
+        const mission = data.mission_state ?? null;
         set({
           vp:             data.vp              ?? { ...DEFAULT_VP },
           roster:         data.roster          ?? [],
@@ -1186,11 +1188,14 @@ export const useGameStore = create(
           log:            data.log             ?? [],
           sanctuaryGrid:  data.sanctuary_grid  ?? null,
           locationVisits: data.location_visits ?? {},
+          locationBosses: data.location_bosses ?? {},
+          locationScavenges: data.location_scavenges ?? {},
           activeSlot:     slot,
           // Reset transient state
-          ms: null, phase:'player', luq:[], noise:0, selectedHex:null,
-          equipTgt:null, loc:null, worldPath:[], pendingSanctuaryTile:null, missionResult:null,
-          screen: canResumeWorld ? SCREEN.WORLD : SCREEN.TITLE,
+          ms: mission?.ms ?? null, phase:'player', luq:[], noise:mission?.noise ?? 0, selectedHex:null,
+          equipTgt:null, loc:mission?.loc ?? null, mode:mission?.mode ?? 'scavenge',
+          worldPath:[], pendingSanctuaryTile:null, missionResult:null,
+          screen: mission?.ms ? SCREEN.MISSION : (canResumeWorld ? SCREEN.WORLD : SCREEN.TITLE),
         });
         // Bestiary is account-scoped — load separately via loadBestiary()
       },
@@ -1744,33 +1749,6 @@ export const useGameStore = create(
           // Clear ambush prime after it fires
           if (ambushBonus > 0) {
             units = units.map(u => u.id === sel ? { ...u, ambushBonus: 0 } : u);
-          }
-
-          // Retaliate (skip if ambush / superior_ambush active)
-          const surv   = units.find(u => u.id===enemy.id && !u.fallen);
-          const attNow = units.find(u => u.id===sel);
-          const noRetaliation = attUnit.abilityUses?.ambush === 0 || attUnit.abilityUses?.superior_ambush === 0;
-          if (surv && attNow && !noRetaliation && dist(surv,attNow)<=(surv.attackRange||1) && Math.random()<0.6) {
-            const ad   = attNow.armor ? (item(attNow.armor)?.def||0) : 0;
-            let rdmg   = Math.max(1, (surv.dmg||2) - ad);
-            // hold_the_line / bastion: reduce retaliation damage
-            const protectors = units.filter(p => !p.fallen && p.type!==UT.ENEMY &&
-              (p.classAbility==='hold_the_line'||p.classAbility==='bastion') && dist(p,attNow)<=1);
-            if (protectors.some(p=>p.classAbility==='bastion')) rdmg = Math.max(0, rdmg-2);
-            else if (protectors.length) rdmg = Math.max(0, rdmg-1);
-            if (rdmg > 0) {
-              logs.push(`↩️ ${surv.name} retaliates on ${attNow.name} for ${rdmg}!`);
-              units = units.map(u => {
-                if (u.id !== sel) return u;
-                const nh = u.hp - rdmg;
-                if (nh <= 0) {
-                  if (sel==='varek') { setTimeout(()=>get().setScreen(SCREEN.GAME_OVER),300); return {...u,hp:0}; }
-                  logs.push(`${u.name} falls!`);
-                  return {...u,hp:0,fallen:true,raiseTurn:prev.ms.turn};
-                }
-                return {...u,hp:nh};
-              });
-            }
           }
 
           return {
@@ -2732,6 +2710,15 @@ export const useGameStore = create(
               logs.push(`🛡 ${tgt.name} braces and takes only ${dmg}!`);
             } else if (defenseResult.outcome === 'counter') {
               dmg = defenseResult.dmg;
+            }
+
+            // hold_the_line / bastion: adjacent friendlies (and bastion's bearer) take reduced dmg
+            if (dmg > 0) {
+              const guardians = units.filter(p => !p.fallen && p.type!==UT.ENEMY &&
+                (p.classAbility==='hold_the_line'||p.classAbility==='bastion') &&
+                (p.id===tgt.id || dist(p,tgt)<=1));
+              if (guardians.some(p=>p.classAbility==='bastion')) dmg = Math.max(0, dmg-2);
+              else if (guardians.length) dmg = Math.max(0, dmg-1);
             }
 
             // armored passive: attacker is the target's passive doesn't apply here (it's the enemy attacking player)
