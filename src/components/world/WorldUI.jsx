@@ -11,7 +11,7 @@ export default function WorldUI() {
     world, worldPos, sanctuaryPos, selectedHex,
     pendingSanctuaryTile, travelBag,
     luq, promotionQueue,
-    locationBosses, locationScavenges,
+    locationBosses, locationScavenges, locationResources,
     startMission, selectHex, openBestiary, goHome, enterSanctuary,
     confirmSanctuaryPlacement, cancelSanctuaryPlacement,
     depositLoot, forageCurrentTile,
@@ -45,6 +45,7 @@ export default function WorldUI() {
     : null
   const selHasBoss     = selLocId ? (locationBosses  ?? {})[selLocId] === true : false
   const selScavengeCount = selLocId ? (locationScavenges ?? {})[selLocId] ?? 0 : 0
+  const selPrimaryResource = selLocId ? locationResources?.[selLocId] : null
 
   const tag = (color, label) => (
     <span style={{
@@ -198,6 +199,11 @@ export default function WorldUI() {
               </span>
               <span style={{ color: '#4a5a4a', marginLeft: 10 }}>Loot: </span>
               <span style={{ color: '#c4a882' }}>{selTile.location.lq}</span>
+              {selPrimaryResource && (
+                <span style={{ color: '#7a8a5a', marginLeft: 10 }}>
+                  {item(selPrimaryResource)?.emoji ?? '◇'} {item(selPrimaryResource)?.name ?? selPrimaryResource}
+                </span>
+              )}
               {selScavengeCount > 0 && !selHasBoss && (
                 <span style={{ color: selScavengeCount >= 4 ? '#8a5a2a' : '#4a5a4a', marginLeft: 10 }}>
                   🤫 {selScavengeCount}/5
@@ -240,7 +246,7 @@ export default function WorldUI() {
                 type: selTile.location.type,
                 name: selTile.location.name,
                 danger: selTile.location.danger,
-                lq: selTile.location.lq, desc: '', links: [],
+                lq: selTile.location.lq, primaryResource: selPrimaryResource, desc: '', links: [],
               }
               return (
                 <>

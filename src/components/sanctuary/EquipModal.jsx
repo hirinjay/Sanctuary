@@ -12,13 +12,13 @@ export default function EquipModal() {
 
   const equippable = Object.entries(inv).filter(([id]) => {
     const it = item(id);
-    return it?.type === 'weapon' || it?.type === 'armor';
+    return it?.type === 'weapon' || it?.type === 'armor' || it?.slot === 'accessory' || it?.type === 'artifact';
   });
 
   function holderNames(iid) {
     const h = [];
-    if (vp.weapon===iid || vp.armor===iid) h.push('Varek');
-    roster.forEach(u => { if (u.weapon===iid || u.armor===iid) h.push(u.pname||u.name); });
+    if (vp.weapon===iid || vp.armor===iid || vp.accessory===iid) h.push('Varek');
+    roster.forEach(u => { if (u.weapon===iid || u.armor===iid || u.accessory===iid) h.push(u.pname||u.name); });
     return h;
   }
 
@@ -36,7 +36,7 @@ export default function EquipModal() {
         {equippable.map(([id]) => {
           const it = item(id);
           if (!it) return null;
-          const slot = it.type === 'weapon' ? 'weapon' : 'armor';
+          const slot = it.slot === 'accessory' || it.type === 'artifact' ? 'accessory' : it.type === 'weapon' ? 'weapon' : 'armor';
           const holders = holderNames(id);
           return (
             <div key={id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10, gap:8 }}>

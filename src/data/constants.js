@@ -55,6 +55,6 @@ export const STATUS = {
 export const DEFAULT_VP = {
   hp:10, maxHp:10, xp:0, level:1,
   dmg:2, raiseRange:2, drainRange:2, tetherCap:1,
-  moveRange:3, trapReveal:1, weapon:null, armor:null,
+  moveRange:3, trapReveal:1, weapon:null, armor:null, accessory:null,
   varekAscensions:0, varekAbilities:[],
 };

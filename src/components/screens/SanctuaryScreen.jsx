@@ -18,6 +18,71 @@ function hasLegacy(u) {
 const TRAIT_LABEL = { dodge:'Dodge', counter:'Counter', defend:'Defend' };
 function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
+function gearLabel(id, fallback) {
+  const it = item(id);
+  return it ? `${it.emoji} ${it.name}` : fallback;
+}
+
+function sourceRace(u) {
+  if (u.baseRace) return u.baseRace;
+  if (u.sourceRace) return u.sourceRace;
+  const cls = u.cls ?? '';
+  const raised = cls.match(/^(Risen|Broken) (.+)$/);
+  if (raised) return raised[2];
+  return 'Unknown';
+}
+
+function abilityName(aid) {
+  return ABILITIES[aid]?.name ?? aid;
+}
+
+function UnitDetails({ u }) {
+  const classLabel = u.cls ?? u.dc ?? 'Undead';
+  const abilities = [u.classAbility, ...(u.bondedAbilities ?? [])].filter(Boolean);
+  const gear = [
+    ['Weapon', u.weapon, 'Unarmed'],
+    ['Armor', u.armor, 'No armor'],
+    ['Accessory', u.accessory, 'No accessory'],
+  ];
+  return (
+    <div style={{ marginTop:7, background:'#070b14', border:'1px solid #171b2a', borderRadius:6, padding:8 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, fontSize:10, color:'#7a8a7a', marginBottom:8 }}>
+        <div><span style={{ color:'#4a5a4a' }}>Class</span><br />{classLabel} · T{u.tier ?? 1}</div>
+        <div><span style={{ color:'#4a5a4a' }}>Raised From</span><br />{sourceRace(u)}</div>
+        <div><span style={{ color:'#4a5a4a' }}>Raise Line</span><br />{u.dc ?? 'Unknown'}</div>
+        <div><span style={{ color:'#4a5a4a' }}>Status</span><br />{u.atBase ? 'At Sanctuary' : 'Mission ready'}</div>
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:5, fontSize:10, color:'#9a9a6a', marginBottom:8 }}>
+        <div>HP {u.hp}/{u.maxHp}</div>
+        <div>DMG {u.dmg ?? 0}</div>
+        <div>DEF {u.def ?? 0}</div>
+        <div>Move {u.moveRange ?? 0}</div>
+        <div>Range {u.attackRange ?? 1}</div>
+        <div>Trap {u.trapReveal ?? 0}</div>
+        <div>Lv {u.level ?? 1}</div>
+        <div>XP {u.xp ?? 0}/{xpNext(u.level ?? 1)}</div>
+        <div>Trait {TRAIT_LABEL[defenseTypeFor(u)] ?? cap(defenseTypeFor(u))}</div>
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr', gap:4, fontSize:10, color:'#6a7a8a', marginBottom: abilities.length ? 8 : 0 }}>
+        {gear.map(([label, id, fallback]) => {
+          const it = item(id);
+          return (
+            <div key={label}>
+              <span style={{ color:'#4a5a6a' }}>{label}:</span> {gearLabel(id, fallback)}
+              {it?.desc ? <span style={{ color:'#3a4a5a' }}> · {it.desc}</span> : null}
+            </div>
+          );
+        })}
+      </div>
+      {abilities.length > 0 && (
+        <div style={{ fontSize:10, color:'#8a7aaa' }}>
+          <span style={{ color:'#5a4a7a' }}>Abilities:</span> {abilities.map(abilityName).join(', ')}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LegacySection(u) {
   if (!hasLegacy(u)) return null;
   return (
@@ -77,6 +142,7 @@ export default function SanctuaryScreen() {
   const [mergeStep, setMergeStep] = useState(null); // null | 'confirm' | 'rename'
   const [mergeName, setMergeName] = useState('');
   const [legacyOpenIds, setLegacyOpenIds] = useState(new Set());
+  const [detailOpenIds, setDetailOpenIds] = useState(new Set());
   const [varekAscendOpen, setVarekAscendOpen] = useState(false);
   const [varekAscendChoices, setVarekAscendChoices] = useState(null);
   const baseCount  = t.baseCount;
@@ -140,6 +206,7 @@ export default function SanctuaryScreen() {
           <div style={{ fontSize:11, display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
             <span style={{ color:'#5a6a7a' }}>⚔️ {vp.weapon ? item(vp.weapon)?.name : 'Unarmed'}</span>
             <span style={{ color:'#5a6a7a' }}>🛡 {vp.armor ? item(vp.armor)?.name : 'None'}</span>
+            <span style={{ color:'#6a5a8a' }}>◇ {vp.accessory ? item(vp.accessory)?.name : 'No accessory'}</span>
             <button onClick={() => setEquipTgt('varek')} style={btn(true,'#6a6aaa')}>Equip</button>
           </div>
         </div>
@@ -158,6 +225,11 @@ export default function SanctuaryScreen() {
                     <span style={{ color:'#4a5a4a' }}> Lv{u.level} ❤️{u.hp}/{u.maxHp} ⚔️{u.dmg}</span>
                   </div>
                   <div style={{ display:'flex', gap:5 }}>
+                    <button onClick={() => setDetailOpenIds(s => {
+                      const n = new Set(s); n.has(u.id) ? n.delete(u.id) : n.add(u.id); return n;
+                    })} style={btn(true, '#5a6a8a')}>
+                      {detailOpenIds.has(u.id) ? 'Hide' : 'Details'}
+                    </button>
                     {hasLegacy(u) && (
                       <button onClick={() => setLegacyOpenIds(s => {
                         const n = new Set(s); n.has(u.id) ? n.delete(u.id) : n.add(u.id); return n;
@@ -184,6 +256,7 @@ export default function SanctuaryScreen() {
                     })()}
                   </div>
                 </div>
+                {detailOpenIds.has(u.id) && <UnitDetails u={u} />}
                 {legacyOpenIds.has(u.id) && LegacySection(u)}
               </div>
             ))}

@@ -47,6 +47,8 @@ export async function saveRun(state, userId, slot) {
     location_visits:  state.locationVisits ?? {},
     location_bosses:  state.locationBosses ?? {},
     location_scavenges: state.locationScavenges ?? {},
+    location_resources: state.locationResources ?? {},
+    squad_preferences: state.squadPreferences ?? {},
     mission_state:    state.ms ? { ms: state.ms, loc: state.loc, mode: state.mode, noise: state.noise } : null,
     log:              state.log,
     varek_level:      state.vp?.level ?? 1,

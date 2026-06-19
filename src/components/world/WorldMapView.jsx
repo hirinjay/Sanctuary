@@ -4,6 +4,7 @@ import { useGameStore } from '../../store/gameStore'
 import { hexToPixel, hexPoints, tileKey, hexNeighbors, hexDist } from '../../world/hexMath'
 import { TERRAIN, LOC_TYPE } from '../../world/tileTypes'
 import { isPlayableWorld } from '../../world/worldState'
+import { item } from '../../data/items'
 
 export default function WorldMapView() {
   const containerRef = useRef(null)
@@ -96,6 +97,15 @@ export default function WorldMapView() {
           centerOn(pos.col, pos.row)
         }
       )
+      const unsubResources = useGameStore.subscribe(
+        s => s.locationResources,
+        () => {
+          const { world } = useGameStore.getState()
+          if (!isPlayableWorld(world, useGameStore.getState().worldPos) || !layersRef.current) return
+          drawLocIcons(world, layersRef.current.locs)
+          redrawFog(world, layersRef.current.fog)
+        }
+      )
       const unsubSel = useGameStore.subscribe(
         s => [s.selectedHex, s.worldPath, s.worldPos, s.world],
         ([sel, path, pos, world]) => {
@@ -106,7 +116,7 @@ export default function WorldMapView() {
       )
 
       setupInteraction(cv)
-      app._worldUnsubs = [unsubWorld, unsubFog, unsubPos, unsubSel]
+      app._worldUnsubs = [unsubWorld, unsubFog, unsubPos, unsubResources, unsubSel]
     }).catch(err => {
       console.error('[world-map] Pixi initialization failed:', err)
     })
@@ -160,10 +170,20 @@ export default function WorldMapView() {
         g.rect(x - 2, y + 1, 4, 6).fill({ color: 0x220e00, alpha: 1 })
         child = g
       } else {
+        const group = new Container()
         const t = new Text({ text: LOC_TYPE[tile.location.type]?.emoji ?? '?', style })
         t.anchor.set(0.5)
         t.position.set(x, y)
-        child = t
+        group.addChild(t)
+        const locId = `${tile.location.type}_${tile.col}_${tile.row}`
+        const primary = useGameStore.getState().locationResources?.[locId]
+        if (primary) {
+          const r = new Text({ text: item(primary)?.emoji ?? '◇', style: new TextStyle({ fontSize: 9, fill: 0xc4a882 }) })
+          r.anchor.set(0.5)
+          r.position.set(x + 9, y + 9)
+          group.addChild(r)
+        }
+        child = group
       }
 
       child.alpha = 0

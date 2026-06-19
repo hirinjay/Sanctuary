@@ -6,6 +6,7 @@ export const SCREEN = Object.freeze({
   WORLD: 'world',
   SANCTUARY: 'sanctuary',
   SANCTUARY_MAP: 'sanctuarymap',
+  SQUAD_SELECT: 'squadSelect',
   MISSION: 'mission',
   MISSION_RESULTS: 'missionResults',
   GAME_OVER: 'gameover',
@@ -32,6 +33,11 @@ export function resolveScreen(screen, state) {
 
   if (target === SCREEN.MISSION && !state?.ms) {
     if (state?.missionResult) return SCREEN.MISSION_RESULTS;
+    if (canShowWorld) return SCREEN.WORLD;
+    return activeSlot ? SCREEN.TITLE : SCREEN.HOME;
+  }
+
+  if (target === SCREEN.SQUAD_SELECT && !state?.pendingSquad) {
     if (canShowWorld) return SCREEN.WORLD;
     return activeSlot ? SCREEN.TITLE : SCREEN.HOME;
   }

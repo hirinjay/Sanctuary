@@ -29,7 +29,28 @@ export const FORAGE_LOOT = {
   mountain: { pool:['stone','stone','coal','scrap_iron'],                   hiddenChance:0.02 },
 }
 
+export const LOCATION_RESOURCE_TABLE = {
+  dungeon: ['stone','scrap_iron','arcane'],
+  camp: ['bone','cloth','rusty_blade'],
+  wizard_tower: ['arcane','rare_herbs','arcane_tome'],
+  forest: ['wood','herbs','food'],
+  ruins: ['stone','scrap_iron','nails','cloth'],
+  swamp: ['rare_herbs','pale_fungus','bitterroot'],
+  mountain: ['stone','scrap_iron','coal'],
+  battlefield: ['bone','scrap_iron','rusty_blade'],
+  crypt: ['stone','bone','arcane'],
+  cabin: ['wood','cloth','food'],
+  village: ['food','cloth','wood'],
+};
+
+export function primaryResourceFor(location, terrain = null, rng = Math.random) {
+  const key = location?.type || terrain || 'plains';
+  const table = LOCATION_RESOURCE_TABLE[key] || LOCATION_RESOURCE_TABLE[terrain] || ['food'];
+  return table[Math.floor(rng() * table.length)];
+}
+
 export function rollForageLoot(terrain, rng = Math.random) {
+
   const table = FORAGE_LOOT[terrain] || FORAGE_LOOT.plains
   const count = 1 + Math.floor(rng() * 2)
   const items = Array.from({ length: count }, () => table.pool[Math.floor(rng() * table.pool.length)])
@@ -98,6 +119,8 @@ export function rollWildEncounter(terrain, rng = Math.random) {
     danger:   enc.danger,
     lq:       enc.lq,
     isWild:   true,
+    type:     terrain,
+    primaryResource: primaryResourceFor(null, terrain, rng),
     wildUnit: threat,
     threats:  enc.threats,
     links:    [],

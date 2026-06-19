@@ -283,10 +283,14 @@ export default function MissionScreen() {
     return null;
   })() : null;
 
-  const noiseColor = noise < 30 ? '#3a7a3a' : noise < 60 ? '#7a6a2a' : '#7a2a2a';
-  const noiseLabel = noise < 30 ? 'Quiet (👁3)' : noise < 60 ? 'Tense (👁4)' : 'Alert! (👁5)';
+  const noiseColor = ms.hunting ? '#b82a2a' : noise < 30 ? '#3a7a3a' : noise < 60 ? '#7a6a2a' : '#7a2a2a';
+  const noiseLabel = ms.hunting ? 'HUNTING — exit only' : noise < 30 ? 'Quiet' : noise < 60 ? 'Noise nearby' : 'Loud';
 
   function handleRetreat() {
+    if (mode === 'scavenge' && ms.hunting) {
+      addLog('🚨 Hunting state — extraction only. Reach the exit.');
+      return;
+    }
     const kept = [], dropped = [];
     ms.loot.forEach(id => { (Math.random()<0.25 ? dropped : kept).push(id); });
     const bagLost = [];
@@ -505,6 +509,9 @@ export default function MissionScreen() {
                   </div>
                   <div style={{ color: selUnit.armor ? '#6a7a6a' : '#2a3a2a', marginTop:2 }}>
                     🛡 {selUnit.armor ? item(selUnit.armor)?.name : 'No armor'}
+                  </div>
+                  <div style={{ color: selUnit.accessory ? '#7a6a9a' : '#2a2a3a', marginTop:2 }}>
+                    ◇ {selUnit.accessory ? item(selUnit.accessory)?.name : 'No accessory'}
                   </div>
                 </div>
                 {/* Legacy */}

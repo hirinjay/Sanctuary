@@ -1,14 +1,14 @@
 import { create } from 'zustand';
 import { persist, subscribeWithSelector } from 'zustand/middleware';
-import { DEFAULT_VP, UT, TILE, UNAMES } from '../data/constants';
-import { item, LOOT, FLOOR_LOOT, BODY_LOOT } from '../data/items';
+import { DEFAULT_VP, UT, TILE, UNAMES, XP_LEVELS, UNDEAD_LU } from '../data/constants';
+import { item, BODY_LOOT, lootTableForMode, ARTIFACT_LOOT } from '../data/items';
 import { killXpByTier, xpTierMultiplier } from '../data/enemyDefs';
 import { genMap, genDungeonMap, genCabinMap, genCryptMap, genVaultMap, genBarracksMap, genHuntingLodgeMap, genForest, genRuinedTown, genRaiderCamp, genSwamp, genBattlefield, genAbandonedVillage, genWizardTowerMap, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath, cullUnreachable, findSpawnSlots, placeUnitsOnValidTiles } from '../systems/map';
 import { spawnEnemies, applyXpToUnits, calcSacrificeBonus, VERDANT_VAREK_LU, resolveDefense, defenseTypeFor } from '../systems/combat';
 import { ARCHETYPES, CLASS_STATS } from '../data/archetypes';
 import { generateWorld, revealAround } from '../world/worldGen';
 import { hexesInRange } from '../world/hexMath';
-import { TERRAIN, rollWildEncounter, rollForageLoot } from '../world/tileTypes';
+import { TERRAIN, rollWildEncounter, rollForageLoot, primaryResourceFor } from '../world/tileTypes';
 import { bfsPath } from '../world/hexMath';
 import { BUILDINGS } from '../data/buildings';
 import { generateObjective } from '../systems/objectives';
@@ -22,6 +22,148 @@ import { spawnBoss, spawnCabinCompanions, BOSS_PASSIVES, RAISED_BOSS_BONUS } fro
 
 // Bosses only inhabit the bottom floor of these dungeon-like locations — never wild encounters.
 const BOSS_LOC_TYPES = ['dungeon', 'camp', 'wizard_tower', 'cabin', 'crypt'];
+const SQUAD_CAPS = { scavenge: 3, raid: 6 };
+const EQUIPMENT_SLOTS = ['weapon', 'armor', 'accessory'];
+
+function squadCap(mode) {
+  return SQUAD_CAPS[mode] ?? SQUAD_CAPS.scavenge;
+}
+
+function squadPrefKey(location, mode) {
+  return `${location?.type ?? 'unknown'}:${mode ?? 'scavenge'}`;
+}
+
+function preserveEquipped(previous, next) {
+  if (!previous) return next;
+  const preserved = { ...next };
+  EQUIPMENT_SLOTS.forEach(slot => {
+    if (previous[slot] !== undefined) preserved[slot] = previous[slot];
+  });
+  return preserved;
+}
+
+function squadUnitType(unit) {
+  return unit?.classId ?? unit?.dc ?? unit?.baseClass ?? 'undead';
+}
+
+function passiveXpNext(lv) {
+  return XP_LEVELS[Math.min(lv, XP_LEVELS.length - 1)] || 999;
+}
+
+function applyPassiveXp(unit, luqRef) {
+  if ((unit.level ?? 1) >= 4) return unit;
+  let xp = (unit.xp ?? 0) + 1;
+  let lv = unit.level ?? 1;
+  while (xp >= passiveXpNext(lv) && lv < 4) {
+    xp -= passiveXpNext(lv);
+    lv++;
+    const isClassPromo = unit.type !== UT.VAREK && !unit.classId && lv === 2;
+    luqRef.push({
+      uid: unit.id,
+      opts: UNDEAD_LU,
+      ...(isClassPromo ? { type: 'class_promotion' } : {}),
+    });
+  }
+  if (lv >= 4) xp = Math.min(xp, passiveXpNext(4) - 1);
+  return { ...unit, xp, level: lv };
+}
+
+function pushLootWithQuantity(loot, id, count = 1) {
+  for (let i = 0; i < count; i++) loot.push(id);
+}
+
+const MATERIAL_ALIASES = {
+  iron: 'scrap_iron',
+  'arcane residue': 'arcane',
+  salvaged_weapons: 'rusty_blade',
+  basic_weapons: 'rusty_blade',
+  foraging: 'food',
+};
+
+function normalizeResource(id) {
+  return MATERIAL_ALIASES[id] ?? id;
+}
+
+function weightedPick(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function pickContainerLoot(mode, lq, floor, primaryResource, locType) {
+  const table = [...lootTableForMode(mode, lq, floor)];
+  const primary = normalizeResource(primaryResource);
+  if (mode === 'scavenge') {
+    const id = weightedPick(primary ? [...table, primary, primary] : table);
+    return { items:[id], quantity:id === primary ? 2 : Math.max(1, Math.floor(floor / 2)) };
+  }
+
+  let raidTable = table;
+  if (primary === 'bone') raidTable = [...table, 'bone_club','bone_plate','bone_plate'];
+  if (primary === 'cloth') raidTable = [...table, 'cloth_wrap','cloth_wrap','leather_vest'];
+  if (primary === 'scrap_iron') raidTable = [...table, 'iron_sword','steel_sword','reinforced_plate'];
+  if (locType === 'wizard_tower' && floor >= 3) raidTable = [...raidTable, ...ARTIFACT_LOOT];
+  return { items:[weightedPick(raidTable)], quantity:1 };
+}
+
+function enemyGearFor(enemy, locType, primaryResource) {
+  const tier = enemy.xpTier ?? enemy.tier ?? (enemy.isBoss ? 3 : 1);
+  const primary = normalizeResource(primaryResource);
+  const weaponPool = tier >= 3 ? ['steel_sword','hunters_bow','warlord_axe'] : tier >= 2 ? ['iron_sword','bone_club','hunters_bow'] : ['rusty_blade','bone_club'];
+  const armorPool = tier >= 3 ? ['reinforced_plate','bone_plate'] : tier >= 2 ? ['leather_vest','bone_plate'] : ['cloth_wrap'];
+  let weapon = enemy.weapon ?? null;
+  let armor = enemy.armor ?? null;
+  if (!weapon && (enemy.faction === 'raider' || enemy.faction === 'adventurer' || enemy.isBoss)) weapon = weightedPick(primary === 'bone' ? [...weaponPool, 'bone_club'] : weaponPool);
+  if (!armor && (enemy.faction === 'adventurer' || enemy.aiRole === 'territorial' || enemy.isBoss || tier >= 2)) armor = weightedPick(primary === 'cloth' ? [...armorPool, 'cloth_wrap'] : armorPool);
+  if (locType === 'wizard_tower' && tier >= 3 && !enemy.accessory && Math.random() < 0.25) return { ...enemy, weapon, armor, accessory:weightedPick(ARTIFACT_LOOT) };
+  return { ...enemy, weapon, armor };
+}
+
+function enemyGearDrops(enemy) {
+  const drops = [];
+  const tier = enemy.xpTier ?? enemy.tier ?? (enemy.isBoss ? 3 : 1);
+  const chance = enemy.isBoss ? 1 : tier >= 3 ? 0.55 : tier >= 2 ? 0.35 : 0.15;
+  const gear = [enemy.weapon, enemy.armor, enemy.accessory].filter(Boolean);
+  gear.forEach(id => { if (Math.random() < chance) drops.push(id); });
+  if (enemy.faction === 'adventurer' && !drops.length) drops.push(gear[0] ?? (tier >= 3 ? 'steel_sword' : 'iron_sword'));
+  return drops;
+}
+
+function artifactHpBonus(unit) {
+  return unit?.accessory === 'iron_heart' ? 2 : 0;
+}
+
+function abilityUsesFor(unit, abilityId) {
+  const base = ABILITIES[abilityId]?.usesPerEncounter ?? 0;
+  if (!base) return 0;
+  return unit?.accessory === 'arcane_focus' ? Math.max(base, base + 1) : base;
+}
+
+function audibleThroughWalls(tiles, from, to, radius) {
+  const d = dist(from, to);
+  if (d <= radius && hasLOS(tiles, from.x, from.y, to.x, to.y)) return true;
+  return d <= Math.ceil(radius / 2);
+}
+
+function applyScavengeNoise(ms, units, event, logs) {
+  if (!event || event.mode !== 'scavenge') return { units, hunting:ms.hunting ?? false, noiseLevel:0 };
+  const radius = event.radius === Infinity ? Infinity : event.radius;
+  let changed = false;
+  let next = units.map(u => {
+    if (u.type !== UT.ENEMY || u.fallen || u.alerted || u.alertState === 'hunting') return u;
+    const heard = radius === Infinity || audibleThroughWalls(ms.tiles, event, u, radius);
+    if (!heard) return u;
+    changed = true;
+    return { ...u, alertState:'suspicious', suspicious:true, investigation:{ x:event.x, y:event.y }, investigateTurns:0, lastKnown:{ x:event.x, y:event.y } };
+  });
+  if (changed) logs.push(`👂 Noise draws suspicion near ${event.x},${event.y}.`);
+  const enemyCount = next.filter(u => u.type === UT.ENEMY && !u.fallen).length;
+  const alertCount = next.filter(u => u.type === UT.ENEMY && !u.fallen && (u.alerted || u.alertState === 'hunting')).length;
+  const hunting = (ms.hunting ?? false) || (enemyCount > 0 && alertCount > enemyCount / 2);
+  if (hunting && !ms.hunting) {
+    next = next.map(u => u.type === UT.ENEMY && !u.fallen ? { ...u, alerted:true, alertState:'hunting', hunting:true } : u);
+    logs.push('🚨 The scavenge collapses into a hunt! Reach the exit.');
+  }
+  return { units:next, hunting, noiseLevel:radius === Infinity ? 100 : radius * 12 };
+}
 
 // Throttled save — fires immediately on first call, then coalesces rapid calls (400ms window)
 let _saveTimer = null
@@ -99,10 +241,14 @@ export const useGameStore = create(
       // ── Promotion queue ───────────────────────────────────────────────
       promotionQueue: [],   // [{ unit, level }] — resolved on WorldScreen after mission
       missionResult: null,   // summary shown between encounter and world map
+      pendingSquad: null,    // { location, mode, floor, prevNoise, cap, prefKey }
+      selectedSquadIds: [],
+      squadPreferences: {},  // { [locationType:mode]: { strategy, ids/types, lastSelectedIds } }
       // ── Location visit tracking ───────────────────────────────────────
       locationVisits:    {},  // { [locId]: { visits: N, bossDefeated: bool } }
       locationScavenges: {},  // { [locId]: N } — scavenge count per location
       locationBosses:    {},  // { [locId]: bool } — active boss flag
+      locationResources: {},  // { [locId]: primary material id }
       // ── Bestiary (account-scoped — never wiped on resetGame) ──────────
       bestiary: {},         // { [entityId]: { encounters: N, abilitiesSeen: bool } }
       // ── Achievement system (run-scoped) ───────────────────────────────
@@ -149,7 +295,6 @@ export const useGameStore = create(
         if ((luq ?? []).length > 0) return;
         // Noise propagates to deeper floors at 40% — loud previous floor pre-alerts enemies
         const propagatedNoise = Math.floor((noise ?? 0) * 0.4);
-        set({ missionResult: null });
         get().startMission(result.pendingLoc, 'raid', result.floor + 1, propagatedNoise);
       },
 
@@ -157,8 +302,9 @@ export const useGameStore = create(
       // fieldCap = baseCap = tetherCap. Total roster cap = tetherCap * 2.
       ti(mUnits) {
         const { vp, roster } = get();
-        const fieldCap = vp.tetherCap;
-        const baseCap  = vp.tetherCap;
+        const varekTetherBonus = vp.accessory === 'pale_signet' ? 1 : 0;
+        const fieldCap = (vp.tetherCap ?? 1) + varekTetherBonus;
+        const baseCap  = (vp.tetherCap ?? 1) + varekTetherBonus;
         const cap      = fieldCap + baseCap;
 
         let baseCount, fieldCount;
@@ -179,11 +325,93 @@ export const useGameStore = create(
 
       // ── Mission lifecycle ─────────────────────────────────────────────
       startMission(location, md, floor = 1, prevNoise = 0) {
-        const { vp, roster, locationVisits, locationScavenges, locationBosses, bestiary, varekAchievements } = get();
+        const state = get();
+        const roster = state.roster ?? [];
+        const cap = squadCap(md);
+        const prefKey = squadPrefKey(location, md);
+        const pref = state.squadPreferences?.[prefKey] ?? null;
+        const rosterIds = new Set(roster.map(u => u.id));
+        let selectedSquadIds = [];
+        if (pref?.strategy === 'unit') {
+          selectedSquadIds = (pref.ids ?? []).filter(id => rosterIds.has(id)).slice(0, cap);
+        } else if (pref?.strategy === 'type') {
+          const used = new Set();
+          selectedSquadIds = (pref.types ?? []).flatMap(type => {
+            const match = roster.find(u => !used.has(u.id) && squadUnitType(u) === type);
+            if (!match) return [];
+            used.add(match.id);
+            return [match.id];
+          }).slice(0, cap);
+        }
+        if (!selectedSquadIds.length) {
+          selectedSquadIds = (pref?.lastSelectedIds ?? []).filter(id => rosterIds.has(id)).slice(0, cap);
+        }
+        if (!selectedSquadIds.length) selectedSquadIds = roster.slice(0, cap).map(u => u.id);
+        set({
+          pendingSquad: { location, mode:md, floor, prevNoise, cap, prefKey, varek:state.vp },
+          selectedSquadIds,
+          screen:SCREEN.SQUAD_SELECT,
+        });
+        debouncedSave(get);
+      },
+
+      toggleSquadUnit(unitId) {
+        set(s => {
+          if (!s.pendingSquad) return s;
+          const selected = new Set(s.selectedSquadIds ?? []);
+          if (selected.has(unitId)) selected.delete(unitId);
+          else if (selected.size < s.pendingSquad.cap) selected.add(unitId);
+          return { selectedSquadIds:[...selected] };
+        });
+      },
+
+      saveSquadPreference(strategy) {
+        set(s => {
+          const pending = s.pendingSquad;
+          if (!pending) return s;
+          const ids = [...new Set(s.selectedSquadIds ?? [])].slice(0, pending.cap);
+          const units = ids.map(id => s.roster.find(u => u.id === id)).filter(Boolean);
+          const pref = strategy === 'type'
+            ? { strategy:'type', types:units.map(squadUnitType), lastSelectedIds:ids }
+            : { strategy:'unit', ids, lastSelectedIds:ids };
+          return {
+            squadPreferences: { ...(s.squadPreferences ?? {}), [pending.prefKey]: pref },
+            log: [`Squad formation saved by ${strategy === 'type' ? 'unit type' : 'individual unit'}.`, ...s.log].slice(0, 14),
+          };
+        });
+        debouncedSave(get);
+      },
+
+      cancelSquadSelection() {
+        set(s => ({
+          pendingSquad:null, selectedSquadIds:[],
+          screen: s.missionResult ? SCREEN.MISSION_RESULTS : resolveScreen(SCREEN.WORLD, { ...s, pendingSquad:null }),
+        }));
+      },
+
+      confirmSquad(selectedIds) {
+        const pending = get().pendingSquad;
+        if (!pending) return;
+        const rosterIds = new Set((get().roster ?? []).map(u => u.id));
+        const picked = [...new Set(selectedIds ?? [])].filter(id => rosterIds.has(id)).slice(0, pending.cap);
+        set(s => ({
+          squadPreferences: {
+            ...(s.squadPreferences ?? {}),
+            [pending.prefKey]: { ...((s.squadPreferences ?? {})[pending.prefKey] ?? {}), lastSelectedIds:picked },
+          },
+          pendingSquad:null, selectedSquadIds:[], missionResult:null,
+        }));
+        get().launchMission(pending.location, pending.mode, pending.floor, pending.prevNoise, picked);
+      },
+
+      launchMission(location, md, floor = 1, prevNoise = 0, selectedUnitIds = []) {
+        const { vp, roster, locationVisits, locationScavenges, locationBosses, locationResources, bestiary, varekAchievements } = get();
         const danger  = location.danger ?? 1;
         const locId   = location.id ?? '';
         const locType = location.type ?? '';
         const FLOOR_MAX_MAP = { dungeon:5, camp:3, wizard_tower:5, cabin:2, crypt:3 };
+        const primaryResource = location.primaryResource ?? (locationResources ?? {})[locId] ?? primaryResourceFor(location, locType);
+        const newLocationResources = { ...(locationResources ?? {}), [locId]: primaryResource };
         const maxFloor = FLOOR_MAX_MAP[locType] ?? 1;
         const effectiveDanger = Math.min(3, danger + Math.floor((floor - 1) / 2));
         // Pick generator + map size by location type / id prefix
@@ -201,18 +429,22 @@ export const useGameStore = create(
         else if (locType==='battlefield')                             { mapFn=genBattlefield;      mapW=24; mapH=18; }
         else                                                          { mapFn=genMap;              mapW=16+Math.floor(Math.random()*7); mapH=12+Math.floor(Math.random()*5); }
         const spawnX = 1, spawnY = mapH - 2;
-        const activeRoster = roster.filter(u => !u.atBase);
+        const selectedSet = new Set(selectedUnitIds ?? []);
+        const activeRoster = roster.filter(u => selectedSet.has(u.id)).slice(0, squadCap(md));
         const rawTiles = mapFn(danger, mapW, mapH);
         // Strip loot/specials that ended up in disconnected areas, then find valid spawn slots
         const tiles = cullUnreachable(rawTiles, spawnX, spawnY);
         const spawnSlots = findSpawnSlots(tiles, spawnX, spawnY, 1 + activeRoster.length);
         const hasGrief  = (varekAchievements ?? []).includes('grief');
         const varekAbils = [...(vp.varekAbilities ?? []), ...(varekAchievements ?? [])];
-        const varekAbilUses = Object.fromEntries(varekAbils.map(aid => [aid, ABILITIES[aid]?.usesPerEncounter ?? 0]));
+        const varekAbilUses = Object.fromEntries(varekAbils.map(aid => [aid, abilityUsesFor(vp, aid)]));
         const varekBondedArmed = Object.fromEntries(varekAbils.map(aid => [aid, ABILITIES[aid]?.type === 'reactive']));
         const varek = {
           id:'varek', type:UT.VAREK, name:'Varek', emoji:'🧙',
           x: spawnSlots[0]?.x ?? spawnX, y: spawnSlots[0]?.y ?? spawnY, ...vp,
+          maxHp: (vp.maxHp ?? 10) + artifactHpBonus(vp),
+          hp: Math.min((vp.maxHp ?? 10) + artifactHpBonus(vp), (vp.hp ?? 10) + artifactHpBonus(vp)),
+          tetherCap: (vp.tetherCap ?? 1) + (vp.accessory === 'pale_signet' ? 1 : 0),
           dmg: (vp.dmg || 2) + (hasGrief ? 1 : 0),
           moveRange: vp.moveRange || 3,
           trapReveal: vp.trapReveal || 1,
@@ -228,16 +460,16 @@ export const useGameStore = create(
           .map((u, i) => {
             const slot = spawnSlots[1 + i] ?? { x: spawnX+1+i, y: spawnY };
             const classUses = u.classAbility
-              ? { [u.classAbility]: ABILITIES[u.classAbility]?.usesPerEncounter ?? 0 }
+              ? { [u.classAbility]: abilityUsesFor(u, u.classAbility) }
               : {};
             const bondedUses = Object.fromEntries(
-              (u.bondedAbilities ?? []).map(aid => [aid, ABILITIES[aid]?.usesPerEncounter ?? 0])
+              (u.bondedAbilities ?? []).map(aid => [aid, abilityUsesFor(u, aid)])
             );
             const bondedArmed = Object.fromEntries(
               (u.bondedAbilities ?? []).map(aid => [aid, ABILITIES[aid]?.type === 'reactive'])
             );
             return {
-              ...u, x:slot.x, y:slot.y, actionPoints:1, movementPoints:1, fallen:false, raiseTurn:null, atBase:false,
+              ...u, x:slot.x, y:slot.y, maxHp:(u.maxHp ?? u.hp) + artifactHpBonus(u), hp:Math.min((u.maxHp ?? u.hp) + artifactHpBonus(u), (u.hp ?? u.maxHp) + artifactHpBonus(u)), actionPoints:1, movementPoints:1, fallen:false, raiseTurn:null, atBase:false,
               statusEffects: [],
               abilityUses: { ...classUses, ...bondedUses },
               abilityArmed: ABILITIES[u.classAbility]?.type === 'reactive' ? true : false,
@@ -316,7 +548,7 @@ export const useGameStore = create(
         missionTiles.forEach(row => row.forEach(t => {
           if (t.type === TILE.DOOR && t.locked && t.keyId) lockedKeyIds.push(t.keyId);
         }));
-        let missionEnemies = [...enemies, ...(boss ? [boss] : []), ...bossSupport];
+        let missionEnemies = [...enemies, ...(boss ? [boss] : []), ...bossSupport].map(e => enemyGearFor(e, locType, primaryResource));
         lockedKeyIds.forEach(keyId => {
           const eligible = missionEnemies.filter(e => !e.holdsKey && !e.sleeping && !e.isBoss);
           if (!eligible.length) return;
@@ -344,7 +576,7 @@ export const useGameStore = create(
         const bossLog = boss ? [`⚠️ ${boss.name} commands the floor — with ${bossSupport.length} guards at their side!`] : [];
         const floorLog = maxFloor > 1 ? [`📍 Floor ${floor} of ${maxFloor}.`] : [];
         set({
-          ms:    { tiles:revealedTiles, units:initialUnits, turn:1, loot:[], keys:[], width:mapW, height:mapH, objective, locationId:locId, deployedUndeadIds, floor, maxFloor, isBossFloor },
+          ms:    { tiles:revealedTiles, units:initialUnits, turn:1, loot:[], keys:[], width:mapW, height:mapH, objective, locationId:locId, primaryResource, deployedUndeadIds, floor, maxFloor, isBossFloor, hunting:false },
           noise: prevNoise > 0 ? Math.max(30, prevNoise) : (md === 'raid' ? 30 : 0),
           loc:   location,
           mode:  md,
@@ -352,9 +584,12 @@ export const useGameStore = create(
           log:   [...bossLog, ...floorLog, `${location.name} — ${md==='raid'?'Raid: enemies alerted.':'Scavenge: stay quiet.'}`, `◼ ${objective.label}`],
           phase: 'player',
           screen:SCREEN.MISSION,
+          pendingSquad:null,
+          selectedSquadIds:[],
           locationVisits:    newLocationVisits,
           locationScavenges: newLocationScavenges,
           locationBosses:    newLocationBosses,
+          locationResources: newLocationResources,
           bestiary:          newBestiary,
         });
         const { currentUser: cu2 } = get();
@@ -375,6 +610,13 @@ export const useGameStore = create(
         let varekXpBonus = 0;
         const objLogs = [];
 
+        if (success && mode === 'scavenge' && currentMs?.hunting) {
+          const before = finalLoot.length;
+          finalLoot = finalLoot.filter(() => Math.random() >= 0.4);
+          const dropped = before - finalLoot.length;
+          if (dropped > 0) objLogs.push(`🚨 Hunted extraction — ${dropped} item${dropped !== 1 ? 's' : ''} lost in the escape.`);
+        }
+
         if (success && objective) {
           if (objective.complete) {
             varekXpBonus = 5;
@@ -392,16 +634,28 @@ export const useGameStore = create(
 
         // ── Unit / roster resolution ──────────────────────────────────────
         const rosterIds = new Set(roster.map(u => u.id));
-        const deployedUndeadIds = currentMs?.deployedUndeadIds ?? roster.filter(u => !u.atBase).map(u => u.id);
+        const deployedUndeadIds = currentMs?.deployedUndeadIds ?? [];
         const deployedIdSet = new Set(deployedUndeadIds);
         const luqExtra = [];
         let surv = units.filter(u => u.type === UT.UNDEAD && !u.fallen);
+        let passiveRoster = [...roster];
         const fallenDeployed = deployedUndeadIds
           .map(id => units.find(u => u.id === id) ?? roster.find(u => u.id === id))
           .filter(u => u && (u.fallen || !surv.some(su => su.id === u.id)));
         const gainedUnits = surv.filter(u => !rosterIds.has(u.id));
-        const survivalUnits = success ? surv.filter(u => deployedIdSet.has(u.id)) : [];
-        survivalUnits.forEach(u => {
+        const passiveUnits = roster.filter(u => (u.level ?? 1) < 4);
+        const passiveAwardNames = [];
+        passiveUnits.forEach(u => {
+          if (deployedIdSet.has(u.id)) {
+            if (!surv.some(su => su.id === u.id)) return;
+            surv = surv.map(su => su.id === u.id ? applyPassiveXp(su, luqExtra) : su);
+          } else {
+            passiveRoster = passiveRoster.map(r => r.id === u.id ? applyPassiveXp(r, luqExtra) : r);
+          }
+          passiveAwardNames.push(u.pname ?? u.name);
+        });
+        const participationUnits = surv.filter(u => deployedIdSet.has(u.id));
+        participationUnits.forEach(u => {
           surv = applyXpToUnits(surv, u.id, 1, luqExtra);
         });
         let varek = units.find(u => u.id === 'varek');
@@ -413,11 +667,19 @@ export const useGameStore = create(
         }
 
         const newVp = varek
-          ? { ...vp, hp:varek.hp, xp:varek.xp, level:varek.level, raiseRange:varek.raiseRange,
+          ? preserveEquipped(vp, { ...vp, hp:varek.hp, xp:varek.xp, level:varek.level, raiseRange:varek.raiseRange,
               drainRange:varek.drainRange, tetherCap:varek.tetherCap, dmg:varek.dmg??2,
-              moveRange:varek.moveRange||3, weapon:varek.weapon, armor:varek.armor }
+              moveRange:varek.moveRange||3, weapon:varek.weapon, armor:varek.armor, accessory:varek.accessory })
           : vp;
-        const newRoster = [...roster.filter(u => u.atBase), ...surv.map(u => ({ ...u, atBase:false }))];
+        const survivorsById = new Map(surv.map(u => [u.id, u]));
+        const newRoster = [
+          ...passiveRoster.flatMap(u => {
+            if (!deployedIdSet.has(u.id)) return [u];
+            const survivor = survivorsById.get(u.id);
+            return survivor ? [{ ...preserveEquipped(u, survivor), atBase:false }] : [];
+          }),
+          ...gainedUnits.map(u => ({ ...u, atBase:false })),
+        ];
 
         // Loot goes into travelBag — Varek carries it; must return to Sanctuary to deposit
         let newBag = { ...travelBag };
@@ -443,7 +705,8 @@ export const useGameStore = create(
         if (quarryCount > 0) { newInv.scrap_iron = (newInv.scrap_iron||0)+quarryCount*2; logs.push(`⛏ ${quarryCount} quarr${quarryCount!==1?'ies':'y'} yield${quarryCount===1?'s':''} ${quarryCount*2} scrap iron.`); }
 
         if (success) logs.push(`✓ Secured ${finalLoot.length} item${finalLoot.length!==1?'s':''} — return to Sanctuary to deposit.`);
-        if (survivalUnits.length) logs.push(`+1 survival XP: ${survivalUnits.map(u => u.pname ?? u.name).join(', ')}.`);
+        if (passiveAwardNames.length) logs.push(`+1 passive XP: ${passiveAwardNames.join(', ')}.`);
+        if (participationUnits.length) logs.push(`+1 participation XP: ${participationUnits.map(u => u.pname ?? u.name).join(', ')}.`);
 
         // ── Boss kill + location clear ─────────────────────────────────
         const killedBoss = units.find(u => u.isBoss && u.fallen);
@@ -507,7 +770,7 @@ export const useGameStore = create(
             pendingLoc: (success && mode === 'raid' && floor < maxFloor && !isBossFloor) ? loc : null,
             fallenUnits: fallenDeployed.map(u => ({ id:u.id, name:u.pname ?? u.name, className:u.cls ?? u.dc ?? 'Undead', emoji:u.emoji ?? '☠' })),
             gainedUnits: gainedUnits.map(u => ({ id:u.id, name:u.pname ?? u.name, className:u.cls ?? u.dc ?? 'Undead', emoji:u.emoji ?? '☠' })),
-            survivalXpUnits: survivalUnits.map(u => ({ id:u.id, name:u.pname ?? u.name, className:u.cls ?? u.dc ?? 'Undead', emoji:u.emoji ?? '☠' })),
+            survivalXpUnits: participationUnits.map(u => ({ id:u.id, name:u.pname ?? u.name, className:u.cls ?? u.dc ?? 'Undead', emoji:u.emoji ?? '☠' })),
           },
           screen:SCREEN.MISSION_RESULTS,
           log: [...logs, ...s.log].slice(0, 14),
@@ -544,6 +807,7 @@ export const useGameStore = create(
               trapReveal:    ps.trapReveal,
               weapon:        u.weapon ?? null,
               armor:         u.armor  ?? null,
+              accessory:     u.accessory ?? null,
               silentAttacks:        cls.silentAttacks ?? false,
               untargetableInShadow: cls.untargetableInShadow ?? false,
               cannotInteract:       cls.cannotInteract ?? false,
@@ -601,6 +865,7 @@ export const useGameStore = create(
               trapReveal:    ps.trapReveal,
               weapon:        u.weapon ?? null,
               armor:         u.armor  ?? null,
+              accessory:     u.accessory ?? null,
               silentAttacks:        cls.silentAttacks ?? false,
               untargetableInShadow: cls.untargetableInShadow ?? false,
               cannotInteract:       cls.cannotInteract ?? false,
@@ -661,6 +926,7 @@ export const useGameStore = create(
             trapReveal:    ps.trapReveal,
             weapon:        u.weapon ?? null,
             armor:         u.armor  ?? null,
+            accessory:     u.accessory ?? null,
             silentAttacks:        cls.silentAttacks ?? false,
             untargetableInShadow: cls.untargetableInShadow ?? false,
             cannotInteract:       cls.cannotInteract ?? false,
@@ -957,8 +1223,8 @@ export const useGameStore = create(
           equipTgt:null, loc:null, mode:'scavenge', unlockedLocs:['town'],
           world:null, worldPos:null, sanctuaryPos:null, selectedHex:null,
           pendingSanctuaryTile:null, worldPath:[], travelBag:{},
-          sanctuaryGrid:null, activeSlot:null, promotionQueue:[],
-          locationVisits:{}, locationScavenges:{}, locationBosses:{}, missionResult:null });
+          sanctuaryGrid:null, activeSlot:null, promotionQueue:[], pendingSquad:null, selectedSquadIds:[], squadPreferences:{},
+          locationVisits:{}, locationScavenges:{}, locationBosses:{}, locationResources:{}, missionResult:null });
         // bestiary intentionally NOT cleared — it is account-scoped
       },
 
@@ -1239,11 +1505,13 @@ export const useGameStore = create(
           locationVisits: data.location_visits ?? {},
           locationBosses: data.location_bosses ?? {},
           locationScavenges: data.location_scavenges ?? {},
+          locationResources: data.location_resources ?? {},
+          squadPreferences: data.squad_preferences ?? {},
           activeSlot:     slot,
           // Reset transient state
           ms: mission?.ms ?? null, phase:'player', luq:[], noise:mission?.noise ?? 0, selectedHex:null,
           equipTgt:null, loc:mission?.loc ?? null, mode:mission?.mode ?? 'scavenge',
-          worldPath:[], pendingSanctuaryTile:null, missionResult:null,
+          worldPath:[], pendingSanctuaryTile:null, missionResult:null, pendingSquad:null, selectedSquadIds:[],
           screen: mission?.ms ? SCREEN.MISSION : (canResumeWorld ? SCREEN.WORLD : SCREEN.TITLE),
         });
         // Bestiary is account-scoped — load separately via loadBestiary()
@@ -1256,7 +1524,7 @@ export const useGameStore = create(
           world:null, worldPos:null, sanctuaryPos:null, unlockedLocs:['town'],
           ms:null, phase:'player', luq:[], noise:0, log:[], selectedHex:null,
           equipTgt:null, loc:null, travelBag:{}, worldPath:[], sanctuaryGrid:null,
-          pendingSanctuaryTile:null, missionResult:null, activeSlot:slot, screen:SCREEN.TITLE,
+          pendingSanctuaryTile:null, missionResult:null, pendingSquad:null, selectedSquadIds:[], squadPreferences:{}, locationResources:{}, activeSlot:slot, screen:SCREEN.TITLE,
         });
       },
 
@@ -1364,9 +1632,10 @@ export const useGameStore = create(
           emoji: fresh ? '💀' : '🪦',
           dc: fallen.dc,
           baseClass: DC_TO_BASE[fallen.dc] ?? null,
+          baseRace: fallen.baseRace ?? fallen.sourceRace ?? fallen.name ?? 'Unknown',
           x:fallen.x, y:fallen.y, ...stats,
           actionPoints:0, movementPoints:0, fallen:false, raiseTurn:null, atBase:false,
-          xp:0, level:1, weapon:null, armor:null, dmgUpgrades:0,
+          xp:0, level:1, weapon:null, armor:null, accessory:null, dmgUpgrades:0,
           isTinker: !!(ub?.tinker),
           ...(isBossRaise ? {
             bossPassive: fallen.bossPassive,
@@ -1413,6 +1682,7 @@ export const useGameStore = create(
         let over   = false;
         let objective = ms.objective ? { ...ms.objective } : null;
         const t    = tiles[y][x];
+        let noiseEvent = null;
 
         if (t.type === TILE.TRAP) {
           tiles[y][x] = { type:TILE.TRAP_X };
@@ -1424,6 +1694,7 @@ export const useGameStore = create(
           else if (roll < 0.42) { dmg=Math.floor(base/2); logs.push(`💥 Trap! ${unit.name} grazes it — -${dmg}hp.`); }
           else                  { dmg=base;   logs.push(`💥 Trap! ${unit.name} -${dmg}hp.`); }
           nn += 20;
+          noiseEvent = { mode:s.mode, x, y, radius:5 };
           units = units.map(u => u.id===sel ? { ...u, hp:u.hp-dmg, x, y, movementPoints:u.movementPoints-1 } : u);
           const af = units.find(u => u.id === sel);
           if (af.hp <= 0) {
@@ -1433,12 +1704,12 @@ export const useGameStore = create(
         } else if (t.type === TILE.LOOT) {
           tiles[y][x] = { type:TILE.LOOT_OPEN };
           const floorDepth = s.ms?.floor ?? 1;
-          const floorKey = Math.min(floorDepth, 4);
-          const tbl = (floorDepth > 1 && FLOOR_LOOT[floorKey]) ? FLOOR_LOOT[floorKey] : LOOT[s.loc.lq];
-          const iid = tbl[Math.floor(Math.random()*tbl.length)];
-          loot.push(iid);
-          logs.push(`${unit.emoji} Found ${item(iid)?.emoji} ${item(iid)?.name}!`);
-          nn += 5;
+          const picked = pickContainerLoot(s.mode, s.loc?.lq, floorDepth, ms.primaryResource, s.loc?.type);
+          picked.items.forEach(iid => pushLootWithQuantity(loot, iid, picked.quantity));
+          const foundNames = picked.items.map(iid => `${item(iid)?.emoji ?? ''} ${item(iid)?.name ?? iid}${picked.quantity > 1 ? ` x${picked.quantity}` : ''}`.trim()).join(', ');
+          logs.push(`${unit.emoji} Found ${foundNames}!`);
+          nn += s.mode === 'scavenge' ? 8 : 15;
+          noiseEvent = { mode:s.mode, x, y, radius:2 };
           units = units.map(u => u.id===sel ? { ...u, x, y, movementPoints:u.movementPoints-1 } : u);
           // loot_named objective: opening the marked cache completes it
           if (objective?.type === 'loot_named' && objective.targetX === x && objective.targetY === y && !objective.complete) {
@@ -1447,7 +1718,8 @@ export const useGameStore = create(
             logs.push(`⭐ Marked cache recovered — objective complete!`);
           }
         } else if (t.type === TILE.RUBBLE) {
-          nn += 3;
+          nn += s.mode === 'scavenge' ? 6 : 3;
+          noiseEvent = { mode:s.mode, x, y, radius:2 };
           units = units.map(u => u.id===sel ? { ...u, x, y, movementPoints:u.movementPoints-1 } : u);
           logs.push(`${unit.name} crunches through rubble...`);
         } else if (t.type === TILE.EXIT) {
@@ -1475,6 +1747,7 @@ export const useGameStore = create(
         } else if (t.type === TILE.FIRE) {
           logs.push(`🔥 ${unit.name} runs through fire! (-1hp)`);
           nn += 10;
+          noiseEvent = { mode:s.mode, x, y, radius:3 };
           units = units.map(u => u.id===sel ? { ...u, hp:u.hp-1, x, y, movementPoints:u.movementPoints-1 } : u);
           const af = units.find(u => u.id === sel);
           if (af && af.hp <= 0) {
@@ -1485,9 +1758,15 @@ export const useGameStore = create(
           units = units.map(u => u.id===sel ? { ...u, x, y, movementPoints:u.movementPoints-1 } : u);
         }
 
-        if (nn >= 50) {
+        let hunting = ms.hunting ?? false;
+        if (s.mode === 'scavenge' && noiseEvent) {
+          const noiseResult = applyScavengeNoise(ms, units, noiseEvent, logs);
+          units = noiseResult.units;
+          hunting = noiseResult.hunting;
+          nn = Math.max(nn, noiseResult.noiseLevel);
+        } else if (nn >= 50) {
           const was = ms.units.some(u => u.type===UT.ENEMY && u.alerted);
-          units = units.map(u => u.type===UT.ENEMY ? { ...u, alerted:true } : u);
+          units = units.map(u => u.type===UT.ENEMY ? { ...u, alerted:true, alertState:'alerted' } : u);
           if (!was) {
             logs.push('⚠️ Enemies alerted!');
             if (objective?.type === 'silent_bonus' && !objective.failed) {
@@ -1500,7 +1779,7 @@ export const useGameStore = create(
         tiles = revealTraps(tiles, units);
 
         set(prev => ({
-          ms:    { ...ms, tiles, units, loot, objective },
+          ms:    { ...ms, tiles, units, loot, objective, hunting },
           noise: nn,
           log:   [...logs.reverse(), ...prev.log].slice(0, 14),
         }));
@@ -1790,6 +2069,17 @@ export const useGameStore = create(
             const mult = xpTierMultiplier(attUnit.level ?? 1, !!attUnit.reborn, enemyTier);
             const killXp = Math.max(1, Math.round(baseKillXp * mult));
             units = applyXpToUnits(units, sel, killXp, luq);
+            if (prev.mode === 'raid') {
+              const gearDrops = enemyGearDrops(killed);
+              if (gearDrops.length) {
+                bonusLoot = [...bonusLoot, ...gearDrops];
+                logs.push(`🎒 ${killed.name} drops ${gearDrops.map(id => item(id)?.name ?? id).join(', ')}!`);
+              }
+            }
+            if ((attUnit.accessory === 'grave_seal' || (attUnit.bondedAbilities ?? []).includes('grave_seal')) && Math.random() < 0.2) {
+              units = units.map(u => u.id === sel ? { ...u, hp:Math.min(u.maxHp, u.hp + 5) } : u);
+              logs.push(`☠️ Grave Seal restores 5 HP!`);
+            }
             if (killed.holdsKey && killed.keyId) { newKeys = [...newKeys, killed.keyId]; logs.push(`🔑 ${attUnit.name} finds a key!`); }
             if (objective?.type==='eliminate' && objective.targetId===enemy.id && !objective.complete) {
               objective = {...objective,complete:true}; bonusLoot=[...bonusLoot,...(objective.bonus||[])];
@@ -1807,8 +2097,9 @@ export const useGameStore = create(
           }
 
           if (attUnit.type === UT.VAREK) {
-            units = units.map(u => u.id==='varek' ? { ...u, hp:Math.min(u.maxHp, u.hp+1) } : u);
-            logs.push('Varek drains +1hp');
+            const drainBonus = attUnit.accessory === 'draining_stone' ? 1 : 0;
+            units = units.map(u => u.id==='varek' ? { ...u, hp:Math.min(u.maxHp, u.hp+1+drainBonus) } : u);
+            logs.push(`Varek drains +${1 + drainBonus}hp`);
           }
 
           // Clear ambush prime after it fires
@@ -1816,8 +2107,18 @@ export const useGameStore = create(
             units = units.map(u => u.id === sel ? { ...u, ambushBonus: 0 } : u);
           }
 
+          let hunting = prev.ms.hunting ?? false;
+          let noise = prev.noise;
+          if (prev.mode === 'scavenge') {
+            const noiseResult = applyScavengeNoise(prev.ms, units, { mode:prev.mode, x:defUnit.x, y:defUnit.y, radius:5 }, logs);
+            units = noiseResult.units;
+            hunting = noiseResult.hunting;
+            noise = Math.max(noise, noiseResult.noiseLevel);
+          }
+
           return {
-            ms:  { ...prev.ms, units, loot: bonusLoot, keys: newKeys, objective },
+            ms:  { ...prev.ms, units, loot: bonusLoot, keys: newKeys, objective, hunting },
+            noise,
             luq,
             log: [...logs.reverse(), ...prev.log].slice(0, 14),
           };
@@ -1875,10 +2176,20 @@ export const useGameStore = create(
         const newTiles = ms.tiles.map((row, ry) =>
           row.map((t, rx) => (rx === x && ry === y) ? { ...t, open: true } : t)
         );
-        const newUnits = ms.units.map(u => u.id === sel ? { ...u, actionPoints: u.actionPoints - 1 } : u);
+        let logs = [`🚪 ${unit.name} opens the door.`];
+        let newUnits = ms.units.map(u => u.id === sel ? { ...u, actionPoints: u.actionPoints - 1 } : u);
+        let hunting = ms.hunting ?? false;
+        let noise = s.noise;
+        if (s.mode === 'scavenge') {
+          const result = applyScavengeNoise(ms, newUnits, { mode:s.mode, x, y, radius:3 }, logs);
+          newUnits = result.units;
+          hunting = result.hunting;
+          noise = Math.max(noise, result.noiseLevel);
+        }
         set(prev => ({
-          ms: { ...prev.ms, tiles: newTiles, units: newUnits },
-          log: [`🚪 ${unit.name} opens the door.`, ...prev.log].slice(0, 14),
+          ms: { ...prev.ms, tiles: newTiles, units: newUnits, hunting },
+          noise,
+          log: [...logs, ...prev.log].slice(0, 14),
         }));
       },
 
@@ -1900,10 +2211,20 @@ export const useGameStore = create(
         const newTiles = ms.tiles.map((row, ry) =>
           row.map((t, rx) => (rx === x && ry === y) ? { ...t, open: true, locked: false } : t)
         );
-        const newUnits = ms.units.map(u => u.id === sel ? { ...u, actionPoints: u.actionPoints - 1 } : u);
+        let logs = [`🔨 ${unit.name} bashes the locked door open!`];
+        let newUnits = ms.units.map(u => u.id === sel ? { ...u, actionPoints: u.actionPoints - 1 } : u);
+        let hunting = ms.hunting ?? false;
+        let noise = s.noise;
+        if (s.mode === 'scavenge') {
+          const result = applyScavengeNoise(ms, newUnits, { mode:s.mode, x, y, radius:5 }, logs);
+          newUnits = result.units;
+          hunting = result.hunting;
+          noise = Math.max(noise, result.noiseLevel);
+        }
         set(prev => ({
-          ms: { ...prev.ms, tiles: newTiles, units: newUnits },
-          log: [`🔨 ${unit.name} bashes the locked door open!`, ...prev.log].slice(0, 14),
+          ms: { ...prev.ms, tiles: newTiles, units: newUnits, hunting },
+          noise,
+          log: [...logs, ...prev.log].slice(0, 14),
         }));
       },
 
@@ -2295,7 +2616,7 @@ export const useGameStore = create(
 
         set(prev => {
           const ms       = prev.ms;
-          const noiseMod = prev.noise < 30 ? -1 : prev.noise < 60 ? 0 : 1;
+          const noiseMod = prev.mode === 'scavenge' ? 0 : (prev.noise < 30 ? -1 : prev.noise < 60 ? 0 : 1);
           let units      = ms.units.map(u => ({ ...u, actionPoints:u.fallen?0:1, movementPoints:u.fallen?0:1, moveBonusThisTurn:0 }));
           const logs     = [];
           let luq        = [...prev.luq];
@@ -2409,7 +2730,7 @@ export const useGameStore = create(
             if (u.type!==UT.ENEMY || u.fallen || u.alerted) return u;
             if (u.placement === 'ambush' && !u.ambushTriggered) return u;
             const spotted = friendlies().find(f => {
-              const shadowPen = ms.tiles[f.y]?.[f.x]?.type === TILE.SHADOW ? 1 : 0;
+              const shadowPen = (ms.tiles[f.y]?.[f.x]?.type === TILE.SHADOW || f.accessory === 'wraithveil') ? 1 : 0;
               return dist(u,f) <= (u.sight||3)+noiseMod-shadowPen && hasLOS(ms.tiles,u.x,u.y,f.x,f.y);
             });
             if (!spotted) return u;
@@ -2420,6 +2741,14 @@ export const useGameStore = create(
             }
             return u;
           });
+          const enemyCountForAlert = units.filter(u => u.type===UT.ENEMY && !u.fallen).length;
+          const alertCountForThreshold = units.filter(u => u.type===UT.ENEMY && !u.fallen && u.alerted).length;
+          let hunting = ms.hunting ?? false;
+          if (prev.mode === 'scavenge' && enemyCountForAlert > 0 && alertCountForThreshold > enemyCountForAlert / 2) {
+            hunting = true;
+            units = units.map(u => u.type === UT.ENEMY && !u.fallen ? { ...u, alerted:true, alertState:'hunting', hunting:true } : u);
+            logs.push('🚨 Too many enemies are alerted — the hunt begins!');
+          }
           if (units.filter(u => u.type===UT.ENEMY && u.alerted).length > preAlertCount) {
             if (objective?.type === 'silent_bonus' && !objective.failed) {
               objective = { ...objective, failed: true };
@@ -2452,6 +2781,35 @@ export const useGameStore = create(
                 return { ...u, ambushTriggered: true, alerted: true };
               }
               return u;
+            }
+
+            if (u.alertState === 'suspicious' && !u.alerted) {
+              const visible = fr.find(f => dist(u,f) <= (u.sight||3) && hasLOS(ms.tiles,u.x,u.y,f.x,f.y));
+              if (visible) {
+                logs.push(`⚠️ ${u.name} finds ${visible.name}!`);
+                return { ...u, alerted:true, alertState:'alerted', suspicious:false, lastKnown:{ x:visible.x, y:visible.y } };
+              }
+              const inv = u.investigation ?? u.lastKnown;
+              if (!inv) return { ...u, alertState:null, suspicious:false, investigateTurns:0 };
+              if (u.x === inv.x && u.y === inv.y) {
+                const turns = (u.investigateTurns ?? 0) + 1;
+                if (turns >= 2) {
+                  logs.push(`${u.name} finds nothing and returns to patrol.`);
+                  return { ...u, alertState:null, suspicious:false, investigation:null, investigateTurns:0, lastKnown:null };
+                }
+                return { ...u, investigateTurns:turns };
+              }
+              const path = bfsGridPath(ms.tiles, u.x, u.y, inv.x, inv.y, units);
+              if (path.length) {
+                let nx = u.x, ny = u.y, steps = 0;
+                for (const step of path) {
+                  if (steps >= (u.moveRange || 1)) break;
+                  if (!walkable(ms.tiles, step.x, step.y, units)) break;
+                  nx = step.x; ny = step.y; steps++;
+                }
+                return { ...u, x:nx, y:ny, investigateTurns:0 };
+              }
+              return { ...u, investigateTurns:(u.investigateTurns ?? 0) + 1 };
             }
 
             const adj = fr.find(f => dist(u,f) <= 1);
@@ -3052,13 +3410,18 @@ export const useGameStore = create(
               ? `${gatherer.name} carefully strips 1🦴 — body gone.`
               : `${gatherer.name} carefully strips 1🦴. (${Math.round(Math.min(1,0.3+(gatherCount+1)*0.3)*100)}% gone next)`);
           } else {
-            const picked = BODY_LOOT[Math.floor(Math.random()*BODY_LOOT.length)];
+            const pool = fe.faction === 'adventurer' ? BODY_LOOT.filter(Boolean) : BODY_LOOT;
+            const picked = pool[Math.floor(Math.random()*pool.length)];
+            const gearDrops = fe.faction === 'adventurer' ? enemyGearDrops(fe) : [];
             if (picked) newLoot.push(picked);
+            if (gearDrops.length) newLoot.push(...gearDrops);
             const nextPct = Math.round(Math.min(1,0.3+(gatherCount+1)*0.3)*100);
-            if (picked) {
+            const found = [picked, ...gearDrops].filter(Boolean);
+            if (found.length) {
+              const names = found.map(id => item(id)?.name ?? id).join(', ');
               logs.push(stripped
-                ? `${gatherer.name} finds 1🦴 — body gone.`
-                : `${gatherer.name} finds 1🦴. (${nextPct}% gone next)`);
+                ? `${gatherer.name} finds ${names} — body gone.`
+                : `${gatherer.name} finds ${names}. (${nextPct}% gone next)`);
             } else {
               logs.push(stripped
                 ? `${gatherer.name} finds nothing — body gone.`
@@ -3100,6 +3463,8 @@ export const useGameStore = create(
         state.worldPath = [];
         state.selectedHex = null;
         state.pendingSanctuaryTile = null;
+        state.pendingSquad = null;
+        state.selectedSquadIds = [];
       },
     }
   )

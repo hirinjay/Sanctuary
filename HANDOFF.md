@@ -646,3 +646,95 @@ What was built:
 12. ⬜ **Section 12** — Bestiary (requires Section 9 classes.js)
 13. ⬜ **Section 13** — Varek Achievement Abilities
 14. ⬜ **Section 14** — Pale Warden Bone Explosion (requires Section 9)
+
+
+---
+
+## Phase 1 Session Update — Squad Selection Entry Point
+
+**Status: DONE — code written and build verified**
+
+**What was built:**
+- Added `SCREEN.SQUAD_SELECT` and `src/components/screens/SquadSelectionScreen.jsx`.
+- `startMission(location, mode, floor, prevNoise)` is now the universal pre-encounter entry point. It opens squad selection for scavenge, raid, deeper dungeon floors, world random encounters, village/location encounters, wizard towers, camps, cabins, crypts, and any future caller that uses `startMission`.
+- Added `confirmSquad(selectedIds)` and `launchMission(...)`; only confirmed unit ids are placed into `ms.units` alongside Varek.
+- Enforced squad caps: scavenge = 3 undead + Varek; raid = 6 undead + Varek.
+- Varek is always shown as deployed and cannot be deselected.
+- Squad UI shows roster unit name, class/tier, HP/max HP, level, weapon, armor, accessory placeholder, status, and select/deselect state.
+- Added `squadPreferences` save state keyed by `locationType:mode`, remembering the last squad used for that encounter type/mode. The player can explicitly save either exact individual units or a reusable unit-type formation.
+- Added Supabase migration `20260618000000_add_squad_preferences.sql` for `runs.squad_preferences`.
+- Mission resolution now keeps unselected roster units out of the map while preserving them in roster state.
+- Passive training: roster units below level 4 receive +1 passive XP after an encounter if alive/available; deployed survivors also receive +1 participation XP.
+
+**Equipment preservation decision:**
+- Equipped slots are treated as durable unit state. Added `preserveEquipped(previous, next)` covering `weapon`, `armor`, and future `accessory`.
+- Promotion, level-2 promotion, tier-3 ascension, encounter entry/exit, rebirth/merge-by-spread, and Varek mission saveback preserve equipped items. Game operations should never clear equipment slots unless the player explicitly equips a replacement through `equipItem`.
+- `accessory:null` was added to `DEFAULT_VP` and new raised units as a forward-compatible slot; no accessory items are designed yet.
+
+**Explicitly deferred:**
+- Artifact cache encounters may use different squad limits in a future phase. Do not hardcode those into Phase 1; add a cap override when artifact caches are implemented.
+- No new enemy types were added in this phase, so Bestiary data did not need new entries. Future Ancient Guardians, kingdom soldiers, merchants, envoys, and NPC encounter types must use the standard Bestiary progression: first encounter name, second stats, third abilities.
+- `PromotionModal.jsx`/`promotionQueue` still appears to be leftover or orphaned from the earlier promotion implementation. Not removed in Phase 1 because this phase only touched encounter entry and roster persistence.
+
+**Balance TODOs:**
+- Squad caps 3/6 are requested values, not rebalanced against current encounter density.
+- Passive XP + participation XP may accelerate early level-2 promotions; review after several raids/scavenges.
+- Remembered squad key currently uses `locationType:mode`; revisit if individual dungeons need separate saved squads.
+
+---
+
+## Phase 1 Session Update - Loot, Scavenge, Raid Split
+
+**Status: DONE - code written and build verified**
+
+**What was built:**
+- Reworked encounter rewards so `scavenge` containers draw from material-only loot tables, while `raid` containers and enemy defeats are the source for weapons, armor, relics, artifacts, and body loot.
+- Added location primary resource identity. Each visited location records a stable `locationResources[locationId]` value, biases scavenge/raid loot toward that identity, saves/loads it, and shows the resource marker after discovery on the world map and selected-location panel.
+- Added scavenge noise events with positional suspicion: traps, rubble, fire, attacks, doors, and bashing can send nearby enemies to investigate the noise location. Sound through walls is reduced.
+- Added scavenge hunting escalation: once more than half of enemies are alerted, enemies enter hunting state and the scavenge becomes extraction-only. Successful hunted extraction loses part of carried loot.
+- Added raid gear drop behavior using the requested tier chances: tier 1 = 15%, tier 2 = 35%, tier 3 = 55%, boss = 100%. Adventurers always yield at least one body/gear result when gathered.
+- Added accessory-slot artifact items: Pale Signet, Bone Talisman, Wraithveil, Draining Stone, Iron Heart, Arcane Focus, Grave Seal, and Soul Anchor Shard. These are excluded from scavenge tables and appear through raid/wizard-style sources.
+- Wired several artifact effects where the current systems already had hooks: Pale Signet tether cap, Iron Heart max HP, Arcane Focus encounter uses, Wraithveil shadow benefit, Draining Stone drain bonus, and Grave Seal kill heal chance.
+
+**Architectural decisions:**
+- Scavenge/raid loot is now mode-keyed through `lootTableForMode(mode, lq, floor)`. Future encounter modes should use that instead of directly reading the legacy `LOOT`/`FLOOR_LOOT` shape.
+- Location resource discovery is stored separately from visit count so UI can reveal the icon after first mission without changing existing location data generation.
+- Enemy-carried gear is assigned at encounter creation and dropped from the defeated enemy state. This keeps drops inspectable and allows future factions/NPCs to get bespoke equipment pools.
+
+**Explicitly deferred:**
+- Merchant artifact trade remains pending reputation systems.
+- Coal forge recipes remain pending the forge/crafting pass.
+- Artifact cache encounters may use different squad limits in a future phase.
+- No new enemy type entries were added in this pass. Future Ancient Guardians, kingdom soldiers, merchants, envoys, and NPC encounter types still need Bestiary entries with the standard first/second/third encounter unlock progression.
+- Soul Anchor Shard is defined as an artifact but its fractional tether-cost behavior needs a dedicated tether accounting pass.
+
+**Balance TODOs:**
+- Tune scavenge noise radii, suspicious wait duration, hunting threshold, and hunted extraction loot loss.
+- Tune primary-resource weighting and scavenge material quantities by floor/location type.
+- Validate raid container gear rates against enemy gear-drop rates so raids do not overproduce equipment.
+- Pass over artifact effects and drop frequency after artifact cache/merchant systems exist.
+
+---
+
+## Phase 1 Session Update - Sanctuary Unit Details
+
+**Status: DONE - code written and build verified**
+
+**What was built:**
+- Added expandable unit details in Sanctuary roster cards.
+- Details show class/tier, raise line, base race/source body, Sanctuary/mission status, HP, XP, damage, defense, movement, range, trap reveal, defense trait, equipped weapon, armor, accessory, item descriptions, and active/bonded abilities.
+- Varek's Sanctuary card now displays accessory equipment as well as weapon and armor.
+- Raised units now persist `baseRace` from the fallen enemy name at raise time. Existing saves fall back to the original `Risen/Broken ...` class label when available, otherwise display `Unknown`.
+- Equip modal now includes accessory/artifact items and detects current accessory holders.
+
+**Architectural decisions:**
+- `baseRace` is intentionally separate from `dc`/`baseClass`: `dc` remains the undead raise line, while `baseRace` preserves the original body/source for future armor refitting rules.
+- Rebirth, promotion, and merge continue to preserve `baseRace` through object spread, so refit eligibility can track the original raised body even after class changes.
+
+**Explicitly deferred:**
+- Armor refitting rules and restrictions are still future work.
+- Older promoted units from saves that no longer have a `Risen/Broken ...` class label cannot be perfectly backfilled; they display `Unknown` until a migration/backfill strategy is designed.
+
+**Balance TODOs:**
+- None for this UI/data-tracking pass.
+
