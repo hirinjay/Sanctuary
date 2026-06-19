@@ -6,9 +6,12 @@ const THEME_WALL_BG = {
   forest:      '#020804',
   plains:      '#040904',
   ruins:       '#0c0904',
+  village:     '#120c08',
+  cave:        '#100b06',
   swamp:       '#020a06',
   dungeon:     '#070710',
   cabin:       '#0a0604',
+  camp:        '#100804',
   battlefield: '#080604',
   wizard_tower:'#0a0418',
   crypt:       '#06080c',
@@ -18,9 +21,12 @@ const THEME_FLOOR_BG = {
   forest:      '#0e2210',
   plains:      '#131e0a',
   ruins:       '#201a10',
+  village:     '#211810',
+  cave:        '#18120d',
   swamp:       '#0e1e14',
   dungeon:     '#141a2e',
   cabin:       '#1c1610',
+  camp:        '#2a1e0f',
   battlefield: '#1c1a0e',
   wizard_tower:'#201640',
   crypt:       '#161a22',
@@ -58,45 +64,25 @@ const TILE_ICON = {
 // Deterministic wall icon based on position + theme
 function wallIcon(theme, x, y) {
   const r = (x * 7 + y * 13) % 12;
-  if (theme === 'forest' || theme === 'swamp') {
-    if (r < 5)  return '🌲';
-    if (r < 8)  return '🌳';
-    if (r < 10) return '🌿';
-    return '';
-  }
-  if (theme === 'ruins') {
-    if (r < 3) return '🧱';
-    if (r < 5) return '🪨';
-    return '';
-  }
-  if (theme === 'plains') {
-    if (r < 3) return '🌿';
-    return '';
-  }
-  if (theme === 'cabin') {
-    if (r < 4) return '🪵';
-    return '';
-  }
-  if (theme === 'battlefield') {
-    if (r < 4) return '🪨';
-    return '';
-  }
-  if (theme === 'wizard_tower') {
-    if (r < 5) return '📚';
-    if (r < 8) return '🔮';
-    return '';
-  }
-  if (theme === 'crypt') {
-    if (r < 4) return '⚰';
-    if (r < 6) return '🦴';
-    return '';
-  }
-  return ''; // dungeon/default: no icon, just dark stone
+  if (theme === 'forest') return r < 8 ? '🌲' : '🌳';
+  if (theme === 'swamp') return r < 7 ? '🌿' : '♒';
+  if (theme === 'ruins') return r < 7 ? '🧱' : '╳';
+  if (theme === 'village') return r < 8 ? '🧱' : '⌂';
+  if (theme === 'plains') return r < 7 ? '🌾' : '·';
+  if (theme === 'cabin') return r < 8 ? '🪵' : '╫';
+  if (theme === 'camp') return r < 8 ? '🪵' : '╪';
+  if (theme === 'battlefield') return r < 6 ? '☠' : '⚔';
+  if (theme === 'wizard_tower') return r < 6 ? '🔮' : '✦';
+  if (theme === 'crypt') return r < 6 ? '⚰' : '🦴';
+  if (theme === 'cave') return r < 7 ? '⛰' : '◼';
+  if (theme === 'dungeon') return r < 7 ? '🪨' : '▪';
+  return '▪';
 }
 
-function tileBg(tile, visible, theme) {
+function tileBg(tile, visible, theme, turn) {
   if (!visible) return '#04040a';
   if (tile.type === TILE.TRAP)  return tile.revealed ? '#240c0c' : (THEME_FLOOR_BG[theme] || THEME_FLOOR_BG.default);
+  if (tile.safeZone && turn <= 2) return '#102014';
   if (tile.type === TILE.WALL)  return THEME_WALL_BG[theme]  || THEME_WALL_BG.default;
   if (tile.type === TILE.FLOOR) return THEME_FLOOR_BG[theme] || THEME_FLOOR_BG.default;
   if (tile.type === TILE.DOOR)  return tile.open ? (THEME_FLOOR_BG[theme] || THEME_FLOOR_BG.default) : tile.locked ? '#1c0305' : '#1c0e06';
@@ -108,12 +94,13 @@ function tileContent(tile, visible, theme, x, y) {
   if (tile.type === TILE.TRAP) return tile.revealed ? '⚠️' : null;
   if (tile.type === TILE.WALL) return wallIcon(theme, x, y) || null;
   if (tile.type === TILE.DOOR) return tile.open ? null : tile.locked ? '🔒' : '🚪';
+  if (tile.type === TILE.EXIT) return tile.exitIcon ?? TILE_ICON[tile.type] ?? null;
   return TILE_ICON[tile.type] || null;
 }
 
 const STATUS_ICONS = { root:'🌿', slow:'🐢', bind:'⛓', stun:'💫', poison:'☠', burning:'🔥', marked:'🎯', shielded:'🛡' };
 
-export default function MissionMap({ tiles, units, W, fv, hilight, phaseMoveTiles, phaseWallTiles, raiseable, onCellClick, theme = 'dungeon', tileSize = 46 }) {
+export default function MissionMap({ tiles, units, W, fv, hilight, phaseMoveTiles, phaseWallTiles, raiseable, onCellClick, theme = 'dungeon', tileSize = 46, turn = 999 }) {
   const spriteSize = Math.round(tileSize * 0.58);
   const sFont      = Math.round(tileSize * 0.17);
   const wFont      = Math.round(tileSize * 0.28);
@@ -135,7 +122,7 @@ export default function MissionMap({ tiles, units, W, fv, hilight, phaseMoveTile
         const phWall = phaseWallTiles?.has(k);
         const isR    = raiseable.some(r => r.x===x && r.y===y);
         const marked = tile.marked && tile.type === TILE.LOOT && vis;
-        const bg     = phWall ? '#0f2a0f' : phMove ? '#0a1a3a' : hi ? '#0f2a0f' : isR ? '#0f0f2a' : tileBg(tile, vis, theme);
+        const bg     = phWall ? '#0f2a0f' : phMove ? '#0a1a3a' : hi ? '#0f2a0f' : isR ? '#0f0f2a' : tileBg(tile, vis, theme, turn);
         const content = tileContent(tile, vis, theme, x, y);
 
         // All units at this tile, sorted: living first (z-order top), fallen last (z-order bottom)

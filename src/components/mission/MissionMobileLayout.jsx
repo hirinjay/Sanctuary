@@ -81,7 +81,7 @@ export default function MissionMobileLayout(props) {
           tiles={tiles} units={units} W={mapW} fv={fv}
           hilight={abilityMode!=='phase' && selUnit && selUnit.movementPoints > 0 ? hilight : new Set()} raiseable={raiseable}
           phaseMoveTiles={phaseMoveTiles} phaseWallTiles={phaseWallTiles}
-          onCellClick={handleCellClick} theme={theme} tileSize={42}
+          onCellClick={handleCellClick} theme={theme} tileSize={42} turn={turn}
         />
       </div>
 

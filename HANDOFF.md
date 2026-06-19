@@ -738,3 +738,31 @@ What was built:
 **Balance TODOs:**
 - None for this UI/data-tracking pass.
 
+---
+
+## Phase 1 Session Update - Encounter Map Visual Rework
+
+**Status: IN PROGRESS - Prompt B priority items 1-3 complete; build verified**
+
+**What was built:**
+- Completed Prompt B priority item 1: wall icons now render for every encounter theme instead of plain black walls. Dungeon, camp, wizard tower, forest, cave, village, battlefield, ruins, swamp, crypt, cabin, and plains each have distinct wall visuals.
+- Completed Prompt B priority item 2: encounter maps now pass through `prepareEncounterMap(...)`, which clears a 4x4 player spawn area, removes traps/special tiles around the entry radius before units are placed, and shows a subtle safe-zone tint for the first two turns.
+- Completed Prompt B priority item 3: exits are now themed and repositioned by location type through exit metadata on `TILE.EXIT` tiles.
+- Raider camps use a bottom-edge camp gate, wizard towers use a teleport circle, villages/cabins use entrance-style exits, forests/battlefields get multiple edge exits, multi-floor dungeons/crypts use descending stair icons before final-floor exits, and cave-style locations have cave-mouth exits ready for the future cave system.
+- Mission logs now use the themed exit label/icon when a unit reaches an exit.
+
+**Architectural decisions:**
+- Exit variety is implemented as metadata on existing `TILE.EXIT` tiles rather than adding new tile constants. This preserves current movement, extraction, mission-result, and deeper-floor flows while changing placement and presentation.
+- Map generators remain mostly untouched; a centralized post-generation preparation pass applies spawn safety and exit theming consistently across existing and future generators.
+
+**Explicitly deferred:**
+- Prompt B priority items 4-8 are still deferred: enemy spawn distance expansion, full floor tile theming, staircase confirmation prompt before descent, room connectivity validation, and objective placement distance validation.
+- Full sprite art pass remains deferred until systems stabilize.
+- Animated tile effects such as torch flicker and water movement are deferred.
+- Unit sprites replacing emoji/icons remain deferred.
+
+**Balance TODOs:**
+- Verify that the new centralized exit placement does not make objectives too easy or too far away for each generator.
+- Verify forest/battlefield multi-edge extraction behavior in playtests.
+- Tune spawn safe-zone size if the first two turns feel too protected or too exposed.
+

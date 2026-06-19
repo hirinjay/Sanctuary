@@ -3,7 +3,7 @@ import { persist, subscribeWithSelector } from 'zustand/middleware';
 import { DEFAULT_VP, UT, TILE, UNAMES, XP_LEVELS, UNDEAD_LU } from '../data/constants';
 import { item, BODY_LOOT, lootTableForMode, ARTIFACT_LOOT } from '../data/items';
 import { killXpByTier, xpTierMultiplier } from '../data/enemyDefs';
-import { genMap, genDungeonMap, genCabinMap, genCryptMap, genVaultMap, genBarracksMap, genHuntingLodgeMap, genForest, genRuinedTown, genRaiderCamp, genSwamp, genBattlefield, genAbandonedVillage, genWizardTowerMap, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath, cullUnreachable, findSpawnSlots, placeUnitsOnValidTiles } from '../systems/map';
+import { genMap, genDungeonMap, genCabinMap, genCryptMap, genVaultMap, genBarracksMap, genHuntingLodgeMap, genForest, genRuinedTown, genRaiderCamp, genSwamp, genBattlefield, genAbandonedVillage, genWizardTowerMap, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath, cullUnreachable, findSpawnSlots, placeUnitsOnValidTiles, prepareEncounterMap } from '../systems/map';
 import { spawnEnemies, applyXpToUnits, calcSacrificeBonus, VERDANT_VAREK_LU, resolveDefense, defenseTypeFor } from '../systems/combat';
 import { ARCHETYPES, CLASS_STATS } from '../data/archetypes';
 import { generateWorld, revealAround } from '../world/worldGen';
@@ -432,8 +432,9 @@ export const useGameStore = create(
         const selectedSet = new Set(selectedUnitIds ?? []);
         const activeRoster = roster.filter(u => selectedSet.has(u.id)).slice(0, squadCap(md));
         const rawTiles = mapFn(danger, mapW, mapH);
+        const preparedTiles = prepareEncounterMap(rawTiles, locType || location.type || 'dungeon', floor, FLOOR_MAX_MAP[locType] ?? 1, spawnX, spawnY);
         // Strip loot/specials that ended up in disconnected areas, then find valid spawn slots
-        const tiles = cullUnreachable(rawTiles, spawnX, spawnY);
+        const tiles = cullUnreachable(preparedTiles, spawnX, spawnY);
         const spawnSlots = findSpawnSlots(tiles, spawnX, spawnY, 1 + activeRoster.length);
         const hasGrief  = (varekAchievements ?? []).includes('grief');
         const varekAbils = [...(vp.varekAbilities ?? []), ...(varekAchievements ?? [])];
@@ -1724,7 +1725,8 @@ export const useGameStore = create(
           logs.push(`${unit.name} crunches through rubble...`);
         } else if (t.type === TILE.EXIT) {
           esc = true;
-          logs.push(`🚪 ${unit.name} reaches the exit!`);
+          const exitLabel = t.exitLabel ?? (t.exitKind === 'stairs' ? 'descending stairs' : 'the exit');
+          logs.push(`${t.exitIcon ?? '🚪'} ${unit.name} reaches ${exitLabel}!`);
           if (objective && !objective.complete) {
             if (objective.type === 'survive') {
               if (ms.turn >= objective.turns) {

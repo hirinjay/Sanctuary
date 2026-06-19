@@ -293,6 +293,122 @@ export function bfsStepToward(tiles, fromX, fromY, toX, toY, units) {
   return null;
 }
 
+
+function cloneTiles(tiles) {
+  return tiles.map(row => row.map(tile => ({ ...tile })));
+}
+
+function clearAround(t, cx, cy, radius, replacement = TILE.FLOOR) {
+  const H = t.length, W = t[0]?.length ?? 0;
+  for (let y = Math.max(1, cy - radius); y <= Math.min(H - 2, cy + radius); y++) {
+    for (let x = Math.max(1, cx - radius); x <= Math.min(W - 2, cx + radius); x++) {
+      if (Math.abs(x - cx) + Math.abs(y - cy) <= radius && t[y]?.[x]?.type !== TILE.CAGE) {
+        t[y][x] = { type: replacement, safeZone: radius <= 2 || Math.abs(x - cx) + Math.abs(y - cy) <= 2 };
+      }
+    }
+  }
+}
+
+function clearSpawnZone(t, spawnX, spawnY) {
+  const H = t.length, W = t[0]?.length ?? 0;
+  for (let y = Math.max(1, spawnY - 1); y <= Math.min(H - 2, spawnY + 2); y++) {
+    for (let x = Math.max(1, spawnX - 1); x <= Math.min(W - 2, spawnX + 2); x++) {
+      t[y][x] = { type:TILE.FLOOR, safeZone:true };
+    }
+  }
+  clearAround(t, spawnX, spawnY, 3, TILE.FLOOR);
+}
+
+function clearExistingExits(t) {
+  for (let y = 0; y < t.length; y++) {
+    for (let x = 0; x < (t[0]?.length ?? 0); x++) {
+      if (t[y][x].type === TILE.EXIT) t[y][x] = { type:TILE.FLOOR };
+    }
+  }
+}
+
+function carvePath(t, fromX, fromY, toX, toY) {
+  let x = fromX, y = fromY;
+  while (x !== toX) { if (t[y]?.[x]) t[y][x] = { type:TILE.FLOOR }; x += x < toX ? 1 : -1; }
+  while (y !== toY) { if (t[y]?.[x]) t[y][x] = { type:TILE.FLOOR }; y += y < toY ? 1 : -1; }
+  if (t[y]?.[x] && t[y][x].type !== TILE.EXIT) t[y][x] = { type:TILE.FLOOR };
+}
+
+function placeExit(t, x, y, meta) {
+  const H = t.length, W = t[0]?.length ?? 0;
+  x = Math.max(1, Math.min(W - 2, x));
+  y = Math.max(1, Math.min(H - 2, y));
+  clearAround(t, x, y, 1, TILE.FLOOR);
+  t[y][x] = { type:TILE.EXIT, ...meta };
+  return { x, y };
+}
+
+function farthestFloorFrom(t, sx, sy, predicate = () => true) {
+  let best = { x:Math.max(1, (t[0]?.length ?? 2) - 2), y:1, d:-1 };
+  for (let y = 1; y < t.length - 1; y++) {
+    for (let x = 1; x < (t[0]?.length ?? 0) - 1; x++) {
+      if (t[y][x].type === TILE.WALL || t[y][x].type === TILE.CAGE || !predicate(x, y)) continue;
+      const d = Math.abs(x - sx) + Math.abs(y - sy);
+      if (d > best.d) best = { x, y, d };
+    }
+  }
+  return best;
+}
+
+function placeThemedExit(t, locType, floor = 1, maxFloor = 1, spawnX = 1, spawnY = (t.length - 2)) {
+  const H = t.length, W = t[0]?.length ?? 0;
+  clearExistingExits(t);
+  if (locType === 'camp') {
+    const ex = placeExit(t, Math.floor(W / 2), H - 2, { exitKind:'gate', exitIcon:'🚧', exitLabel:'Camp Gate' });
+    carvePath(t, spawnX, spawnY, ex.x, ex.y);
+    return;
+  }
+  if (locType === 'wizard_tower') {
+    const ex = farthestFloorFrom(t, spawnX, spawnY, (x, y) => Math.abs(x - spawnX) + Math.abs(y - spawnY) > 5);
+    placeExit(t, ex.x, ex.y, { exitKind:'teleport', exitIcon:'🌀', exitLabel:'Teleportation Circle' });
+    carvePath(t, spawnX, spawnY, ex.x, ex.y);
+    return;
+  }
+  if (locType === 'forest' || locType === 'battlefield') {
+    const exits = [
+      [Math.floor(W / 2), 1], [Math.floor(W / 2), H - 2], [1, Math.floor(H / 2)], [W - 2, Math.floor(H / 2)],
+    ];
+    exits.forEach(([x, y]) => placeExit(t, x, y, { exitKind:'edge', exitIcon:'↗', exitLabel:'Map Edge' }));
+    exits.forEach(([x, y]) => carvePath(t, spawnX, spawnY, x, y));
+    return;
+  }
+  if (locType === 'village' || locType === 'cabin') {
+    const ex = placeExit(t, Math.floor(W / 2), H - 2, { exitKind:'gate', exitIcon: locType === 'village' ? '🏘' : '🚪', exitLabel: locType === 'village' ? 'Village Gate' : 'Cabin Door' });
+    carvePath(t, spawnX, spawnY, ex.x, ex.y);
+    return;
+  }
+  if ((locType === 'dungeon' || locType === 'crypt' || locType === 'boss_cave') && floor < maxFloor) {
+    const ex = farthestFloorFrom(t, spawnX, spawnY);
+    placeExit(t, ex.x, ex.y, { exitKind:'stairs', exitIcon:'⬇', exitLabel:'Descending Stairs' });
+    carvePath(t, spawnX, spawnY, ex.x, ex.y);
+    return;
+  }
+  if (locType === 'cave' || locType === 'mountain_pass') {
+    const ex = placeExit(t, W - 2, 1, { exitKind:'cave_mouth', exitIcon:'◖', exitLabel:'Cave Mouth' });
+    carvePath(t, spawnX, spawnY, ex.x, ex.y);
+    return;
+  }
+  const edge = floor >= maxFloor && (locType === 'dungeon' || locType === 'crypt')
+    ? [W - 2, Math.max(1, Math.floor(H / 3))]
+    : [W - 2, 1];
+  const ex = placeExit(t, edge[0], edge[1], { exitKind:'door', exitIcon:'🚪', exitLabel:'Exit' });
+  carvePath(t, spawnX, spawnY, ex.x, ex.y);
+}
+
+export function prepareEncounterMap(tiles, locType = 'dungeon', floor = 1, maxFloor = 1, spawnX = 1, spawnY = null) {
+  const t = cloneTiles(tiles);
+  const H = t.length;
+  const sy = spawnY ?? H - 2;
+  clearSpawnZone(t, spawnX, sy);
+  placeThemedExit(t, locType, floor, maxFloor, spawnX, sy);
+  return t;
+}
+
 // Cabin interior: one or two cozy rooms, lots of loot, minimal enemies
 export function genCabinMap(_danger, mapW, mapH) {
   const W = mapW ?? DEF_W, H = mapH ?? DEF_H;

@@ -107,13 +107,14 @@ export default function MissionScreen() {
     : loc?.type === 'wizard_tower'          ? 'wizard_tower'
     : loc?.type === 'crypt'                 ? 'crypt'
     : loc?.type === 'battlefield'           ? 'battlefield'
+    : loc?.type === 'camp'                  ? 'camp'
+    : loc?.type === 'village'               ? 'village'
+    : loc?.type === 'cave' || loc?.type === 'boss_cave' || loc?.type === 'mountain_pass' ? 'cave'
     : locId.startsWith('wild_forest')       ? 'forest'
     : locId.startsWith('wild_swamp')        ? 'swamp'
     : locId.startsWith('wild_ruins')        ? 'ruins'
     : locId.startsWith('wild_plains')       ? 'plains'
     : locId.startsWith('ruined_')           ? 'ruins'
-    : loc?.type === 'camp'                  ? 'plains'
-    : loc?.type === 'village'               ? 'plains'
     : 'dungeon';
   const varek    = units.find(u => u.id === 'varek');
   const t        = ti(units);
@@ -446,7 +447,7 @@ export default function MissionScreen() {
             tiles={tiles} units={units} W={mapW} fv={fv}
             hilight={abilityMode!=='phase' && selUnit && selUnit.movementPoints > 0 ? hilight : new Set()} raiseable={raiseable}
             phaseMoveTiles={phaseMoveTiles} phaseWallTiles={phaseWallTiles}
-            onCellClick={handleCellClick} theme={theme}
+            onCellClick={handleCellClick} theme={theme} turn={turn}
           />
         </div>
 
