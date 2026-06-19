@@ -288,6 +288,10 @@ export default function MissionScreen() {
   const noiseLabel = ms.hunting ? 'HUNTING — exit only' : noise < 30 ? 'Quiet' : noise < 60 ? 'Noise nearby' : 'Loud';
 
   function handleRetreat() {
+    if (ms.forageAmbush && (ms.turn ?? 1) <= 2) {
+      addLog('⚠ Ambushed while foraging — survive two turns before retreating.');
+      return;
+    }
     if (mode === 'scavenge' && ms.hunting) {
       addLog('🚨 Hunting state — extraction only. Reach the exit.');
       return;

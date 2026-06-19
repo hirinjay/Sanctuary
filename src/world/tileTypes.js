@@ -6,6 +6,8 @@ export const TERRAIN = {
   mountain: { id:'mountain', label:'Mountain', color:0x40394e, dimColor:0x201c27, passable:false, desc:'Impassable peaks.', encounterChance:0 },
   swamp:    { id:'swamp',    label:'Swamp',    color:0x1e3020, dimColor:0x0f1810, passable:true,  desc:'Treacherous marsh.', encounterChance:0.22 },
   water:    { id:'water',    label:'Water',    color:0x0e2038, dimColor:0x07101c, passable:false, desc:'Deep water. No passage.', encounterChance:0 },
+  ash:      { id:'ash',      label:'Ash Waste', color:0x302b2a, dimColor:0x181514, passable:true, desc:'Volcanic ash and coal seams.', encounterChance:0.12 },
+  tundra:   { id:'tundra',   label:'Frozen Tundra', color:0xb8d8e8, dimColor:0x5c6c74, passable:true, desc:'Icy northern wastes.', encounterChance:0.10 },
 }
 
 // Location types that can appear on world tiles
@@ -56,6 +58,86 @@ export function rollForageLoot(terrain, rng = Math.random) {
   const items = Array.from({ length: count }, () => table.pool[Math.floor(rng() * table.pool.length)])
   const hiddenFind = rng() < (table.hiddenChance || 0)
   return { items, hiddenFind }
+}
+
+
+export const FORAGEABLE_TERRAINS = new Set(['plains','forest','swamp','ruins','ash','tundra']);
+
+export const FORAGE_ENCOUNTER_CHANCE = {
+  plains: 0.10,
+  forest: 0.20,
+  swamp: 0.30,
+  ruins: 0.25,
+  ash: 0.35,
+  tundra: 0.25,
+};
+
+function pickOne(arr, rng) { return arr[Math.floor(rng() * arr.length)]; }
+function qty(id, count) { return Array.from({ length:count }, () => id); }
+
+export function rollForageYield(terrain, rng = Math.random) {
+  let items = [];
+  if (terrain === 'plains') {
+    items.push(...qty('food', 1 + Math.floor(rng() * 2)));
+    if (rng() < 0.30) items.push('ironweed');
+  } else if (terrain === 'forest') {
+    const primary = rng() < 0.5 ? qty('food', 1 + Math.floor(rng() * 2)) : ['herbs'];
+    items.push(...primary);
+    if (rng() < 0.40) items.push(pickOne(['bitterroot','pale_fungus'], rng));
+  } else if (terrain === 'swamp') {
+    const primary = pickOne(['nightshade','pale_fungus'], rng);
+    items.push(...qty(primary, 1 + Math.floor(rng() * 2)));
+    if (rng() < 0.35) items.push('bitterroot');
+  } else if (terrain === 'ruins') {
+    if (rng() < 0.5) items.push(...qty('bone', 1 + Math.floor(rng() * 2)));
+    else items.push('cloth');
+    if (rng() < 0.25) items.push('scrap_iron');
+  } else if (terrain === 'ash') {
+    items.push(...qty('embermoss', 1 + Math.floor(rng() * 2)));
+    if (rng() < 0.20) items.push('coal');
+  } else if (terrain === 'tundra') {
+    items.push('rare_crystal');
+    if (rng() < 0.30) items.push('preserved_food');
+  } else {
+    return { items:[], healingItems:[] };
+  }
+  return { items, healingItems:items.filter(id => ['food','preserved_food','pale_fungus','herbs','nightshade'].includes(id)) };
+}
+
+export function forageEncounterForTerrain(terrain, rng = Math.random) {
+  const pools = {
+    plains: [
+      { name:'Foraging Wolves', emoji:'🐺', danger:1, lq:'common', threats:[
+        { name:'Wolf', emoji:'🐺', hp:4, dmg:3, move:5, xp:4, dc:'Skeleton Warrior', sight:5, spot:0.65, attackRange:1, faction:'animal' },
+        { name:'Pack Wolf', emoji:'🐺', hp:5, dmg:3, move:5, xp:5, dc:'Skeleton Warrior', sight:5, spot:0.65, attackRange:1, faction:'animal' },
+      ] },
+      { name:'Wanderer Group', emoji:'🚶', danger:1, lq:'common', threats:WILD_ENCOUNTERS.plains.threats },
+    ],
+    forest: [
+      { name:'Forest Wolf Pack', emoji:'🐺', danger:2, lq:'uncommon', threats:WILD_ENCOUNTERS.forest.threats },
+      { name:'Dire Wolf Trail', emoji:'🐺', danger:2, lq:'uncommon', threats:[{ name:'Dire Wolf', emoji:'🐺', hp:14, dmg:5, move:6, xp:14, dc:'Grave Warden', sight:6, spot:0.8, attackRange:1, faction:'animal', tier:2 }] },
+      { name:'Cave Bear', emoji:'🐻', danger:2, lq:'uncommon', threats:[{ name:'Cave Bear', emoji:'🐻', hp:20, dmg:6, def:2, move:3, xp:20, dc:'Grave Warden', sight:3, spot:0.45, attackRange:1, faction:'animal', tier:2 }] },
+    ],
+    swamp: [
+      { name:'Swamp Wolf Pack', emoji:'🐺', danger:2, lq:'uncommon', threats:WILD_ENCOUNTERS.swamp.threats },
+      { name:'Raider Scouts', emoji:'🗡️', danger:2, lq:'uncommon', threats:WILD_ENCOUNTERS.ruins.threats },
+    ],
+    ruins: [
+      { name:'Raider Scavengers', emoji:'⚔', danger:2, lq:'uncommon', threats:WILD_ENCOUNTERS.ruins.threats },
+      { name:'Wanderer Group', emoji:'🚶', danger:1, lq:'common', threats:WILD_ENCOUNTERS.plains.threats },
+    ],
+    ash: [
+      { name:'Ash Raiders', emoji:'🪓', danger:2, lq:'uncommon', threats:WILD_ENCOUNTERS.ruins.threats },
+      { name:'Cave Bear', emoji:'🐻', danger:2, lq:'uncommon', threats:[{ name:'Cave Bear', emoji:'🐻', hp:20, dmg:6, def:2, move:3, xp:20, dc:'Grave Warden', sight:3, spot:0.45, attackRange:1, faction:'animal', tier:2 }] },
+    ],
+    tundra: [
+      { name:'Dire Wolf Pack', emoji:'🐺', danger:2, lq:'uncommon', threats:[{ name:'Dire Wolf', emoji:'🐺', hp:14, dmg:5, def:1, move:6, xp:14, dc:'Grave Warden', sight:6, spot:0.8, attackRange:1, faction:'animal', tier:2 }] },
+      { name:'Ancient Guardian', emoji:'🛡️', danger:3, lq:'rare', threats:[{ name:'Ancient Guardian', emoji:'🛡️', hp:18, dmg:5, def:2, move:2, xp:18, dc:'Grave Warden', sight:4, spot:0.55, attackRange:1, tier:3 }] },
+    ],
+  };
+  const table = pools[terrain] ?? pools.plains;
+  const base = terrain === 'tundra' && rng() < 0.10 ? table[1] : pickOne(table, rng);
+  return { id:`forage_${terrain}`, type:terrain, isForage:true, forageAmbush:true, primaryResource:terrain, desc:'', links:[], ...base };
 }
 
 // Maps LOC_TYPE danger → loot quality string

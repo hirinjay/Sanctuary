@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useGameStore } from '../../store/gameStore'
-import { TERRAIN, LOC_TYPE } from '../../world/tileTypes'
+import { TERRAIN, LOC_TYPE, FORAGEABLE_TERRAINS } from '../../world/tileTypes'
 import { item } from '../../data/items'
 import { isPlayableWorld } from '../../world/worldState'
 import LevelUpModal from '../mission/LevelUpModal'
@@ -10,13 +10,15 @@ export default function WorldUI() {
   const {
     world, worldPos, sanctuaryPos, selectedHex,
     pendingSanctuaryTile, travelBag,
-    luq, promotionQueue,
+    luq, promotionQueue, forageResult, worldTurn, roster, vp,
     locationBosses, locationScavenges, locationResources,
     startMission, selectHex, openBestiary, goHome, enterSanctuary,
     confirmSanctuaryPlacement, cancelSanctuaryPlacement,
-    depositLoot, forageCurrentTile,
+    depositLoot, forageCurrentTile, resolveForageResult,
   } = useGameStore()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [forageEatTarget, setForageEatTarget] = useState('varek')
+  const [forageSplit, setForageSplit] = useState({})
 
   if (!isPlayableWorld(world, worldPos)) return null
 
@@ -38,7 +40,11 @@ export default function WorldUI() {
   const isVarekHere = worldPos && selectedHex &&
     worldPos.col === selectedHex.col && worldPos.row === selectedHex.row
 
-  const canForage = isVarekHere && selTile && !selTile.location
+  const forageReset = selTile?.forageDepletedUntil && selTile.forageDepletedUntil > (worldTurn ?? 0)
+    ? selTile.forageDepletedUntil - (worldTurn ?? 0)
+    : 0
+  const canForage = isVarekHere && selTile && !selTile.location && !selTile.hasSanctuary
+    && FORAGEABLE_TERRAINS.has(selTile.terrain) && !forageReset
 
   const selLocId = selTile?.location
     ? `${selTile.location.type}_${selTile.col}_${selTile.row}`
@@ -121,6 +127,48 @@ export default function WorldUI() {
         )}
       </div>
 
+
+      {forageResult && (() => {
+        const forageItems = forageResult.items ?? []
+        const healingItems = forageResult.healingItems ?? []
+        const counts = forageItems.reduce((acc, id) => ({ ...acc, [id]:(acc[id] ?? 0) + 1 }), {})
+        const healingCounts = healingItems.reduce((acc, id) => ({ ...acc, [id]:(acc[id] ?? 0) + 1 }), {})
+        const units = [{ id:'varek', name:'Varek', hp:vp.hp, maxHp:vp.maxHp, emoji:'🧙' }, ...(roster ?? []).map(u => ({ id:u.id, name:u.pname ?? u.name, hp:u.hp, maxHp:u.maxHp, emoji:u.emoji }))]
+        const selectedItems = Object.entries(forageSplit).flatMap(([id, cnt]) => Array.from({ length:Math.min(cnt, healingCounts[id] ?? 0) }, () => id))
+        const hasHealing = healingItems.length > 0
+        const foundText = Object.entries(counts).map(([id, cnt]) => `${item(id)?.emoji ?? ''} ${item(id)?.name ?? id}${cnt > 1 ? ` x${cnt}` : ''}`).join(', ')
+        return (
+          <div style={{ position:'absolute', inset:0, background:'#0008', display:'flex', alignItems:'center', justifyContent:'center', zIndex:80 }}>
+            <div style={{ width:360, background:'#0b0f1c', border:'1px solid #3a4a3a', borderRadius:10, padding:16, color:'#c4a882', boxShadow:'0 12px 40px #000b' }}>
+              <div style={{ fontWeight:'bold', color:'#e8d5b0', marginBottom:8 }}>🌿 Forage Result</div>
+              <div style={{ fontSize:12, marginBottom:8 }}>Found: {foundText || 'nothing of use'}</div>
+              {forageResult.encounter && <div style={{ fontSize:11, color:'#9a5a4a', marginBottom:8 }}>⚠ Something is moving nearby. An ambush begins after you finish sorting supplies.</div>}
+              {hasHealing && (
+                <>
+                  <div style={{ fontSize:11, color:'#6a7a6a', marginBottom:6 }}>Consume now to heal one unit?</div>
+                  <select value={forageEatTarget} onChange={e => setForageEatTarget(e.target.value)} style={{ width:'100%', marginBottom:8, background:'#070b14', color:'#c4a882', border:'1px solid #2a2a3a', borderRadius:4, padding:6 }}>
+                    {units.map(u => <option key={u.id} value={u.id}>{u.emoji} {u.name} {u.hp}/{u.maxHp}</option>)}
+                  </select>
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:8 }}>
+                    {Object.entries(healingCounts).map(([id, cnt]) => (
+                      <label key={id} style={{ fontSize:10, border:'1px solid #243a24', borderRadius:4, padding:'4px 6px' }}>
+                        <input type="number" min="0" max={cnt} value={forageSplit[id] ?? 0} onChange={e => setForageSplit(s => ({ ...s, [id]:Number(e.target.value) }))} style={{ width:34, marginRight:4 }} />
+                        {item(id)?.emoji} {item(id)?.name} / {cnt}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                {hasHealing && <button onClick={() => { resolveForageResult('eat_all', forageEatTarget); setForageSplit({}); }} style={actionBtn('#5a8a5a')}>Eat Now</button>}
+                {hasHealing && <button onClick={() => { resolveForageResult('split', forageEatTarget, selectedItems); setForageSplit({}); }} style={actionBtn('#6a6a3a')}>Split</button>}
+                <button onClick={() => { resolveForageResult('keep'); setForageSplit({}); }} style={actionBtn('#3a5a7a')}>Keep in Bag</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* ── Sanctuary confirm modal ─────────────────────────────────────── */}
       {pendingSanctuaryTile && (() => {
         const t = world.tiles[pendingSanctuaryTile.row * world.width + pendingSanctuaryTile.col]
@@ -179,6 +227,9 @@ export default function WorldUI() {
           {/* Terrain description */}
           <div style={{ fontSize: 10, color: '#4a5a4a', marginBottom: 6 }}>
             {TERRAIN[selTile.terrain]?.desc}
+            {forageReset > 0 && (
+              <span style={{ color:'#7a5a3a', marginLeft:8 }}>🧺 depleted · resets in {forageReset} turns</span>
+            )}
             {TERRAIN[selTile.terrain]?.encounterChance > 0 && (
               <span style={{ color: '#6a5a3a', marginLeft: 8 }}>
                 ⚠ {Math.round(TERRAIN[selTile.terrain].encounterChance * 100)}% encounter/hex

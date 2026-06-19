@@ -159,7 +159,7 @@ export default function WorldMapView() {
     if (!Array.isArray(world?.tiles)) return
     const style = new TextStyle({ fontSize: 14, fill: 0xffffff })
     for (const tile of world.tiles) {
-      if (!tile.location && !tile.hasSanctuary) continue
+      if (!tile.location && !tile.hasSanctuary && !tile.forageDepletedUntil) continue
       const { x, y } = hexToPixel(tile.col, tile.row)
 
       let child
@@ -169,6 +169,11 @@ export default function WorldMapView() {
         g.rect(x - 6, y - 3, 12, 10).fill({ color: 0xaa5511, alpha: 1 })
         g.rect(x - 2, y + 1, 4, 6).fill({ color: 0x220e00, alpha: 1 })
         child = g
+      } else if (!tile.location && tile.forageDepletedUntil) {
+        const t = new Text({ text: '🧺', style: new TextStyle({ fontSize: 10, fill: 0x8a6a3a }) })
+        t.anchor.set(0.5)
+        t.position.set(x, y)
+        child = t
       } else {
         const group = new Container()
         const t = new Text({ text: LOC_TYPE[tile.location.type]?.emoji ?? '?', style })

@@ -766,3 +766,34 @@ What was built:
 - Verify forest/battlefield multi-edge extraction behavior in playtests.
 - Tune spawn safe-zone size if the first two turns feel too protected or too exposed.
 
+---
+
+## Phase 1 Session Update - Foraging System Rework
+
+**Status: DONE - code written and build verified**
+
+**What was built:**
+- Reworked foraging into a world-map-only action with explicit terrain yield tables for plains, forest, swamp, ruins, ash, and tundra.
+- Added new forage materials/healing items: Ironweed, Nightshade, Embermoss, Rare Crystal, and Preserved Food.
+- Forage results now go directly into the travel bag and open a result popup.
+- Added eat-now handling: keep all, eat all edible forage on one unit, or split selected edible items while keeping the rest.
+- Added forage encounter risk after yield resolution, including +15% proximity risk near active dungeons, raider camps, or wizard towers.
+- Forage ambush encounters use the last confirmed world squad with Varek; if no squad is saved, Varek enters alone.
+- Forage ambushes disable Retreat for turns 1-2, then normal retreat works again.
+- Added a 2-forage-per-tile depletion limit with 20 world-turn reset and a small basket marker on depleted map hexes.
+- Added persistence for `world_turn` and `current_squad_ids` in the existing Supabase migration.
+
+**Architectural decisions:**
+- Forage depletion is stored directly on world tiles (`forageCount`, `forageDepletedUntil`) so it persists with the generated map and can be rendered without a separate coordinate table.
+- Forage yields are granted before ambush launch. The result popup resolves first, then any rolled ambush starts.
+- Nightshade poison is stored as a status effect and carried into the next encounter by preserving pre-existing unit status effects on mission entry.
+
+**Explicitly deferred:**
+- Herb crafting recipes using foraged ingredients still need wiring into the Forge/crafting system.
+- Full expedition/pending Sanctuary raid gating is not implemented because those systems are not currently present.
+
+**Balance TODOs:**
+- Verify Nightshade correctly serves both as a healing risk item and future crafting ingredient once crafting recipes exist.
+- Tune forage encounter rates and +15% proximity modifier after playtests.
+- Tune tile depletion reset length if 20 world turns feels too strict or too permissive.
+

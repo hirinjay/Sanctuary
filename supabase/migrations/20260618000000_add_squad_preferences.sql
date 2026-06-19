@@ -6,3 +6,9 @@ alter table runs
 
 alter table runs
   add column if not exists location_resources jsonb default '{}'::jsonb;
+
+alter table runs
+  add column if not exists world_turn integer default 0;
+
+alter table runs
+  add column if not exists current_squad_ids jsonb default '[]'::jsonb;

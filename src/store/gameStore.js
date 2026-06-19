@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist, subscribeWithSelector } from 'zustand/middleware';
-import { DEFAULT_VP, UT, TILE, UNAMES, XP_LEVELS, UNDEAD_LU } from '../data/constants';
+import { DEFAULT_VP, UT, TILE, UNAMES, XP_LEVELS, UNDEAD_LU, STATUS } from '../data/constants';
 import { item, BODY_LOOT, lootTableForMode, ARTIFACT_LOOT } from '../data/items';
 import { killXpByTier, xpTierMultiplier } from '../data/enemyDefs';
 import { genMap, genDungeonMap, genCabinMap, genCryptMap, genVaultMap, genBarracksMap, genHuntingLodgeMap, genForest, genRuinedTown, genRaiderCamp, genSwamp, genBattlefield, genAbandonedVillage, genWizardTowerMap, revealTraps, walkable, hasLOS, dist, bfsPath as bfsGridPath, cullUnreachable, findSpawnSlots, placeUnitsOnValidTiles, prepareEncounterMap } from '../systems/map';
@@ -8,7 +8,7 @@ import { spawnEnemies, applyXpToUnits, calcSacrificeBonus, VERDANT_VAREK_LU, res
 import { ARCHETYPES, CLASS_STATS } from '../data/archetypes';
 import { generateWorld, revealAround } from '../world/worldGen';
 import { hexesInRange } from '../world/hexMath';
-import { TERRAIN, rollWildEncounter, rollForageLoot, primaryResourceFor } from '../world/tileTypes';
+import { TERRAIN, rollWildEncounter, rollForageYield, forageEncounterForTerrain, FORAGEABLE_TERRAINS, FORAGE_ENCOUNTER_CHANCE, primaryResourceFor } from '../world/tileTypes';
 import { bfsPath } from '../world/hexMath';
 import { BUILDINGS } from '../data/buildings';
 import { generateObjective } from '../systems/objectives';
@@ -165,6 +165,49 @@ function applyScavengeNoise(ms, units, event, logs) {
   return { units:next, hunting, noiseLevel:radius === Infinity ? 100 : radius * 12 };
 }
 
+
+const FORAGE_HEAL = { food:2, preserved_food:4, pale_fungus:3, herbs:2, nightshade:5 };
+const FORAGE_CONSUMABLES = new Set(Object.keys(FORAGE_HEAL));
+const DANGEROUS_LOCATION_TYPES = new Set(['dungeon','camp','wizard_tower']);
+
+function forageTileKey(pos) {
+  return `${pos.col},${pos.row}`;
+}
+
+function addItemsToBag(bag, items) {
+  const next = { ...(bag ?? {}) };
+  items.forEach(id => { next[id] = (next[id] ?? 0) + 1; });
+  return next;
+}
+
+function removeItemsFromBag(bag, items) {
+  const next = { ...(bag ?? {}) };
+  items.forEach(id => {
+    next[id] = Math.max(0, (next[id] ?? 0) - 1);
+    if (!next[id]) delete next[id];
+  });
+  return next;
+}
+
+
+function forageHealingItems(items) {
+  return items.filter(id => FORAGE_CONSUMABLES.has(id));
+}
+
+function nearbyDangerousLocation(world, pos) {
+  if (!world || !pos) return false;
+  return world.tiles.some(t => t.location && DANGEROUS_LOCATION_TYPES.has(t.location.type)
+    && !(t.location.bossDefeated || t.location.cleared)
+    && Math.abs(t.col - pos.col) + Math.abs(t.row - pos.row) <= 2);
+}
+
+function canForageTile(tile, turn) {
+  if (!tile || tile.location || tile.hasSanctuary) return false;
+  if (!FORAGEABLE_TERRAINS.has(tile.terrain)) return false;
+  if (tile.forageDepletedUntil && tile.forageDepletedUntil > turn) return false;
+  return true;
+}
+
 // Throttled save — fires immediately on first call, then coalesces rapid calls (400ms window)
 let _saveTimer = null
 function debouncedSave(get) {
@@ -230,6 +273,9 @@ export const useGameStore = create(
       selectedHex:           null,  // { col, row } — UI selection
       pendingSanctuaryTile:  null,  // { col, row } — awaiting confirmation
       worldPath:             [],    // [{ col, row }] — movement queue
+      worldTurn:             0,
+      forageResult:          null,  // { items, terrain, encounter, tileKey }
+      currentSquadIds:       [],
       // ── Inventory split ───────────────────────────────────────────────
       travelBag:    {},     // loot Varek carries on the world map
       // ── Sanctuary grid ────────────────────────────────────────────────
@@ -399,7 +445,7 @@ export const useGameStore = create(
             ...(s.squadPreferences ?? {}),
             [pending.prefKey]: { ...((s.squadPreferences ?? {})[pending.prefKey] ?? {}), lastSelectedIds:picked },
           },
-          pendingSquad:null, selectedSquadIds:[], missionResult:null,
+          pendingSquad:null, selectedSquadIds:[], currentSquadIds:picked, missionResult:null,
         }));
         get().launchMission(pending.location, pending.mode, pending.floor, pending.prevNoise, picked);
       },
@@ -450,7 +496,7 @@ export const useGameStore = create(
           moveRange: vp.moveRange || 3,
           trapReveal: vp.trapReveal || 1,
           actionPoints:1, movementPoints:1, fallen:false, raiseTurn:null,
-          statusEffects: [],
+          statusEffects: vp.statusEffects ?? [],
           bondedAbilities: varekAbils,
           abilityUses: varekAbilUses,
           abilityArmed: false,
@@ -471,7 +517,7 @@ export const useGameStore = create(
             );
             return {
               ...u, x:slot.x, y:slot.y, maxHp:(u.maxHp ?? u.hp) + artifactHpBonus(u), hp:Math.min((u.maxHp ?? u.hp) + artifactHpBonus(u), (u.hp ?? u.maxHp) + artifactHpBonus(u)), actionPoints:1, movementPoints:1, fallen:false, raiseTurn:null, atBase:false,
-              statusEffects: [],
+              statusEffects: u.statusEffects ?? [],
               abilityUses: { ...classUses, ...bondedUses },
               abilityArmed: ABILITIES[u.classAbility]?.type === 'reactive' ? true : false,
               bondedArmed,
@@ -577,7 +623,7 @@ export const useGameStore = create(
         const bossLog = boss ? [`⚠️ ${boss.name} commands the floor — with ${bossSupport.length} guards at their side!`] : [];
         const floorLog = maxFloor > 1 ? [`📍 Floor ${floor} of ${maxFloor}.`] : [];
         set({
-          ms:    { tiles:revealedTiles, units:initialUnits, turn:1, loot:[], keys:[], width:mapW, height:mapH, objective, locationId:locId, primaryResource, deployedUndeadIds, floor, maxFloor, isBossFloor, hunting:false },
+          ms:    { tiles:revealedTiles, units:initialUnits, turn:1, loot:[], keys:[], width:mapW, height:mapH, objective, locationId:locId, primaryResource, deployedUndeadIds, floor, maxFloor, isBossFloor, hunting:false, forageAmbush:!!location.forageAmbush },
           noise: prevNoise > 0 ? Math.max(30, prevNoise) : (md === 'raid' ? 30 : 0),
           loc:   location,
           mode:  md,
@@ -1225,7 +1271,8 @@ export const useGameStore = create(
           world:null, worldPos:null, sanctuaryPos:null, selectedHex:null,
           pendingSanctuaryTile:null, worldPath:[], travelBag:{},
           sanctuaryGrid:null, activeSlot:null, promotionQueue:[], pendingSquad:null, selectedSquadIds:[], squadPreferences:{},
-          locationVisits:{}, locationScavenges:{}, locationBosses:{}, locationResources:{}, missionResult:null });
+          locationVisits:{}, locationScavenges:{}, locationBosses:{}, locationResources:{}, missionResult:null,
+          forageResult:null, currentSquadIds:[], worldTurn:0 });
         // bestiary intentionally NOT cleared — it is account-scoped
       },
 
@@ -1284,7 +1331,7 @@ export const useGameStore = create(
 
       // Called each auto-step from WorldMapView. Returns { encounter } or null.
       consumeStep() {
-        const { world, worldPath } = get();
+        const { world, worldPath, worldTurn } = get();
         if (!world || !worldPath.length) { set({ worldPath:[] }); return null; }
 
         const [next, ...rest] = worldPath;
@@ -1292,7 +1339,7 @@ export const useGameStore = create(
         if (!tile) { set({ worldPath:[] }); return null; }
 
         const newTiles = revealAround(world.tiles, next.col, next.row, 3, hexesInRange, world.width, world.height);
-        set({ world:{ ...world, tiles:newTiles }, worldPos:{ col:next.col, row:next.row }, worldPath:rest, selectedHex:null });
+        set({ world:{ ...world, tiles:newTiles }, worldPos:{ col:next.col, row:next.row }, worldPath:rest, selectedHex:null, worldTurn:(worldTurn ?? 0) + 1 });
         debouncedSave(get);
 
         // Wild encounter check
@@ -1307,13 +1354,13 @@ export const useGameStore = create(
       },
 
       moveOnWorld(col, row) {
-        const { world, worldPos } = get();
+        const { world, worldPos, worldTurn } = get();
         if (!world || !worldPos) return;
         const tile = world.tiles[row * world.width + col];
         if (!tile || tile.fog === 'hidden' || !TERRAIN[tile.terrain]?.passable) return;
         // Single-step: just move directly (WorldMapView calls setWorldPath for multi-step)
         const newTiles = revealAround(world.tiles, col, row, 3, hexesInRange, world.width, world.height);
-        set({ world:{ ...world, tiles:newTiles }, worldPos:{ col, row }, selectedHex:null });
+        set({ world:{ ...world, tiles:newTiles }, worldPos:{ col, row }, selectedHex:null, worldTurn:(worldTurn ?? 0) + 1 });
         debouncedSave(get);
       },
 
@@ -1336,7 +1383,7 @@ export const useGameStore = create(
 
       // Walk the full BFS path instantly, stopping at first wild encounter
       travelTo(col, row) {
-        const { world, worldPos } = get();
+        const { world, worldPos, worldTurn } = get();
         if (!world || !worldPos) return;
         const tile = world.tiles[row * world.width + col];
         if (!tile || tile.fog === 'hidden' || !TERRAIN[tile.terrain]?.passable) return;
@@ -1350,15 +1397,17 @@ export const useGameStore = create(
         let curTiles = world.tiles;
         let finalPos = worldPos;
         let encounter = null;
+        let stepsTaken = 0;
         for (const step of path) {
           const stepTile = curTiles[step.row * world.width + step.col];
           if (!stepTile) break;
           curTiles = revealAround(curTiles, step.col, step.row, 3, hexesInRange, world.width, world.height);
           finalPos = { col: step.col, row: step.row };
+          stepsTaken += 1;
           const enc = rollWildEncounter(stepTile.terrain);
           if (enc) { encounter = enc; break; }
         }
-        set({ world: { ...world, tiles: curTiles }, worldPos: finalPos, worldPath: [] });
+        set({ world: { ...world, tiles: curTiles }, worldPos: finalPos, worldPath: [], worldTurn:(worldTurn ?? 0) + stepsTaken });
         console.log('[travelTo] worldPos updated →', finalPos);
         if (encounter) {
           setTimeout(() => get().startMission(encounter, 'raid'), 100);
@@ -1367,33 +1416,92 @@ export const useGameStore = create(
         }
       },
 
-      // Forage the current tile for materials; chance to discover a hidden cabin
-      forageCurrentTile() {
-        const { world, worldPos, travelBag } = get();
-        if (!world || !worldPos) return;
+      canForageCurrentTile() {
+        const { world, worldPos, ms, pendingSanctuaryTile, worldTurn } = get();
+        if (ms || pendingSanctuaryTile || !world || !worldPos) return false;
         const tile = world.tiles[worldPos.row * world.width + worldPos.col];
-        if (!tile) return;
+        return canForageTile(tile, worldTurn ?? 0);
+      },
 
-        const { items: found, hiddenFind } = rollForageLoot(tile.terrain);
-        const newBag = { ...travelBag };
-        found.forEach(id => { newBag[id] = (newBag[id] || 0) + 1; });
+      // Forage is a world-map action: yield first, then possible ambush after result resolution.
+      forageCurrentTile() {
+        const { world, worldPos, travelBag, worldTurn, currentSquadIds } = get();
+        if (!world || !worldPos) return;
+        const idx = worldPos.row * world.width + worldPos.col;
+        const tile = world.tiles[idx];
+        const turn = worldTurn ?? 0;
+        if (!canForageTile(tile, turn)) return;
 
-        const names = found.map(id => item(id)?.name || id).join(', ');
-        const logs = [`🌿 Foraged: ${names || 'nothing of use'}.`];
-
-        let newWorld = world;
-        if (hiddenFind && !tile.location) {
-          const newTiles = world.tiles.map(t =>
-            t.col === worldPos.col && t.row === worldPos.row
-              ? { ...t, location: { type:'cabin', name:'Abandoned Cabin', danger:1, lq:'common' } }
-              : t
-          );
-          newWorld = { ...world, tiles: newTiles };
-          logs.push('🛖 You find signs of an abandoned structure. Investigate?');
-        }
-
-        set(s => ({ travelBag: newBag, world: newWorld, log: [...logs, ...s.log].slice(0, 14) }));
+        const nextTurn = turn + 1;
+        const cleanCount = tile.forageDepletedUntil && tile.forageDepletedUntil <= turn ? 0 : (tile.forageCount ?? 0);
+        const nextCount = cleanCount + 1;
+        const tileUpdate = {
+          ...tile,
+          forageCount: nextCount,
+          forageDepletedUntil: nextCount >= 2 ? nextTurn + 20 : null,
+        };
+        const newTiles = world.tiles.map((t, i) => i === idx ? tileUpdate : t);
+        const { items } = rollForageYield(tile.terrain);
+        const newBag = addItemsToBag(travelBag, items);
+        const baseChance = FORAGE_ENCOUNTER_CHANCE[tile.terrain] ?? 0;
+        const chance = Math.min(0.95, baseChance + (nearbyDangerousLocation(world, worldPos) ? 0.15 : 0));
+        const encounter = Math.random() < chance
+          ? { ...forageEncounterForTerrain(tile.terrain), selectedUnitIds:[...(currentSquadIds ?? [])] }
+          : null;
+        const names = items.map(id => item(id)?.name ?? id).join(', ');
+        set(s => ({
+          world:{ ...world, tiles:newTiles },
+          worldTurn: nextTurn,
+          travelBag:newBag,
+          forageResult:{ items, terrain:tile.terrain, encounter, tileKey:forageTileKey(worldPos), healingItems:forageHealingItems(items), selectedToEat:[] },
+          selectedHex:null,
+          log:[`🌿 Foraged: ${names || 'nothing of use'}.`, ...s.log].slice(0,14),
+        }));
         debouncedSave(get);
+      },
+
+      setForageEatSelection(items) {
+        set(s => s.forageResult ? { forageResult:{ ...s.forageResult, selectedToEat:items ?? [] } } : s);
+      },
+
+      resolveForageResult(action = 'keep', unitId = null, selectedItems = null) {
+        const result = get().forageResult;
+        if (!result) return;
+        const eatItems = action === 'eat_all'
+          ? [...(result.healingItems ?? [])]
+          : action === 'split'
+            ? [...(selectedItems ?? result.selectedToEat ?? [])]
+            : [];
+        set(s => {
+          let vp = s.vp;
+          let roster = s.roster;
+          let travelBag = s.travelBag;
+          const logs = [];
+          if (eatItems.length && unitId) {
+            const totalHeal = eatItems.reduce((sum, id) => sum + (FORAGE_HEAL[id] ?? 0), 0);
+            const poison = eatItems.includes('nightshade') && Math.random() < 0.2;
+            travelBag = removeItemsFromBag(travelBag, eatItems);
+            if (unitId === 'varek') {
+              vp = { ...vp, hp:Math.min(vp.maxHp, (vp.hp ?? vp.maxHp) + totalHeal) };
+              if (poison) vp.statusEffects = [...(vp.statusEffects ?? []), { id:STATUS.POISON, duration:2, magnitude:1, arcane:true }];
+              logs.push(`🧙 Varek eats from the forage — +${totalHeal} HP${poison ? ', poisoned!' : '.'}`);
+            } else {
+              roster = roster.map(u => {
+                if (u.id !== unitId) return u;
+                const next = { ...u, hp:Math.min(u.maxHp, (u.hp ?? u.maxHp) + totalHeal) };
+                if (poison) next.statusEffects = [...(next.statusEffects ?? []), { id:STATUS.POISON, duration:2, magnitude:1, arcane:true }];
+                return next;
+              });
+              const target = roster.find(u => u.id === unitId);
+              logs.push(`${target?.pname ?? target?.name ?? 'Unit'} eats from the forage — +${totalHeal} HP${poison ? ', poisoned!' : '.'}`);
+            }
+          }
+          return { vp, roster, travelBag, forageResult:null, log:[...logs, ...s.log].slice(0,14) };
+        });
+        debouncedSave(get);
+        if (result.encounter) {
+          setTimeout(() => get().launchMission(result.encounter, 'raid', 1, 0, result.encounter.selectedUnitIds ?? []), 150);
+        }
       },
 
       // ── Sanctuary grid ────────────────────────────────────────────────
@@ -1512,7 +1620,7 @@ export const useGameStore = create(
           // Reset transient state
           ms: mission?.ms ?? null, phase:'player', luq:[], noise:mission?.noise ?? 0, selectedHex:null,
           equipTgt:null, loc:mission?.loc ?? null, mode:mission?.mode ?? 'scavenge',
-          worldPath:[], pendingSanctuaryTile:null, missionResult:null, pendingSquad:null, selectedSquadIds:[],
+          worldPath:[], pendingSanctuaryTile:null, missionResult:null, pendingSquad:null, selectedSquadIds:[], forageResult:null, currentSquadIds:data.current_squad_ids ?? [], worldTurn:data.world_turn ?? 0,
           screen: mission?.ms ? SCREEN.MISSION : (canResumeWorld ? SCREEN.WORLD : SCREEN.TITLE),
         });
         // Bestiary is account-scoped — load separately via loadBestiary()
@@ -1525,7 +1633,7 @@ export const useGameStore = create(
           world:null, worldPos:null, sanctuaryPos:null, unlockedLocs:['town'],
           ms:null, phase:'player', luq:[], noise:0, log:[], selectedHex:null,
           equipTgt:null, loc:null, travelBag:{}, worldPath:[], sanctuaryGrid:null,
-          pendingSanctuaryTile:null, missionResult:null, pendingSquad:null, selectedSquadIds:[], squadPreferences:{}, locationResources:{}, activeSlot:slot, screen:SCREEN.TITLE,
+          pendingSanctuaryTile:null, missionResult:null, pendingSquad:null, selectedSquadIds:[], squadPreferences:{}, locationResources:{}, forageResult:null, currentSquadIds:[], worldTurn:0, activeSlot:slot, screen:SCREEN.TITLE,
         });
       },
 
